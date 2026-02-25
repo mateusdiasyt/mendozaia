@@ -207,6 +207,8 @@ export const messages = pgTable("messages", {
 });
 
 // ==================== REGRAS DE AUTOMAÇÃO ====================
+// Estrutura: Gatilho → Condição → Ação
+// Modular para expansão futura (construtor visual, IA, integrações)
 
 export const automationRules = pgTable("automation_rules", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -214,19 +216,21 @@ export const automationRules = pgTable("automation_rules", {
     .notNull()
     .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
-  triggerType: text("trigger_type").notNull(), // keyword, schedule, webhook
-  triggerConfig: jsonb("trigger_config").$type<{
-    keywords?: string[];
-    schedule?: string;
-    [key: string]: unknown;
-  }>(),
-  actionType: text("action_type").notNull(), // reply, assign, tag
-  actionConfig: jsonb("action_config").$type<{
-    message?: string;
-    assignToId?: string;
-    tagId?: string;
-    [key: string]: unknown;
-  }>(),
+
+  // Gatilho: quando a regra é avaliada
+  triggerType: text("trigger_type").notNull(),
+  // message_received | no_reply_timeout
+
+  // Condição: filtro para executar ou não (condition_type=none = sempre)
+  conditionType: text("condition_type").notNull().default("none"),
+  // none | keyword_contains | outside_business_hours | minutes_without_reply
+  conditionValue: jsonb("condition_value").$type<Record<string, unknown>>(),
+
+  // Ação: o que executar
+  actionType: text("action_type").notNull(),
+  // reply | add_tag | assign_to_human
+  actionPayload: jsonb("action_payload").$type<Record<string, unknown>>(),
+
   isActive: boolean("is_active").default(true).notNull(),
   priority: integer("priority").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
