@@ -63,7 +63,7 @@ interface WebhookPayload {
 }
 
 function parseConnectionStatus(body: WebhookPayload): {
-  sessionId: string | null;
+  sessionId: string;
   status: "connected" | "disconnected";
 } | null {
   const event =
