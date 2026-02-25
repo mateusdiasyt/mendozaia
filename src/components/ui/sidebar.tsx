@@ -12,9 +12,10 @@ import {
   LogOut,
   MessageCircle,
   LayoutDashboard,
+  Calendar,
 } from "lucide-react";
 
-const navItems = [
+const baseNavItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/dashboard/conversas", label: "Conversas", icon: MessageSquare },
   { href: "/dashboard/contatos", label: "Contatos", icon: Users },
@@ -23,7 +24,24 @@ const navItems = [
   { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings },
 ];
 
-export function Sidebar() {
+export function Sidebar({
+  reservationsEnabled = false,
+}: {
+  reservationsEnabled?: boolean;
+}) {
+  const navItems = [
+    ...baseNavItems.slice(0, 4),
+    ...(reservationsEnabled
+      ? [
+          {
+            href: "/dashboard/reservas",
+            label: "Reservas",
+            icon: Calendar,
+          },
+        ]
+      : []),
+    ...baseNavItems.slice(4),
+  ];
   const pathname = usePathname();
 
   return (

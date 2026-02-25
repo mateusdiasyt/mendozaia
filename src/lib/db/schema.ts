@@ -226,6 +226,27 @@ export const messages = pgTable("messages", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// ==================== RESERVAS ====================
+
+export const reservations = pgTable("reservations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  contactId: uuid("contact_id").references(() => contacts.id, {
+    onDelete: "set null",
+  }),
+  /** Início da reserva */
+  startAt: timestamp("start_at", { mode: "date" }).notNull(),
+  /** Duração em minutos (padrão 60) */
+  durationMinutes: integer("duration_minutes").default(60).notNull(),
+  status: text("status").default("confirmed").notNull(), // pending, confirmed, cancelled
+  source: text("source").default("manual").notNull(), // manual, ai
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // ==================== REGRAS DE AUTOMAÇÃO ====================
 // Estrutura: Gatilho → Condição → Ação
 // Modular para expansão futura (construtor visual, IA, integrações)

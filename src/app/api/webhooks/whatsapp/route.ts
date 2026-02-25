@@ -458,7 +458,13 @@ export async function POST(request: NextRequest) {
           messageText,
           systemPrompt,
           model,
-          apiKey
+          apiKey,
+          {
+            organizationId: session.organizationId,
+            reservationsEnabled: !!(
+              settings as { reservationsEnabled?: boolean }
+            ).reservationsEnabled,
+          }
         );
         await executor.sendMessage(conversation.id, reply);
       } catch (err) {

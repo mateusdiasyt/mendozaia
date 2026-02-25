@@ -47,6 +47,29 @@ export async function updateAiAgentConfig(config: AiAgentConfig) {
   return { success: true };
 }
 
+export async function updateReservationsEnabled(enabled: boolean) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+
+  await db
+    .update(organizations)
+    .set({
+      settings: { ...settings, reservationsEnabled: enabled },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  return { success: true };
+}
+
 export async function testAiAgentConnection() {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };

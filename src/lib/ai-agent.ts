@@ -1,22 +1,38 @@
 /**
  * Agente de IA com Gemini - gera respostas baseadas no histórico e memórias do contato.
+ * Suporta function calling para reservas quando reservationsEnabled.
  */
 
-import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
+import {
+  GoogleGenerativeAI,
+  GenerativeModel,
+  type Content,
+  type Part,
+  type FunctionCall,
+  type FunctionResponse,
+} from "@google/generative-ai";
 import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
+import { DEFAULT_SYSTEM_PROMPT, RESERVATIONS_SYSTEM_ADDON } from "./ai-agent-constants";
 import {
   getContactMemories,
   saveContactMemory,
   formatMemoriesForPrompt,
 } from "./contact-memories";
+import { reservationTools } from "./ai-reservation-tools";
+import { createReservationFromAI } from "@/app/actions/reservations";
+import { checkAvailabilityForOrg } from "@/lib/reservations";
 
 export { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
 export type { GeminiModel } from "./ai-agent-constants";
 
 const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
+
+export interface GenerateAIReplyOptions {
+  organizationId?: string;
+  reservationsEnabled?: boolean;
+}
 
 /** Retry com backoff ao receber 429 (rate limit). */
 async function generateWithRetry(
@@ -46,6 +62,46 @@ async function generateWithRetry(
   throw lastError;
 }
 
+/** Executa uma função de reserva e retorna o resultado. */
+async function executeReservationTool(
+  name: string,
+  args: Record<string, unknown>,
+  organizationId: string,
+  contactId: string
+): Promise<object> {
+  if (name === "check_availability") {
+    const dateStr = String(args.dateStr ?? "");
+    const timeStr = String(args.timeStr ?? "");
+    const durationMinutes = Number(args.durationMinutes ?? 60) || 60;
+    const { available, message } = await checkAvailabilityForOrg(
+      organizationId,
+      dateStr,
+      timeStr,
+      durationMinutes
+    );
+    return { available, message };
+  }
+  if (name === "create_reservation") {
+    const dateStr = String(args.dateStr ?? "");
+    const timeStr = String(args.timeStr ?? "");
+    const durationMinutes = Number(args.durationMinutes ?? 60) || 60;
+    const notes = args.notes ? String(args.notes) : undefined;
+    const result = await createReservationFromAI(organizationId, {
+      dateStr,
+      timeStr,
+      contactId,
+      durationMinutes,
+      notes,
+    });
+    if (result && "error" in result && result.error) {
+      return { success: false, error: result.error };
+    }
+    const res = result as { reservation?: { id: string } };
+    return { success: true, reservation: res?.reservation };
+  }
+  return { error: `Função desconhecida: ${name}` };
+}
+
 function extractAndRemoveMemories(text: string): {
   cleanReply: string;
   memories: Array<{ key: string; value: string }>;
@@ -67,7 +123,8 @@ export async function generateAIReply(
   newMessage: string,
   systemPrompt: string,
   model: string = "gemini-2.0-flash",
-  apiKeyOverride?: string | null
+  apiKeyOverride?: string | null,
+  options?: GenerateAIReplyOptions
 ): Promise<string> {
   const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -75,6 +132,9 @@ export async function generateAIReply(
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
+  const useReservationTools =
+    !!options?.reservationsEnabled &&
+    !!options?.organizationId;
 
   const [memories, recentMessages] = await Promise.all([
     getContactMemories(contactId),
@@ -102,13 +162,17 @@ Quando o cliente informar algo importante (nome, email, preferências, pedido, e
 Exemplo: se o cliente disser "meu nome é João", termine sua resposta com: [MEMÓRIA:name=João]
 Use apenas uma linha por informação. Não invente informações.`;
 
-  const basePrompt = memoriesBlock
+  let basePrompt = memoriesBlock
     ? `${systemPrompt}
 
 ${memoriesBlock}
 ${memoryInstruction}`
     : `${systemPrompt}
 ${memoryInstruction}`;
+
+  if (useReservationTools) {
+    basePrompt += `\n${RESERVATIONS_SYSTEM_ADDON}`;
+  }
 
   const fullPrompt = historyText
     ? `${basePrompt}
@@ -125,8 +189,27 @@ Cliente: ${newMessage}
 
 Atendente:`;
 
-  const generativeModel = genAI.getGenerativeModel({ model });
-  const rawReply = await generateWithRetry(generativeModel, fullPrompt);
+  const modelParams: { model: string; tools?: Array<typeof reservationTools> } = {
+    model,
+  };
+  if (useReservationTools) {
+    modelParams.tools = [reservationTools];
+  }
+
+  const generativeModel = genAI.getGenerativeModel(modelParams);
+
+  let rawReply: string;
+
+  if (useReservationTools && options?.organizationId) {
+    rawReply = await generateWithTools(
+      generativeModel,
+      fullPrompt,
+      options.organizationId,
+      contactId
+    );
+  } else {
+    rawReply = await generateWithRetry(generativeModel, fullPrompt);
+  }
 
   const { cleanReply, memories: newMemories } = extractAndRemoveMemories(rawReply);
 
@@ -139,6 +222,85 @@ Atendente:`;
   }
 
   return cleanReply || rawReply;
+}
+
+/** Loop de function calling: chama o modelo, executa funções se houver, repete até texto final. */
+async function generateWithTools(
+  model: GenerativeModel,
+  initialPrompt: string,
+  organizationId: string,
+  contactId: string
+): Promise<string> {
+  const contents: Content[] = [
+    { role: "user", parts: [{ text: initialPrompt }] },
+  ];
+  const maxTurns = 5;
+  let turns = 0;
+
+  while (turns < maxTurns) {
+    turns++;
+    const result = await model.generateContent({ contents });
+    const response = result.response;
+    const candidate = response.candidates?.[0];
+    if (!candidate?.content?.parts?.length) {
+      const text = response.text?.();
+      return text?.trim() || "Desculpe, não consegui processar sua solicitação.";
+    }
+
+    const parts = candidate.content.parts;
+    const functionCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
+    let textPart = "";
+
+    for (const part of parts as Part[]) {
+      if ("functionCall" in part && part.functionCall) {
+        const fc = part.functionCall as FunctionCall;
+        functionCalls.push({
+          name: fc.name,
+          args: (fc.args || {}) as Record<string, unknown>,
+        });
+      }
+      if ("text" in part && typeof part.text === "string") {
+        textPart = part.text;
+      }
+    }
+
+    if (textPart && functionCalls.length === 0) {
+      return textPart.trim();
+    }
+
+    if (functionCalls.length === 0) {
+      return "Desculpe, ocorreu um problema ao processar.";
+    }
+
+    const modelParts: Part[] = [...parts];
+    const functionResponses: Part[] = [];
+
+    for (const fc of functionCalls) {
+      const response = await executeReservationTool(
+        fc.name,
+        fc.args,
+        organizationId,
+        contactId
+      );
+      functionResponses.push({
+        functionResponse: {
+          name: fc.name,
+          response,
+        } as FunctionResponse,
+      });
+    }
+
+    contents.push({
+      role: "model",
+      parts: modelParts,
+    });
+    contents.push({
+      role: "user",
+      parts: functionResponses,
+    });
+  }
+
+  return "Desculpe, não consegui concluir a solicitação. Tente novamente.";
 }
 
 /** Testa a conexão com o Gemini sem precisar de conversa. */
