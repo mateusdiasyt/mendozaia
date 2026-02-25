@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
-import { Poppins } from "next/font/google";
+import { Plus_Jakarta_Sans } from "next/font/google";
 import { Providers } from "@/components/providers";
 import "./globals.css";
 
-const poppins = Poppins({
-  variable: "--font-poppins",
+const plusJakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
@@ -21,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${poppins.variable} font-sans antialiased`}>
+      <body className={`${plusJakarta.variable} font-sans antialiased`}>
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -12,11 +12,11 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 }
 
 * {
-  font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
