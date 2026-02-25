@@ -31,7 +31,7 @@ export function Sidebar() {
       <div className="flex h-16 items-center justify-center border-b border-slate-100 px-4">
         <Link href="/dashboard" className="flex items-center">
           <Image
-            src="/logo.png"
+            src="/logo_mendoza.png"
             alt="Mendoza - Atendimento com IA"
             width={140}
             height={40}

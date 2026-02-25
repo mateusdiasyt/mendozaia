@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   title: "Mendoza IA - CRM WhatsApp",
   description: "Plataforma profissional de automação de WhatsApp",
   icons: {
-    icon: "/icon.png",
+    icon: "/icon_mendoza.png",
   },
 };
 
