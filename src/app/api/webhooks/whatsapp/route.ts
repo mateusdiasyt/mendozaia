@@ -77,14 +77,15 @@ function parsePresenceUpdate(body: WebhookPayload): {
   if (!sessionId || typeof sessionId !== "string") return null;
 
   const data = (body.data ?? body) as Record<string, unknown>;
-  let remoteJid = (data?.id ?? data?.remoteJid ?? data?.key?.remoteJid) as string | undefined;
-  let presence = (data?.lastKnownPresence ?? data?.presence ?? data?.presences?.[remoteJid]?.lastKnownPresence) as string | undefined;
+  const key = data?.key as { remoteJid?: string } | undefined;
+  let remoteJid = (data?.id ?? data?.remoteJid ?? key?.remoteJid) as string | undefined;
+  const presences = data?.presences as Record<string, { lastKnownPresence?: string }> | undefined;
+  let presence = (data?.lastKnownPresence ?? data?.presence ?? (remoteJid && presences?.[remoteJid]?.lastKnownPresence)) as string | undefined;
 
-  if (data?.presences && typeof data.presences === "object") {
-    const presences = data.presences as Record<string, { lastKnownPresence?: string }>;
+  if (presences && typeof presences === "object") {
     const firstKey = Object.keys(presences)[0];
     if (firstKey) {
-      remoteJid = remoteJid ?? data?.id ?? firstKey;
+      remoteJid = remoteJid ?? (typeof data?.id === "string" ? data.id : firstKey);
       presence = presence ?? presences[firstKey]?.lastKnownPresence;
     }
   }
