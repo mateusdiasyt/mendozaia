@@ -17,4 +17,12 @@ export type {
   OrchestratorDecision,
   OrchestrationContext,
   OrchestratorResult,
+  VehicleSlots,
 } from "./types";
+export {
+  extractVehicleSlotsFromText,
+  extractSlotsFromMessages,
+  mergeVehicleSlots,
+  hasAllVehicleSlots,
+  getMissingSlots,
+} from "./slot-extractor";

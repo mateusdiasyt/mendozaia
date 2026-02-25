@@ -78,6 +78,8 @@ export async function resumeFromHuman(
     }
 
     const stateBefore = conv.conversationState ?? CONVERSATION_STATES.INIT;
+    const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
+    delete metadata.vehicleSlots;
 
     await db
       .update(conversations)
@@ -87,6 +89,7 @@ export async function resumeFromHuman(
         handoffAt: null,
         isPriority: false,
         aiDisabledUntil: null,
+        conversationStateMetadata: Object.keys(metadata).length > 0 ? metadata : undefined,
         updatedAt: new Date(),
       })
       .where(eq(conversations.id, conversationId));

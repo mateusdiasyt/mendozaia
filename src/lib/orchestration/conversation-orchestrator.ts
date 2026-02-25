@@ -4,12 +4,19 @@
  */
 
 import { db } from "@/lib/db";
-import { conversations, organizations } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { conversations, organizations, messages } from "@/lib/db/schema";
+import { eq, asc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
 import { generateAIReply } from "@/lib/ai-agent";
+import {
+  extractSlotsFromMessages,
+  mergeVehicleSlots,
+  hasAllVehicleSlots,
+  getMissingSlots,
+  type VehicleSlots,
+} from "./slot-extractor";
 import type {
   OrchestrationContext,
   OrchestratorResult,
@@ -44,6 +51,7 @@ export async function loadConversationContext(
       handoffReason: conversations.handoffReason,
       isPriority: conversations.isPriority,
       assignedToId: conversations.assignedToId,
+      conversationStateMetadata: conversations.conversationStateMetadata,
     })
     .from(conversations)
     .where(eq(conversations.id, params.conversationId))
@@ -59,6 +67,38 @@ export async function loadConversationContext(
 
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
+  const systemPrompt = (aiAgent.systemPrompt as string) ?? "";
+  const usesVehicleSlots =
+    /modelo|ano|quilometragem|veículo/i.test(systemPrompt) &&
+    /agendamento|agendar|mecânica/i.test(systemPrompt);
+
+  const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
+  const existingSlots = metadata.vehicleSlots as VehicleSlots | undefined;
+
+  let vehicleSlots = existingSlots;
+  if (usesVehicleSlots) {
+    const recentRows = await db
+      .select({ direction: messages.direction, content: messages.content })
+      .from(messages)
+      .where(eq(messages.conversationId, params.conversationId))
+      .orderBy(asc(messages.createdAt))
+      .limit(20);
+    const extracted = extractSlotsFromMessages(recentRows);
+    vehicleSlots = mergeVehicleSlots(existingSlots, extracted);
+
+    if (
+      (extracted.modelo || extracted.ano || extracted.km) &&
+      JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlots)
+    ) {
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: { ...metadata, vehicleSlots },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, params.conversationId));
+    }
+  }
 
   return {
     conversationId: params.conversationId,
@@ -75,6 +115,8 @@ export async function loadConversationContext(
     reservationsEnabled: !!(settings.reservationsEnabled as boolean),
     aiAgentEnabled: !!(aiAgent.enabled as boolean),
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
+    vehicleSlots: usesVehicleSlots ? vehicleSlots : undefined,
+    usesVehicleSlots,
   };
 }
 
@@ -172,6 +214,8 @@ export async function callAIWithContext(
       {
         organizationId: ctx.organizationId,
         reservationsEnabled: ctx.reservationsEnabled,
+        vehicleSlots: ctx.vehicleSlots,
+        usesVehicleSlots: ctx.usesVehicleSlots,
       }
     );
 

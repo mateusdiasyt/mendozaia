@@ -29,9 +29,18 @@ export type { GeminiModel } from "./ai-agent-constants";
 
 const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
 
+export interface VehicleSlots {
+  modelo?: string;
+  ano?: number;
+  km?: number;
+}
+
 export interface GenerateAIReplyOptions {
   organizationId?: string;
   reservationsEnabled?: boolean;
+  /** Slots extraídos pelo orquestrador - injetados no prompt para a IA não re-perguntar */
+  vehicleSlots?: VehicleSlots;
+  usesVehicleSlots?: boolean;
 }
 
 /** Retry com backoff ao receber 429 (rate limit). */
@@ -172,6 +181,24 @@ ${memoryInstruction}`;
 
   if (useReservationTools) {
     basePrompt += `\n${RESERVATIONS_SYSTEM_ADDON}`;
+  }
+
+  if (options?.usesVehicleSlots && options?.vehicleSlots) {
+    const s = options.vehicleSlots;
+    const parts: string[] = [];
+    if (s.modelo) parts.push(`modelo=${s.modelo}`);
+    if (s.ano) parts.push(`ano=${s.ano}`);
+    if (s.km) parts.push(`quilometragem=${s.km.toLocaleString("pt-BR")} km`);
+    const missing: string[] = [];
+    if (!s.modelo) missing.push("modelo");
+    if (!s.ano) missing.push("ano");
+    if (!s.km) missing.push("quilometragem");
+    if (parts.length > 0) {
+      basePrompt += `
+
+[DADOS EXTRAÍDOS DA CONVERSA - use estes dados, não peça de novo]
+Veículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}`;
+    }
   }
 
   const fullPrompt = historyText

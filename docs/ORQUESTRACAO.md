@@ -4,6 +4,14 @@
 
 O sistema evoluiu para uma arquitetura de orquestração profissional, onde a IA **nunca responde diretamente** ao webhook. Toda mensagem passa pelo `ConversationOrchestrator`.
 
+## Slot Filling (modelo, ano, km)
+
+Para fluxos de mecânica, o orquestrador extrai dados estruturados das mensagens e injeta no prompt:
+- **modelo**, **ano**, **quilometragem** são extraídos por regex
+- Armazenados em `conversationStateMetadata.vehicleSlots`
+- A IA recebe: `[DADOS EXTRAÍDOS - use estes dados, não peça de novo]`
+- Correções são aplicadas (última mensagem sobrescreve)
+
 ```
 Cliente → Webhook → Automação → Orquestrador → [Decisão] → IA (se permitido) → Filtro → Envio
 ```

@@ -21,6 +21,9 @@ export type OrchestratorDecision =
   | "automation_only"
   | "tool_then_ai";
 
+import type { VehicleSlots } from "./slot-extractor";
+export type { VehicleSlots } from "./slot-extractor";
+
 export interface OrchestrationContext {
   conversationId: string;
   organizationId: string;
@@ -36,6 +39,10 @@ export interface OrchestrationContext {
   reservationsEnabled: boolean;
   aiAgentEnabled: boolean;
   aiAgentUseAsFallback: boolean;
+  /** Slots extraídos (modelo, ano, km) para fluxo de mecânica */
+  vehicleSlots?: VehicleSlots;
+  /** Se o prompt parece ser de mecânica (coleta de veículo) */
+  usesVehicleSlots?: boolean;
 }
 
 export interface OrchestratorResult {
