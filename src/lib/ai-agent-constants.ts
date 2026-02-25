@@ -3,7 +3,7 @@
  * Pode ser importado por componentes client.
  */
 
-export const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"] as const;
+export const GEMINI_MODELS = ["gemini-2.0-flash", "gemini-2.5-flash"] as const;
 export type GeminiModel = (typeof GEMINI_MODELS)[number];
 
 export const DEFAULT_SYSTEM_PROMPT = `Você é um assistente de atendimento amigável e profissional no WhatsApp.
