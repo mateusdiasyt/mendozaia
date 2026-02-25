@@ -5,16 +5,16 @@
 
 import { db } from "@/lib/db";
 import { conversations, organizations, messages } from "@/lib/db/schema";
-import { eq, asc, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
 import { generateAIReply } from "@/lib/ai-agent";
+import { checkAvailabilityForOrg } from "@/lib/reservations";
 import {
   extractSlotsFromMessages,
   mergeVehicleSlots,
   hasAllVehicleSlots,
-  getMissingSlots,
   type VehicleSlots,
 } from "./slot-extractor";
 import type {
@@ -38,6 +38,169 @@ export interface ProcessResult {
   decision: OrchestratorDecision;
   reason: string;
   silence: boolean;
+}
+
+function looksLikeFallbackReservationReply(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    t.includes("nossa equipe vai verificar") ||
+    t.includes("retornar em breve") ||
+    t.includes("vou consultar") && t.includes("retorno") ||
+    t.includes("retorno com uma posição")
+  );
+}
+
+function containsDateOrTimeHint(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\b\d{1,2}[:h]\d{0,2}\b/.test(t) ||
+    /\b(hoje|amanh[ãa]|dia\s+\d{1,2})\b/.test(t) ||
+    /\b(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t) ||
+    /\b\d{2}\/\d{2}(?:\/\d{2,4})?\b/.test(t)
+  );
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toDateStr(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function toTimeStr(hour: number, minute: number): string {
+  return `${pad2(hour)}:${pad2(minute)}`;
+}
+
+function extractTime(text: string): { hour: number; minute: number } | null {
+  const timeWithColon = text.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (timeWithColon) {
+    const hour = Number(timeWithColon[1]);
+    const minute = Number(timeWithColon[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
+  const timeWithH = text.match(/\b(\d{1,2})h(?:\s*(\d{2}))?\b/i);
+  if (timeWithH) {
+    const hour = Number(timeWithH[1]);
+    const minute = Number(timeWithH[2] ?? "0");
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
+  const timeWithAs = text.match(/\b(?:às?|as)\s*(\d{1,2})(?::(\d{2}))?\s*h?\b/i);
+  if (timeWithAs) {
+    const hour = Number(timeWithAs[1]);
+    const minute = Number(timeWithAs[2] ?? "0");
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
+  return null;
+}
+
+function extractDate(text: string, now: Date): { year: number; month: number; day: number } | null {
+  const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+
+  const slash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    let year = Number(slash[3] ?? now.getFullYear());
+    if (year < 100) year += 2000;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+
+  if (/\bamanh[ãa]\b/i.test(text)) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+  }
+
+  if (/\bhoje\b/i.test(text)) {
+    return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
+  }
+
+  const monthMap: Record<string, number> = {
+    janeiro: 1,
+    fevereiro: 2,
+    março: 3,
+    marco: 3,
+    abril: 4,
+    maio: 5,
+    junho: 6,
+    julho: 7,
+    agosto: 8,
+    setembro: 9,
+    outubro: 10,
+    novembro: 11,
+    dezembro: 12,
+  };
+  const monthByName = text.match(
+    /\b(?:dia\s+)?(\d{1,2})\s*(?:de)?\s*(janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/i
+  );
+  if (monthByName) {
+    const day = Number(monthByName[1]);
+    const month = monthMap[monthByName[2].toLowerCase()];
+    let year = now.getFullYear();
+    const tentative = new Date(year, month - 1, day, 0, 0, 0, 0);
+    if (tentative < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+      year += 1;
+    }
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { year, month, day };
+    }
+  }
+
+  return null;
+}
+
+function extractReservationDateTime(
+  text: string,
+  now: Date = new Date()
+): { dateStr: string; timeStr: string } | null {
+  const date = extractDate(text, now);
+  const time = extractTime(text);
+  if (!date || !time) return null;
+  return {
+    dateStr: toDateStr(date.year, date.month, date.day),
+    timeStr: toTimeStr(time.hour, time.minute),
+  };
+}
+
+function formatDateForPtBr(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-");
+  if (!y || !m || !d) return dateStr;
+  return `${d}/${m}/${y}`;
+}
+
+function enforceReservationReply(ctx: OrchestrationContext, aiReply: string): string {
+  if (!ctx.reservationsEnabled || !looksLikeFallbackReservationReply(aiReply)) {
+    return aiReply;
+  }
+
+  if (ctx.usesVehicleSlots && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
+    if (containsDateOrTimeHint(ctx.messageContent)) {
+      return "Perfeito, recebi sua data e horário. Vou consultar a disponibilidade agora.";
+    }
+    return "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
+  }
+
+  return aiReply;
 }
 
 /** Carrega o contexto completo da conversa. */
@@ -221,7 +384,8 @@ export async function callAIWithContext(
       }
     );
 
-    const filtered = filterResponse(rawReply);
+    const guardedReply = enforceReservationReply(ctx, rawReply);
+    const filtered = filterResponse(guardedReply);
     if (!filtered) {
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -310,6 +474,49 @@ export async function processInboundMessage(
       reason: result.reason,
       silence: !result.shouldRespond,
     };
+  }
+
+  // Caminho determinístico: se o cliente já informou veículo + data/hora,
+  // consulta disponibilidade direto no sistema de reservas (sem depender da IA).
+  if (
+    ctx.reservationsEnabled &&
+    ctx.usesVehicleSlots &&
+    ctx.vehicleSlots &&
+    hasAllVehicleSlots(ctx.vehicleSlots)
+  ) {
+    const parsed = extractReservationDateTime(ctx.messageContent);
+    if (parsed) {
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        parsed.dateStr,
+        parsed.timeStr,
+        60
+      );
+      const friendlyDate = formatDateForPtBr(parsed.dateStr);
+      const reply = availability.available
+        ? `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`
+        : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
+
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_auto_check",
+        decision: "tool_then_ai",
+        reason: "Disponibilidade consultada automaticamente pelo orquestrador",
+        metadata: {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          available: availability.available,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Disponibilidade consultada automaticamente",
+        silence: false,
+      };
+    }
   }
 
   const aiReplied = await callAIWithContext(ctx, options.sendMessage);
