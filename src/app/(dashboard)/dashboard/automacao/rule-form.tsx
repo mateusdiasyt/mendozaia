@@ -101,6 +101,10 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
       finalActionPayload = { tagId };
     }
 
+    if (actionType === ACTION_TYPES.AI_REPLY) {
+      finalActionPayload = {};
+    }
+
     if (rule) {
       const result = await updateAutomationRule(rule.id, {
         name: name.trim(),
@@ -268,6 +272,13 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
               </option>
             ))}
           </select>
+        )}
+
+        {actionType === ACTION_TYPES.AI_REPLY && (
+          <p className="mt-2 text-sm text-slate-500">
+            A IA usa o prompt e modelo configurados em Configurações → Agente de IA.
+            Configure o agente antes de criar regras com esta ação.
+          </p>
         )}
       </div>
 

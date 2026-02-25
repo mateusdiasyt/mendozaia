@@ -46,6 +46,7 @@ export type ConditionValue =
 
 export const ACTION_TYPES = {
   REPLY: "reply",
+  AI_REPLY: "ai_reply",
   ADD_TAG: "add_tag",
   ASSIGN_TO_HUMAN: "assign_to_human",
 } as const;

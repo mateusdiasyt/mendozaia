@@ -9,8 +9,10 @@ import {
   messages,
   conversations,
   contactTags,
+  organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
+import { generateAIReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
 import type {
   AutomationContext,
   ConditionType,
@@ -84,16 +86,16 @@ async function executeAction(
   actionPayload: ActionPayload | null,
   context: AutomationContext,
   executor?: ActionExecutor
-): Promise<void> {
-  if (!actionPayload) return;
+): Promise<boolean> {
+  let didSendReply = false;
 
-  if (actionType === ACTION_TYPES.REPLY) {
+  if (actionType === ACTION_TYPES.REPLY && actionPayload) {
     const msg = (actionPayload as { message?: string }).message;
     if (msg) {
       if (executor?.sendMessage) {
         await executor.sendMessage(context.conversationId, msg);
+        didSendReply = true;
       } else {
-        // Fallback: registra no banco para envio posterior
         await db.insert(messages).values({
           conversationId: context.conversationId,
           direction: "outbound",
@@ -101,11 +103,37 @@ async function executeAction(
           content: msg,
           status: "pending",
         });
+        didSendReply = true;
       }
     }
   }
 
-  if (actionType === ACTION_TYPES.ADD_TAG) {
+  if (actionType === ACTION_TYPES.AI_REPLY && context.messageContent && executor?.sendMessage) {
+    const [org] = await db
+      .select({ settings: organizations.settings })
+      .from(organizations)
+      .where(eq(organizations.id, context.organizationId))
+      .limit(1);
+
+    const aiAgent = (org?.settings as { aiAgent?: { systemPrompt?: string; model?: string } })?.aiAgent;
+    const systemPrompt = aiAgent?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const model = aiAgent?.model || "gemini-1.5-flash";
+
+    try {
+      const reply = await generateAIReply(
+        context.conversationId,
+        context.messageContent,
+        systemPrompt,
+        model
+      );
+      await executor.sendMessage(context.conversationId, reply);
+      didSendReply = true;
+    } catch (err) {
+      console.error("[automation] AI reply failed:", err);
+    }
+  }
+
+  if (actionType === ACTION_TYPES.ADD_TAG && actionPayload) {
     const tagId = (actionPayload as { tagId?: string }).tagId;
     if (tagId && !context.contactTagIds.includes(tagId)) {
       await db.insert(contactTags).values({
@@ -116,23 +144,25 @@ async function executeAction(
   }
 
   if (actionType === ACTION_TYPES.ASSIGN_TO_HUMAN) {
-    // Remove atribuição automática - volta para caixa compartilhada
     await db
       .update(conversations)
       .set({ assignedToId: null })
       .where(eq(conversations.id, context.conversationId));
   }
+
+  return didSendReply;
 }
 
 // ==================== MOTOR PRINCIPAL ====================
 
 /**
  * Processa regras para mensagem recebida (chamado pelo webhook).
+ * Retorna true se alguma regra enviou uma resposta.
  */
 export async function processMessageReceivedRules(
   context: AutomationContext,
   executor?: ActionExecutor
-): Promise<void> {
+): Promise<{ didReply: boolean }> {
   const rules = await db
     .select()
     .from(automationRules)
@@ -145,6 +175,8 @@ export async function processMessageReceivedRules(
     )
     .orderBy(automationRules.priority);
 
+  let didReply = false;
+
   for (const rule of rules) {
     const matches = evaluateCondition(
       rule.conditionType as ConditionType,
@@ -153,14 +185,17 @@ export async function processMessageReceivedRules(
     );
 
     if (matches) {
-      await executeAction(
+      const sent = await executeAction(
         rule.actionType as ActionType,
         rule.actionPayload as ActionPayload,
         context,
         executor
       );
+      if (sent) didReply = true;
     }
   }
+
+  return { didReply };
 }
 
 /**

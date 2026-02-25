@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
+import { generateAIReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
 
 // Formato esperado da Evolution API (texto e mídia)
 interface MessageContent {
@@ -283,48 +284,69 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     const settings = org?.settings as
-      | { businessHours?: { start: string; end: string; timezone?: string } }
+      | {
+          businessHours?: { start: string; end: string; timezone?: string };
+          aiAgent?: { enabled?: boolean; useAsFallback?: boolean; systemPrompt?: string; model?: string };
+        }
       | undefined;
 
-    // Executar motor de automação
-    await processMessageReceivedRules(
-      {
-        organizationId: session.organizationId,
-        conversationId: conversation.id,
-        contactId: contact.id,
-        contactPhone: phone,
-        messageContent: messageText || undefined,
-        messageDirection: "inbound",
-        lastMessageAt: new Date(),
-        assignedToId: conversation.assignedToId,
-        contactTagIds: contactTagRows.map((r) => r.tagId),
-        businessHours: settings?.businessHours,
+    const executor = {
+      sendMessage: async (_convId: string, message: string) => {
+        const apiUrl = process.env.WHATSAPP_API_URL;
+        const apiKey = process.env.EVOLUTION_API_KEY;
+        if (!apiUrl) return;
+
+        const instanceName = session.sessionId;
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        if (apiKey) {
+          headers["apikey"] = apiKey;
+        }
+
+        await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            number: phone.replace(/\D/g, ""),
+            text: message,
+          }),
+        });
       },
-        {
-          sendMessage: async (_convId, message) => {
-          const apiUrl = process.env.WHATSAPP_API_URL;
-          const apiKey = process.env.EVOLUTION_API_KEY;
-          if (!apiUrl) return;
+    };
 
-          const instanceName = session.sessionId;
-          const headers: Record<string, string> = {
-            "Content-Type": "application/json",
-          };
-          if (apiKey) {
-            headers["apikey"] = apiKey;
-          }
+    const context = {
+      organizationId: session.organizationId,
+      conversationId: conversation.id,
+      contactId: contact.id,
+      contactPhone: phone,
+      messageContent: messageText || undefined,
+      messageDirection: "inbound" as const,
+      lastMessageAt: new Date(),
+      assignedToId: conversation.assignedToId,
+      contactTagIds: contactTagRows.map((r) => r.tagId),
+      businessHours: settings?.businessHours,
+    };
 
-          await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-              number: phone.replace(/\D/g, ""),
-              text: message,
-            }),
-          });
-        },
+    const { didReply } = await processMessageReceivedRules(context, executor);
+
+    // Fallback IA: responde automaticamente se nenhuma regra respondeu
+    const aiAgent = settings?.aiAgent;
+    if (!didReply && aiAgent?.enabled && aiAgent?.useAsFallback && messageText) {
+      try {
+        const systemPrompt = aiAgent.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+        const model = aiAgent.model || "gemini-1.5-flash";
+        const reply = await generateAIReply(
+          conversation.id,
+          messageText,
+          systemPrompt,
+          model
+        );
+        await executor.sendMessage(conversation.id, reply);
+      } catch (err) {
+        console.error("[webhook] AI fallback reply failed:", err);
       }
-    );
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -19,6 +19,7 @@ export const CONDITION_LABELS: Record<ConditionType, string> = {
 
 export const ACTION_LABELS: Record<ActionType, string> = {
   [ACTION_TYPES.REPLY]: "Responder com mensagem",
+  [ACTION_TYPES.AI_REPLY]: "Responder com IA (Gemini)",
   [ACTION_TYPES.ADD_TAG]: "Aplicar etiqueta",
   [ACTION_TYPES.ASSIGN_TO_HUMAN]: "Transferir para humano",
 };

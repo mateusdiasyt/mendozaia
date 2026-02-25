@@ -1,10 +1,14 @@
 import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
+import { AiAgentForm } from "./ai-agent-form";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
   const org = await getCurrentOrganization();
   if (!org) return null;
+
+  const settings = (org.settings as Record<string, unknown>) ?? {};
+  const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
 
   return (
     <div className="p-8">
@@ -42,6 +46,17 @@ export default async function ConfiguracoesPage() {
               <dd className="font-medium capitalize text-slate-900">{org.plan}</dd>
             </div>
           </dl>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <AiAgentForm
+            initialConfig={{
+              enabled: aiAgent.enabled as boolean | undefined,
+              useAsFallback: aiAgent.useAsFallback as boolean | undefined,
+              systemPrompt: aiAgent.systemPrompt as string | undefined,
+              model: aiAgent.model as string | undefined,
+            }}
+          />
         </div>
       </div>
     </div>
