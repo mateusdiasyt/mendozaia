@@ -479,44 +479,11 @@ export async function processInboundMessage(
     return { didReply: options.automationDidReply, decision: "silence", reason: "Contexto não encontrado", silence: true };
   }
 
-  const result = decideNextAction(ctx);
-
-  await logOrchestration({
-    conversationId: params.conversationId,
-    organizationId: params.organizationId,
-    event: "decision",
-    stateBefore: ctx.conversationState,
-    decision: result.decision,
-    reason: result.reason,
-    metadata: {
-      reservationsEnabled: ctx.reservationsEnabled,
-      usesVehicleSlots: ctx.usesVehicleSlots ?? false,
-      vehicleSlots: ctx.vehicleSlots ?? null,
-      messageContent: ctx.messageContent,
-    },
-  });
-
-  if (options.automationDidReply) {
-    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
-  }
-
-  if (!result.shouldCallAI) {
-    return {
-      didReply: false,
-      decision: result.decision,
-      reason: result.reason,
-      silence: !result.shouldRespond,
-    };
-  }
-
-  // Caminho determinístico: se o cliente já informou veículo + data/hora,
-  // consulta disponibilidade direto no sistema de reservas (sem depender da IA).
-  if (
-    ctx.reservationsEnabled &&
-    ctx.vehicleSlots &&
-    hasAllVehicleSlots(ctx.vehicleSlots)
-  ) {
+  // Fluxo determinístico de reservas: não depende do fallback da IA.
+  // Se já temos dados do veículo, guiamos o próximo passo mesmo com useAsFallback=false.
+  if (ctx.reservationsEnabled && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
     const parsed = extractReservationDateTime(ctx.messageContent);
+
     if (parsed) {
       const availability = await checkAvailabilityForOrg(
         ctx.organizationId,
@@ -549,6 +516,58 @@ export async function processInboundMessage(
         silence: false,
       };
     }
+
+    if (!containsDateOrTimeHint(ctx.messageContent)) {
+      const reply =
+        "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_next_step",
+        decision: "tool_then_ai",
+        reason: "Solicitando data/horário após dados completos do veículo",
+        metadata: {
+          vehicleSlots: ctx.vehicleSlots,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitou data/horário para continuar reserva",
+        silence: false,
+      };
+    }
+  }
+
+  const result = decideNextAction(ctx);
+
+  await logOrchestration({
+    conversationId: params.conversationId,
+    organizationId: params.organizationId,
+    event: "decision",
+    stateBefore: ctx.conversationState,
+    decision: result.decision,
+    reason: result.reason,
+    metadata: {
+      reservationsEnabled: ctx.reservationsEnabled,
+      usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+      vehicleSlots: ctx.vehicleSlots ?? null,
+      messageContent: ctx.messageContent,
+    },
+  });
+
+  if (options.automationDidReply) {
+    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
+  if (!result.shouldCallAI) {
+    return {
+      didReply: false,
+      decision: result.decision,
+      reason: result.reason,
+      silence: !result.shouldRespond,
+    };
   }
 
   const aiReplied = await callAIWithContext(ctx, options.sendMessage);
