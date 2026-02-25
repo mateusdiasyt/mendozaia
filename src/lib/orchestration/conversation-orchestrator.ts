@@ -298,7 +298,8 @@ export async function loadConversationContext(
     isPriority: conv.isPriority ?? false,
     assignedToId: conv.assignedToId ?? null,
     reservationsEnabled,
-    aiAgentEnabled: !!(aiAgent.enabled as boolean),
+    // default seguro: se não vier configurado, considera IA habilitada
+    aiAgentEnabled: aiAgent.enabled !== false,
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
     vehicleSlots: shouldExtractVehicleSlots ? vehicleSlots : undefined,
     usesVehicleSlots,
@@ -356,9 +357,15 @@ export function decideNextAction(ctx: OrchestrationContext): OrchestratorResult 
   }
 
   if (!ctx.aiAgentEnabled || !ctx.aiAgentUseAsFallback) {
+    const why = [
+      !ctx.aiAgentEnabled ? "enabled=false" : null,
+      !ctx.aiAgentUseAsFallback ? "useAsFallback=false" : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
     return {
       decision: "automation_only",
-      reason: "IA desativada ou não é fallback",
+      reason: `IA desativada ou não é fallback${why ? ` (${why})` : ""}`,
       shouldRespond: false,
       shouldCallAI: false,
     };
