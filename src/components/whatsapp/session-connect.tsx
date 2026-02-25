@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw, Loader2 } from "lucide-react";
+import { RefreshCw, Loader2, CheckCircle } from "lucide-react";
 
 interface SessionConnectProps {
   sessionId: string;
@@ -12,7 +12,25 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
   const router = useRouter();
   const [qr, setQr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function syncStatus() {
+    setSyncLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/whatsapp/sync-status/${sessionId}`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Erro ao sincronizar");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao sincronizar");
+    } finally {
+      setSyncLoading(false);
+    }
+  }
 
   async function fetchQR() {
     setLoading(true);
@@ -64,27 +82,45 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
           </div>
         ) : null}
 
-        <button
-          onClick={fetchQR}
-          disabled={loading}
-          className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-medium text-white hover:bg-green-500 disabled:opacity-50"
-        >
-          {qr ? (
-            <>
-              <RefreshCw className="h-4 w-4" />
-              Atualizar QR Code
-            </>
-          ) : (
-            <>
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={fetchQR}
+            disabled={loading}
+            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 font-medium text-white hover:bg-green-500 disabled:opacity-50"
+          >
+            {qr ? (
+              <>
                 <RefreshCw className="h-4 w-4" />
-              )}
-              Gerar QR Code
-            </>
-          )}
-        </button>
+                Atualizar QR Code
+              </>
+            ) : (
+              <>
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                Gerar QR Code
+              </>
+            )}
+          </button>
+          <button
+            onClick={syncStatus}
+            disabled={syncLoading}
+            className="flex items-center gap-2 rounded-lg border border-zinc-600 bg-zinc-800 px-4 py-2 font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+          >
+            {syncLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle className="h-4 w-4" />
+            )}
+            Verificar status
+          </button>
+        </div>
+        <p className="text-center text-xs text-zinc-500">
+          Já conectou no celular? Clique em &quot;Verificar status&quot; para
+          atualizar.
+        </p>
       </div>
     </div>
   );

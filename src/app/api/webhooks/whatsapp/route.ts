@@ -49,38 +49,69 @@ interface MessageContent {
 
 interface WebhookPayload {
   instance?: string;
+  instanceName?: string;
   event?: string;
-  data?: {
+  eventType?: string;
+  action?: string;
+  sessionId?: string;
+  data?: Record<string, unknown> & {
     key?: { remoteJid?: string; fromMe?: boolean };
     message?: MessageContent;
     state?: string;
+    instance?: { state?: string };
+  };
+}
+
+function parseConnectionStatus(body: WebhookPayload): {
+  sessionId: string | null;
+  status: "connected" | "disconnected";
+} | null {
+  const event =
+    body.event ?? body.eventType ?? (body as WebhookPayload).action;
+  if (event !== "CONNECTION_UPDATE") return null;
+
+  const sessionId =
+    body.instance ??
+    body.instanceName ??
+    (body as WebhookPayload).sessionId;
+  if (!sessionId || typeof sessionId !== "string") return null;
+
+  let state: unknown =
+    (body.data as { state?: string })?.state ??
+    (body.data as { instance?: { state?: string } })?.instance?.state ??
+    body.data;
+  if (typeof state !== "string") state = String(state ?? "").toLowerCase();
+
+  const isConnected = ["open", "connected"].includes(
+    String(state).toLowerCase()
+  );
+  return {
+    sessionId,
+    status: isConnected ? "connected" : "disconnected",
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as WebhookPayload;
-    const event = body.event ?? (body as { action?: string }).action;
-    const sessionId = body.instance ?? (body as { sessionId?: string }).sessionId;
+    const conn = parseConnectionStatus(body);
 
     // CONNECTION_UPDATE: atualizar status da sessão
-    if (event === "CONNECTION_UPDATE" && sessionId) {
-      const state = (body.data as { state?: string })?.state ?? body.data;
-      const status =
-        state === "open" || state === "connected" ? "connected" : "disconnected";
-
+    if (conn) {
       await db
         .update(whatsappSessions)
         .set({
-          status,
+          status: conn.status,
           lastConnectedAt:
-            status === "connected" ? new Date() : undefined,
+            conn.status === "connected" ? new Date() : undefined,
           updatedAt: new Date(),
         })
-        .where(eq(whatsappSessions.sessionId, sessionId));
+        .where(eq(whatsappSessions.sessionId, conn.sessionId));
 
       return NextResponse.json({ ok: true });
     }
+
+    const sessionId = body.instance ?? body.instanceName ?? body.sessionId;
 
     // MESSAGES_UPSERT: processar mensagem
     const msgSessionId =
