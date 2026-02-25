@@ -128,6 +128,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true }); // Ignora mensagens outbound
     }
 
+    // Ignora mensagens de grupos — só processa contatos diretos (@s.whatsapp.net)
+    if (remoteJid.endsWith("@g.us")) {
+      return NextResponse.json({ ok: true }); // Ignora grupos
+    }
+
     // Extrair texto e mídia da mensagem
     let messageText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
     let contentType = "text" as string;
