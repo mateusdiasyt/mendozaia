@@ -90,3 +90,24 @@ export async function fetchInstanceStatus(instanceName: string) {
   const data = (await res.json()) as { instance?: { state?: string } };
   return data?.instance?.state ?? null;
 }
+
+export async function fetchProfilePictureUrl(
+  instanceName: string,
+  number: string
+): Promise<string | null> {
+  const baseUrl = getBaseUrl();
+  const cleanNumber = number.replace(/\D/g, "");
+  const res = await fetch(
+    `${baseUrl}/chat/fetchProfilePictureUrl/${instanceName}`,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ number: cleanNumber }),
+    }
+  );
+
+  if (!res.ok) return null;
+
+  const data = (await res.json()) as { profilePictureUrl?: string };
+  return data?.profilePictureUrl ?? null;
+}

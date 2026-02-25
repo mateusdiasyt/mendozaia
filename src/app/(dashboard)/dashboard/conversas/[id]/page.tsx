@@ -10,6 +10,7 @@ import { eq, and, asc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ChatView } from "./chat-view";
 import { AIControlSidebar } from "@/components/conversations/ai-control-sidebar";
+import { ContactAvatar } from "@/components/conversations/contact-avatar";
 
 export default async function ConversaPage({
   params,
@@ -29,6 +30,7 @@ export default async function ConversaPage({
       contactName: contacts.name,
       contactPhone: contacts.phone,
       sessionName: whatsappSessions.name,
+      sessionId: whatsappSessions.sessionId,
       aiDisabledUntil: conversations.aiDisabledUntil,
     })
     .from(conversations)
@@ -56,16 +58,19 @@ export default async function ConversaPage({
     .where(eq(conversations.id, id));
 
   const displayName = conv.contactName || conv.contactPhone;
-  const initials = getInitials(displayName);
 
   return (
     <>
       {/* Header tema claro WhatsApp Web */}
       <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#e9edef] bg-[#f0f2f5] px-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-sm font-medium text-white">
-            {initials}
-          </div>
+          <ContactAvatar
+            sessionId={conv.sessionId}
+            phone={conv.contactPhone}
+            displayName={displayName}
+            size="sm"
+            conversationId={id}
+          />
           <div>
             <h1 className="font-medium text-[#111b21]">
               {displayName}
@@ -130,16 +135,4 @@ export default async function ConversaPage({
       </div>
     </>
   );
-}
-
-function getInitials(name: string): string {
-  if (!name) return "?";
-  const parts = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
-  }
-  if (parts[0]?.length >= 2) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return parts[0]?.[0]?.toUpperCase() ?? "?";
 }

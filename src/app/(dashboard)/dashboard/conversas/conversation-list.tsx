@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageSquare, Search } from "lucide-react";
+import { ContactAvatar } from "@/components/conversations/contact-avatar";
 
 interface Conv {
   id: string;
@@ -12,6 +13,7 @@ interface Conv {
   contactName: string | null;
   contactPhone: string;
   sessionName: string | null;
+  sessionId: string;
 }
 
 export function ConversationList({ list }: { list: Conv[] }) {
@@ -56,7 +58,6 @@ export function ConversationList({ list }: { list: Conv[] }) {
           list.map((conv) => {
             const isActive = pathname === `/dashboard/conversas/${conv.id}`;
             const displayName = conv.contactName || conv.contactPhone;
-            const initials = getInitials(displayName);
 
             return (
               <Link
@@ -66,16 +67,14 @@ export function ConversationList({ list }: { list: Conv[] }) {
                   isActive ? "bg-[#f0f2f5]" : "hover:bg-[#f5f6f6]"
                 }`}
               >
-                <div className="relative shrink-0">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00a884] text-lg font-medium text-white">
-                    {initials}
-                  </div>
-                  {conv.unreadCount > 0 && (
-                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00a884] px-1.5 text-xs font-medium text-white">
-                      {conv.unreadCount > 99 ? "99+" : conv.unreadCount}
-                    </span>
-                  )}
-                </div>
+                <ContactAvatar
+                  sessionId={conv.sessionId}
+                  phone={conv.contactPhone}
+                  displayName={displayName}
+                  size="md"
+                  conversationId={conv.id}
+                  unreadCount={conv.unreadCount}
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate font-medium text-[#111b21]">
@@ -98,18 +97,6 @@ export function ConversationList({ list }: { list: Conv[] }) {
       </div>
     </div>
   );
-}
-
-function getInitials(name: string): string {
-  if (!name) return "?";
-  const parts = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
-  }
-  if (parts[0]?.length >= 2) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return parts[0]?.[0]?.toUpperCase() ?? "?";
 }
 
 function formatTime(date: Date): string {

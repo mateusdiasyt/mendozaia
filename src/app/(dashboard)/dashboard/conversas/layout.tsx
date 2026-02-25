@@ -25,6 +25,7 @@ export default async function ConversasLayout({
       contactName: contacts.name,
       contactPhone: contacts.phone,
       sessionName: whatsappSessions.name,
+      sessionId: whatsappSessions.sessionId,
     })
     .from(conversations)
     .innerJoin(contacts, eq(conversations.contactId, contacts.id))
