@@ -109,6 +109,10 @@ async function executeAction(
   }
 
   if (actionType === ACTION_TYPES.AI_REPLY && context.messageContent && executor?.sendMessage) {
+    // Respeita pausa manual ou por resposta humana
+    if (context.aiDisabledUntil && context.aiDisabledUntil > new Date()) {
+      return didSendReply;
+    }
     const [org] = await db
       .select({ settings: organizations.settings })
       .from(organizations)
@@ -230,6 +234,7 @@ export async function processNoReplyTimeoutRules(
       .select({
         id: conversations.id,
         contactId: conversations.contactId,
+        aiDisabledUntil: conversations.aiDisabledUntil,
       })
       .from(conversations)
       .where(eq(conversations.organizationId, organizationId));
@@ -255,6 +260,7 @@ export async function processNoReplyTimeoutRules(
         messageDirection: "outbound",
         lastOutboundAt: last.createdAt,
         contactTagIds: [],
+        aiDisabledUntil: conv.aiDisabledUntil ?? null,
       };
 
       const matches = evaluateCondition(

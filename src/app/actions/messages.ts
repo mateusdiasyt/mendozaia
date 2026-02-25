@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
@@ -10,6 +11,78 @@ import {
   whatsappSessions,
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+
+/** Opções de duração para desativar IA manualmente */
+export const AI_DISABLE_DURATIONS = [
+  { hours: 1, label: "1 hora" },
+  { hours: 3, label: "3 horas" },
+  { hours: 6, label: "6 horas" },
+  { hours: 12, label: "12 horas" },
+  { hours: 24, label: "24 horas" },
+] as const;
+
+export async function setConversationAIDisabled(
+  conversationId: string,
+  hours: number
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const until = new Date(Date.now() + hours * 60 * 60 * 1000);
+
+  await db
+    .update(conversations)
+    .set({ aiDisabledUntil: until, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  return { success: true, aiDisabledUntil: until };
+}
+
+export async function setConversationAIEnabled(conversationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  await db
+    .update(conversations)
+    .set({ aiDisabledUntil: null, updatedAt: new Date() })
+    .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  return { success: true };
+}
 
 export async function sendMessage(conversationId: string, text: string) {
   const session = await auth();
@@ -85,12 +158,17 @@ export async function sendMessage(conversationId: string, text: string) {
     status: "sent",
   });
 
+  const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+
   await db
     .update(conversations)
     .set({
       lastMessageAt: new Date(),
       lastMessagePreview: text.slice(0, 100),
       updatedAt: new Date(),
+      aiDisabledUntil: threeHoursFromNow, // Humano respondeu: desativa IA por 3h
     })
     .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
 }

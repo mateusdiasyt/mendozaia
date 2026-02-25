@@ -187,6 +187,8 @@ export const conversations = pgTable("conversations", {
   lastMessagePreview: text("last_message_preview"),
   unreadCount: integer("unread_count").default(0).notNull(),
   isArchived: boolean("is_archived").default(false).notNull(),
+  /** Quando preenchido, a IA não responde nesta conversa até esta data/hora */
+  aiDisabledUntil: timestamp("ai_disabled_until", { mode: "date" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

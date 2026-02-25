@@ -354,13 +354,22 @@ export async function POST(request: NextRequest) {
       assignedToId: conversation.assignedToId,
       contactTagIds: contactTagRows.map((r) => r.tagId),
       businessHours: settings?.businessHours,
+      aiDisabledUntil: conversation.aiDisabledUntil ?? null,
     };
 
     const { didReply } = await processMessageReceivedRules(context, executor);
 
     // Fallback IA: responde automaticamente se nenhuma regra respondeu
     const aiAgent = settings?.aiAgent;
-    if (!didReply && aiAgent?.enabled && aiAgent?.useAsFallback && messageText) {
+    const isAiPaused =
+      conversation.aiDisabledUntil && conversation.aiDisabledUntil > new Date();
+    if (
+      !didReply &&
+      aiAgent?.enabled &&
+      aiAgent?.useAsFallback &&
+      messageText &&
+      !isAiPaused
+    ) {
       try {
         const systemPrompt = aiAgent.systemPrompt || DEFAULT_SYSTEM_PROMPT;
         const model = aiAgent.model || "gemini-2.0-flash";

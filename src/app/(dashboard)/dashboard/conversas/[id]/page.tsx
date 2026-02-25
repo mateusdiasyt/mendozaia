@@ -9,6 +9,7 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ChatView } from "./chat-view";
+import { AIControlSidebar } from "@/components/conversations/ai-control-sidebar";
 
 export default async function ConversaPage({
   params,
@@ -28,6 +29,7 @@ export default async function ConversaPage({
       contactName: contacts.name,
       contactPhone: contacts.phone,
       sessionName: whatsappSessions.name,
+      aiDisabledUntil: conversations.aiDisabledUntil,
     })
     .from(conversations)
     .innerJoin(contacts, eq(conversations.contactId, contacts.id))
@@ -114,10 +116,18 @@ export default async function ConversaPage({
         </div>
       </div>
 
-      <ChatView
-        conversationId={id}
-        initialMessages={msgList}
-      />
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#efeae2]">
+          <ChatView
+            conversationId={id}
+            initialMessages={msgList}
+          />
+        </div>
+        <AIControlSidebar
+          conversationId={id}
+          aiDisabledUntil={conv.aiDisabledUntil}
+        />
+      </div>
     </>
   );
 }

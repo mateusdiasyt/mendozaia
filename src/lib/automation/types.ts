@@ -89,4 +89,6 @@ export interface AutomationContext {
     end: string;
     timezone?: string;
   };
+  /** Se preenchido e no futuro, a IA não deve responder nesta conversa */
+  aiDisabledUntil?: Date | null;
 }
