@@ -16,23 +16,46 @@ import {
 import { eq, and } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 
-// Formato esperado da Evolution API / WAHA (ajustar conforme provedor)
+// Formato esperado da Evolution API
 interface WebhookPayload {
-  sessionId?: string;
+  instance?: string;
   event?: string;
   data?: {
     key?: { remoteJid?: string; fromMe?: boolean };
     message?: { conversation?: string; extendedTextMessage?: { text?: string } };
+    state?: string;
   };
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as WebhookPayload;
+    const event = body.event ?? (body as { action?: string }).action;
+    const sessionId = body.instance ?? (body as { sessionId?: string }).sessionId;
 
-    // Validar sessionId e evento de mensagem
-    const sessionId = body.sessionId ?? body.data?.key?.remoteJid?.split("@")[0];
-    if (!sessionId) {
+    // CONNECTION_UPDATE: atualizar status da sessão
+    if (event === "CONNECTION_UPDATE" && sessionId) {
+      const state = (body.data as { state?: string })?.state ?? body.data;
+      const status =
+        state === "open" || state === "connected" ? "connected" : "disconnected";
+
+      await db
+        .update(whatsappSessions)
+        .set({
+          status,
+          lastConnectedAt:
+            status === "connected" ? new Date() : undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(whatsappSessions.sessionId, sessionId));
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // MESSAGES_UPSERT: processar mensagem
+    const msgSessionId =
+      sessionId ?? body.data?.key?.remoteJid?.split("@")[0];
+    if (!msgSessionId) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     }
 
@@ -50,7 +73,7 @@ export async function POST(request: NextRequest) {
     const [session] = await db
       .select()
       .from(whatsappSessions)
-      .where(eq(whatsappSessions.sessionId, sessionId))
+      .where(eq(whatsappSessions.sessionId, msgSessionId))
       .limit(1);
 
     if (!session) {
@@ -169,8 +192,8 @@ export async function POST(request: NextRequest) {
         contactTagIds: contactTagRows.map((r) => r.tagId),
         businessHours: settings?.businessHours,
       },
-      {
-        sendMessage: async (_convId, message) => {
+        {
+          sendMessage: async (_convId, message) => {
           const apiUrl = process.env.WHATSAPP_API_URL;
           const apiKey = process.env.EVOLUTION_API_KEY;
           if (!apiUrl) return;
