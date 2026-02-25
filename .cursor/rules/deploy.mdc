@@ -1,0 +1,13 @@
+---
+description: Sempre fazer commit e push após alterações para disparar deploy na Vercel
+alwaysApply: true
+---
+
+# Deploy automático
+
+Após concluir alterações no projeto Mendoza IA:
+
+1. Fazer **commit** de todas as mudanças com mensagem descritiva
+2. Fazer **push** para `origin/main`
+
+O deploy na Vercel é disparado automaticamente pelo push. Não é necessário rodar `vercel deploy` manualmente.

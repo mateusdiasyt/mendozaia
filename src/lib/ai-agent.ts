@@ -6,14 +6,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
+import { DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
 
-export const GEMINI_MODELS = ["gemini-1.5-flash", "gemini-1.5-pro"] as const;
-export type GeminiModel = (typeof GEMINI_MODELS)[number];
-
-export const DEFAULT_SYSTEM_PROMPT = `Você é um assistente de atendimento amigável e profissional no WhatsApp.
-Responda de forma clara, objetiva e cordial.
-Use linguagem natural e evite respostas muito longas.
-Se não souber algo, seja honesto e sugira que a pessoa entre em contato com um atendente humano.`;
+export { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
+export type { GeminiModel } from "./ai-agent-constants";
 
 export async function generateAIReply(
   conversationId: string,

@@ -2,8 +2,7 @@
 
 import { useState } from "react";
 import { updateAiAgentConfig } from "@/app/actions/organization";
-import { GEMINI_MODELS } from "@/lib/ai-agent";
-import { DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
+import { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent-constants";
 import { Bot, Loader2 } from "lucide-react";
 
 interface AiAgentFormProps {
