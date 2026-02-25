@@ -5,7 +5,7 @@
 
 import { db } from "@/lib/db";
 import { conversations, organizations, messages } from "@/lib/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
@@ -77,12 +77,14 @@ export async function loadConversationContext(
 
   let vehicleSlots = existingSlots;
   if (usesVehicleSlots) {
-    const recentRows = await db
+    // Buscar as 20 mensagens MAIS RECENTES (não as primeiras 20 da conversa)
+    const recentDesc = await db
       .select({ direction: messages.direction, content: messages.content })
       .from(messages)
       .where(eq(messages.conversationId, params.conversationId))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(desc(messages.createdAt))
       .limit(20);
+    const recentRows = [...recentDesc].reverse(); // ordem cronológica para extração
     const extracted = extractSlotsFromMessages(recentRows);
     vehicleSlots = mergeVehicleSlots(existingSlots, extracted);
 

@@ -29,6 +29,17 @@ export type { GeminiModel } from "./ai-agent-constants";
 
 const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
 
+/** Detecta se a mensagem parece informar data e/ou horário para reserva */
+function seemsToContainDateTime(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  if (!t || t.length < 5) return false;
+  const monthNames = /janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro/i;
+  const dayPattern = /dia\s+\d{1,2}|amanhã|hoje|próximo\s+(dia|sábado|domingo)/i;
+  const timePattern = /às?\s*\d{1,2}(?::\d{2})?\s*h?|(\d{1,2})h\d{0,2}|(\d{1,2}):(\d{2})/i;
+  const dateFormat = /\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{2,4}/;
+  return !!(monthNames.test(t) || dayPattern.test(t) || timePattern.test(t) || dateFormat.test(t));
+}
+
 export interface VehicleSlots {
   modelo?: string;
   ano?: number;
@@ -197,16 +208,25 @@ ${memoryInstruction}`;
     if (parts.length > 0) {
       basePrompt += `
 
-[DADOS EXTRAÍDOS DA CONVERSA - use estes dados, não peça de novo]
+[DADOS EXTRAÍDOS DA CONVERSA - use estes dados, NUNCA peça de novo]
 Veículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}`;
     }
-    // Cliente já completou modelo/ano/km E temos funções de reserva → SEMPRE perguntar data e horário
+    // Cliente já completou modelo/ano/km E temos funções de reserva
     if (hasAllSlots && useReservationTools) {
-      basePrompt += `
+      const userGaveDateTime = seemsToContainDateTime(newMessage);
+      if (userGaveDateTime) {
+        basePrompt += `
+
+[IMPORTANTE] O cliente informou data e horário nesta mensagem. Você TEM check_availability e create_reservation.
+Use check_availability AGORA com a data e horário que o cliente indicou. Converta para YYYY-MM-DD e HH:mm. Ex: "dia 26 de fevereiro às 14h" → 2025-02-26, 14:00.
+NUNCA peça modelo/ano/km novamente — já estão em [DADOS EXTRAÍDOS].`;
+      } else {
+        basePrompt += `
 
 [IMPORTANTE] O cliente já informou modelo, ano e quilometragem. Você TEM as funções check_availability e create_reservation.
-Sua resposta AGORA deve ser: perguntar qual data e horário prefere. Ex.: "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
-PROIBIDO dizer "nossa equipe vai verificar", "retornar em breve" ou similar — use as funções e pergunte data/horário.`;
+Sua resposta AGORA: pergunte qual data e horário prefere. Ex.: "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
+PROIBIDO dizer "nossa equipe vai verificar", "retornar em breve" ou perguntar modelo/ano/km de novo.`;
+      }
     }
   }
 
