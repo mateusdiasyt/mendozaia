@@ -13,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { generateAIReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
+import { handoffToHuman } from "@/lib/orchestration";
 import type {
   AutomationContext,
   ConditionType,
@@ -151,10 +152,9 @@ async function executeAction(
   }
 
   if (actionType === ACTION_TYPES.ASSIGN_TO_HUMAN) {
-    await db
-      .update(conversations)
-      .set({ assignedToId: null })
-      .where(eq(conversations.id, context.conversationId));
+    const payload = actionPayload as { message?: string } | null;
+    const reason = payload?.message ?? "Regra de automação: assign_to_human";
+    await handoffToHuman(context.conversationId, context.organizationId, reason);
   }
 
   return didSendReply;

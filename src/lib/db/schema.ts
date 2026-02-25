@@ -207,6 +207,16 @@ export const conversations = pgTable("conversations", {
   aiDisabledUntil: timestamp("ai_disabled_until", { mode: "date" }),
   /** Última vez que o contato estava digitando (para mostrar "digitando...") */
   contactTypingAt: timestamp("contact_typing_at", { mode: "date" }),
+  /** Estado da conversa para orquestração: init, collecting_info, awaiting_system, ready_to_confirm, waiting_human, human_active, closed */
+  conversationState: text("conversation_state").default("init"),
+  /** Motivo do handoff para humano */
+  handoffReason: text("handoff_reason"),
+  /** Quando foi feito o handoff */
+  handoffAt: timestamp("handoff_at", { mode: "date" }),
+  /** Prioridade (conversa aguardando humano) */
+  isPriority: boolean("is_priority").default(false).notNull(),
+  /** Metadados extras do estado (json) */
+  conversationStateMetadata: jsonb("conversation_state_metadata").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -276,6 +286,25 @@ export const automationRules = pgTable("automation_rules", {
   priority: integer("priority").default(0).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== LOGS DE ORQUESTRAÇÃO ====================
+
+export const orchestrationLogs = pgTable("orchestration_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  event: text("event").notNull(), // state_change, decision, tool_used, ai_called, handoff, etc.
+  stateBefore: text("state_before"),
+  stateAfter: text("state_after"),
+  decision: text("decision"), // ai_respond | human_only | silence | tool_first
+  reason: text("reason"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // ==================== TABELAS DE SISTEMA (Admin) ====================

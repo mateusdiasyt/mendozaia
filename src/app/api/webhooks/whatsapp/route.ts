@@ -15,7 +15,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
-import { generateAIReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
+import { processInboundMessage } from "@/lib/orchestration";
 
 // Formato esperado da Evolution API (texto e mídia)
 interface MessageContent {
@@ -437,40 +437,23 @@ export async function POST(request: NextRequest) {
 
     const { didReply } = await processMessageReceivedRules(context, executor);
 
-    // Fallback IA: responde automaticamente se nenhuma regra respondeu
-    const aiAgent = settings?.aiAgent;
-    const isAiPaused =
-      conversation.aiDisabledUntil && conversation.aiDisabledUntil > new Date();
-    if (
-      !didReply &&
-      aiAgent?.enabled &&
-      aiAgent?.useAsFallback &&
-      messageText &&
-      !isAiPaused
-    ) {
-      try {
-        const systemPrompt = aiAgent.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-        const model = aiAgent.model || "gemini-2.0-flash";
-        const apiKey = aiAgent.apiKey || undefined;
-        const reply = await generateAIReply(
-          conversation.id,
-          contact.id,
-          messageText,
-          systemPrompt,
-          model,
-          apiKey,
-          {
-            organizationId: session.organizationId,
-            reservationsEnabled: !!(
-              settings as { reservationsEnabled?: boolean }
-            ).reservationsEnabled,
-          }
-        );
-        await executor.sendMessage(conversation.id, reply);
-      } catch (err) {
-        console.error("[webhook] AI fallback reply failed:", err);
+    // Orquestrador: IA nunca responde diretamente, passa por esta camada
+    await processInboundMessage(
+      {
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        contactId: contact.id,
+        contactPhone: phone,
+        messageContent: messageText || "",
+        messageContentType: contentType,
+      },
+      {
+        automationDidReply: didReply,
+        sendMessage: async (convId, text) => {
+          if (executor.sendMessage) await executor.sendMessage(convId, text);
+        },
       }
-    }
+    );
 
     return NextResponse.json({ ok: true });
   } catch (err) {

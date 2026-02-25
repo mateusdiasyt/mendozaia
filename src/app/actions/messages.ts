@@ -68,7 +68,14 @@ export async function setConversationAIEnabled(conversationId: string) {
 
   await db
     .update(conversations)
-    .set({ aiDisabledUntil: null, updatedAt: new Date() })
+    .set({
+      aiDisabledUntil: null,
+      conversationState: "init",
+      handoffReason: null,
+      handoffAt: null,
+      isPriority: false,
+      updatedAt: new Date(),
+    })
     .where(eq(conversations.id, conversationId));
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
