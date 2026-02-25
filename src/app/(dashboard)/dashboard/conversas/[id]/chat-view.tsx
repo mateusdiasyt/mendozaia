@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { sendMessage } from "@/app/actions/messages";
 import { Loader2, Send } from "lucide-react";
 
@@ -18,6 +19,9 @@ interface ChatViewProps {
   initialMessages: Message[];
 }
 
+const POLL_INTERVAL_MS = 4000; // 4 segundos
+const POLL_WHEN_HIDDEN_MS = 15000; // 15 segundos quando aba em background
+
 export function ChatView({
   conversationId,
   initialMessages,
@@ -27,6 +31,52 @@ export function ChatView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastCountRef = useRef(messages.length);
+  const router = useRouter();
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/conversations/${conversationId}/messages`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const fetched = (data.messages ?? []) as Message[];
+      if (fetched.length >= lastCountRef.current) {
+        const hadNewMessages = fetched.length > lastCountRef.current;
+        setMessages(
+          fetched.map((m) => ({
+            ...m,
+            createdAt: new Date(m.createdAt),
+          }))
+        );
+        lastCountRef.current = fetched.length;
+        if (hadNewMessages) router.refresh(); // atualiza lista de conversas
+      }
+    } catch {
+      // ignora erros de polling
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const schedulePoll = () => {
+      const ms = document.hidden ? POLL_WHEN_HIDDEN_MS : POLL_INTERVAL_MS;
+      intervalId = setInterval(fetchMessages, ms);
+    };
+
+    schedulePoll();
+
+    const handleVisibility = () => {
+      clearInterval(intervalId);
+      schedulePoll();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [fetchMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -46,6 +96,7 @@ export function ChatView({
 
     try {
       await sendMessage(conversationId, text);
+      lastCountRef.current += 1;
       setMessages((prev) => [
         ...prev,
         {
