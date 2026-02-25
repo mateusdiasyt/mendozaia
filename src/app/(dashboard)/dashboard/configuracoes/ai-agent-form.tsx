@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { updateAiAgentConfig } from "@/app/actions/organization";
 import { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent-constants";
-import { Bot, Loader2 } from "lucide-react";
+import { Bot, Loader2, Trash2 } from "lucide-react";
 
 interface AiAgentFormProps {
   initialConfig: {
@@ -11,6 +11,8 @@ interface AiAgentFormProps {
     useAsFallback?: boolean;
     systemPrompt?: string;
     model?: string;
+    /** Indica se já existe chave configurada (nunca enviamos a chave real ao client) */
+    hasApiKey?: boolean;
   };
 }
 
@@ -25,6 +27,7 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
   const [model, setModel] = useState(
     initialConfig.model || "gemini-1.5-flash"
   );
+  const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -40,6 +43,7 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
       useAsFallback,
       systemPrompt: systemPrompt.trim() || undefined,
       model,
+      ...(apiKey.trim() !== "" && { apiKey: apiKey.trim() }),
     });
     setSaving(false);
     if (result?.error) {
@@ -108,6 +112,51 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
         <span className="text-xs text-slate-500">
           Responde automaticamente quando nenhuma regra de automação corresponde
         </span>
+      </div>
+
+      <div>
+        <label className={labelClass}>Chave da API Gemini</label>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          className={inputClass}
+          placeholder={initialConfig.hasApiKey ? "•••••••• (deixe em branco para manter)" : "Cole sua chave da API Gemini"}
+          autoComplete="off"
+        />
+        <p className="mt-1 text-xs text-slate-500">
+          Obtenha em{" "}
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-indigo-600 hover:underline"
+          >
+            Google AI Studio
+          </a>
+          . A chave fica salva de forma segura na sua organização.
+        </p>
+        {initialConfig.hasApiKey && (
+          <button
+            type="button"
+            onClick={async () => {
+              setSaving(true);
+              setMessage(null);
+              const result = await updateAiAgentConfig({ apiKey: "" });
+              setSaving(false);
+              if (result?.error) {
+                setMessage({ type: "error", text: result.error });
+              } else {
+                setMessage({ type: "success", text: "Chave removida." });
+              }
+            }}
+            disabled={saving}
+            className="mt-2 inline-flex items-center gap-1 text-sm text-red-600 hover:text-red-700 disabled:opacity-60"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Remover chave
+          </button>
+        )}
       </div>
 
       <div>

@@ -115,16 +115,18 @@ async function executeAction(
       .where(eq(organizations.id, context.organizationId))
       .limit(1);
 
-    const aiAgent = (org?.settings as { aiAgent?: { systemPrompt?: string; model?: string } })?.aiAgent;
+    const aiAgent = (org?.settings as { aiAgent?: { systemPrompt?: string; model?: string; apiKey?: string | null } })?.aiAgent;
     const systemPrompt = aiAgent?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
     const model = aiAgent?.model || "gemini-1.5-flash";
+    const apiKey = aiAgent?.apiKey || undefined;
 
     try {
       const reply = await generateAIReply(
         context.conversationId,
         context.messageContent,
         systemPrompt,
-        model
+        model,
+        apiKey
       );
       await executor.sendMessage(context.conversationId, reply);
       didSendReply = true;

@@ -15,11 +15,12 @@ export async function generateAIReply(
   conversationId: string,
   newMessage: string,
   systemPrompt: string,
-  model: string = "gemini-1.5-flash"
+  model: string = "gemini-1.5-flash",
+  apiKeyOverride?: string | null
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY não configurada");
+    throw new Error("Chave da API Gemini não configurada. Defina em Configurações → Agente de IA ou na variável GEMINI_API_KEY.");
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);

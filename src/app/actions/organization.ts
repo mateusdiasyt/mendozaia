@@ -10,6 +10,8 @@ export interface AiAgentConfig {
   useAsFallback?: boolean;
   systemPrompt?: string;
   model?: string;
+  /** Chave da API Gemini. Envie string para definir/atualizar, "" para limpar. Não envie para manter. */
+  apiKey?: string;
 }
 
 export async function updateAiAgentConfig(config: AiAgentConfig) {
@@ -31,6 +33,7 @@ export async function updateAiAgentConfig(config: AiAgentConfig) {
     ...(config.useAsFallback !== undefined && { useAsFallback: config.useAsFallback }),
     ...(config.systemPrompt !== undefined && { systemPrompt: config.systemPrompt }),
     ...(config.model !== undefined && { model: config.model }),
+    ...(config.apiKey !== undefined && { apiKey: config.apiKey || null }),
   };
 
   await db

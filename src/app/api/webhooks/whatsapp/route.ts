@@ -286,7 +286,7 @@ export async function POST(request: NextRequest) {
     const settings = org?.settings as
       | {
           businessHours?: { start: string; end: string; timezone?: string };
-          aiAgent?: { enabled?: boolean; useAsFallback?: boolean; systemPrompt?: string; model?: string };
+          aiAgent?: { enabled?: boolean; useAsFallback?: boolean; systemPrompt?: string; model?: string; apiKey?: string | null };
         }
       | undefined;
 
@@ -336,11 +336,13 @@ export async function POST(request: NextRequest) {
       try {
         const systemPrompt = aiAgent.systemPrompt || DEFAULT_SYSTEM_PROMPT;
         const model = aiAgent.model || "gemini-1.5-flash";
+        const apiKey = aiAgent.apiKey || undefined;
         const reply = await generateAIReply(
           conversation.id,
           messageText,
           systemPrompt,
-          model
+          model,
+          apiKey
         );
         await executor.sendMessage(conversation.id, reply);
       } catch (err) {

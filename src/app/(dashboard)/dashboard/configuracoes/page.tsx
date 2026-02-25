@@ -55,6 +55,7 @@ export default async function ConfiguracoesPage() {
               useAsFallback: aiAgent.useAsFallback as boolean | undefined,
               systemPrompt: aiAgent.systemPrompt as string | undefined,
               model: aiAgent.model as string | undefined,
+              hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
             }}
           />
         </div>
