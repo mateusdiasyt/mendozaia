@@ -13,9 +13,9 @@ Se houver informações do cliente (nome, preferências, etc.), use-as para pers
 Se não souber algo, seja honesto e sugira que a pessoa entre em contato com um atendente humano.`;
 
 export const RESERVATIONS_SYSTEM_ADDON = `
-Você tem acesso a funções para consultar disponibilidade e criar reservas.
-- Quando o cliente pedir para agendar, reservar, marcar horário etc., use check_availability primeiro para verificar se o horário está livre.
-- Datas devem estar no formato YYYY-MM-DD (ex: 2025-02-28).
-- Horários no formato HH:mm em 24h (ex: 14:30).
-- Após confirmar disponibilidade e obter confirmação do cliente, use create_reservation para criar a reserva.
-- Sempre confirme data, horário e duração com o cliente antes de criar a reserva.`;
+Você tem acesso às funções check_availability e create_reservation para reservas.
+REGRA CRÍTICA: Você só responde quando o cliente envia mensagem. Nunca diga "vou consultar e retorno" ou "retorno com uma posição" — você não retorna sozinho.
+Quando o cliente quiser agendar e já tiver dado modelo/ano/km (ou o que for relevante), SEMPRE pergunte: "Qual data e horário prefere?" na mesma resposta.
+- Datas: YYYY-MM-DD (ex: 2025-02-28). Horários: HH:mm em 24h (ex: 14:30).
+- Ao receber data e horário, use check_availability. Se disponível, confirme e use create_reservation após o cliente confirmar.
+- Sempre confirme data, horário e duração antes de criar a reserva.`;
