@@ -1,0 +1,128 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { MessageSquare, Search } from "lucide-react";
+
+interface Conv {
+  id: string;
+  lastMessageAt: Date | null;
+  lastMessagePreview: string | null;
+  unreadCount: number;
+  contactName: string | null;
+  contactPhone: string;
+  sessionName: string | null;
+}
+
+export function ConversationList({ list }: { list: Conv[] }) {
+  const pathname = usePathname();
+
+  return (
+    <div className="flex w-[400px] shrink-0 flex-col border-r border-[#2a3942] bg-[#111b21]">
+      {/* Header */}
+      <div className="flex h-16 items-center gap-3 border-b border-[#2a3942] bg-[#202c33] px-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00a884]">
+          <MessageSquare className="h-5 w-5 text-white" />
+        </div>
+        <div className="flex-1">
+          <h2 className="text-base font-medium text-white">Conversas</h2>
+          <p className="text-xs text-[#8696a0]">Caixa de entrada</p>
+        </div>
+        <button
+          type="button"
+          className="rounded-full p-2 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+          title="Buscar"
+        >
+          <Search className="h-5 w-5" />
+        </button>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 overflow-y-auto">
+        {list.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-4 py-16 px-6">
+            <div className="rounded-full bg-[#2a3942] p-4">
+              <MessageSquare className="h-10 w-10 text-[#8696a0]" />
+            </div>
+            <p className="text-center font-medium text-[#e9edef]">
+              Nenhuma conversa ainda
+            </p>
+            <p className="max-w-xs text-center text-sm text-[#8696a0]">
+              As conversas aparecerão aqui quando você receber mensagens no
+              WhatsApp conectado.
+            </p>
+          </div>
+        ) : (
+          list.map((conv) => {
+            const isActive = pathname === `/dashboard/conversas/${conv.id}`;
+            const displayName = conv.contactName || conv.contactPhone;
+            const initials = getInitials(displayName);
+
+            return (
+              <Link
+                key={conv.id}
+                href={`/dashboard/conversas/${conv.id}`}
+                className={`flex items-center gap-4 px-4 py-3 transition-colors ${
+                  isActive ? "bg-[#2a3942]" : "hover:bg-[#202c33]"
+                }`}
+              >
+                <div className="relative shrink-0">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00a884] text-lg font-medium text-white">
+                    {initials}
+                  </div>
+                  {conv.unreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00a884] px-1.5 text-xs font-medium text-white">
+                      {conv.unreadCount > 99 ? "99+" : conv.unreadCount}
+                    </span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-[#e9edef]">
+                      {displayName}
+                    </span>
+                    {conv.lastMessageAt && (
+                      <span className="shrink-0 text-xs text-[#8696a0]">
+                        {formatTime(conv.lastMessageAt)}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-0.5 truncate text-sm text-[#8696a0]">
+                    {conv.lastMessagePreview || "Sem mensagens"}
+                  </p>
+                </div>
+              </Link>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getInitials(name: string): string {
+  if (!name) return "?";
+  const parts = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
+  }
+  if (parts[0]?.length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return parts[0]?.[0]?.toUpperCase() ?? "?";
+}
+
+function formatTime(date: Date): string {
+  const d = new Date(date);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Agora";
+  if (diffMins < 60) return `${diffMins}min`;
+  if (diffHours < 24) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (diffDays < 7) return d.toLocaleDateString("pt-BR", { weekday: "short" });
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}

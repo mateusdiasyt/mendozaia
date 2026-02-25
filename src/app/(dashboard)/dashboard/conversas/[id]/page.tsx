@@ -8,8 +8,6 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import { notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { ChatView } from "./chat-view";
 
 export default async function ConversaPage({
@@ -55,23 +53,64 @@ export default async function ConversaPage({
     .set({ unreadCount: 0, updatedAt: new Date() })
     .where(eq(conversations.id, id));
 
+  const displayName = conv.contactName || conv.contactPhone;
+  const initials = getInitials(displayName);
+
   return (
-    <div className="flex h-full flex-col bg-white">
-      <div className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-4">
-        <Link
-          href="/dashboard/conversas"
-          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate font-medium text-slate-900">
-            {conv.contactName || conv.contactPhone}
-          </h1>
-          <p className="truncate text-sm text-slate-500">
-            {conv.contactPhone}
-            {conv.sessionName && ` · ${conv.sessionName}`}
-          </p>
+    <>
+      {/* Header estilo WhatsApp Web */}
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#2a3942] bg-[#202c33] px-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-sm font-medium text-white">
+            {initials}
+          </div>
+          <div>
+            <h1 className="font-medium text-[#e9edef]">
+              {displayName}
+            </h1>
+            <p className="text-xs text-[#8696a0]">
+              {conv.contactPhone}
+              {conv.sessionName && ` · ${conv.sessionName}`}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            title="Vide chamada"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            title="Ligar"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            title="Buscar"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M15.9 14.3H15l-.3-.3c1-1.1 1.6-2.7 1.6-4.3 0-3.7-3-6.7-6.7-6.7S3 6 3 9.7s3 6.7 6.7 6.7c1.6 0 3.2-.6 4.3-1.6l.3.3v.8l5.1 5.1 1.5-1.5-5-5.2zm-6.2 0c-2.6 0-4.6-2.1-4.6-4.6s2.1-4.6 4.6-4.6 4.6 2.1 4.6 4.6-2 4.6-4.6 4.6z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            title="Menu"
+          >
+            <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -79,6 +118,18 @@ export default async function ConversaPage({
         conversationId={id}
         initialMessages={msgList}
       />
-    </div>
+    </>
   );
+}
+
+function getInitials(name: string): string {
+  if (!name) return "?";
+  const parts = name.replace(/[^a-zA-Z0-9\s]/g, "").split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase().slice(0, 2);
+  }
+  if (parts[0]?.length >= 2) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return parts[0]?.[0]?.toUpperCase() ?? "?";
 }
