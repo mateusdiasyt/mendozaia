@@ -18,22 +18,22 @@ export default async function WhatsAppPage() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-white">WhatsApp</h1>
-        <p className="mt-1 text-zinc-400">
+        <h1 className="text-2xl font-semibold text-slate-900">WhatsApp</h1>
+        <p className="mt-1 text-slate-500">
           Conecte e gerencie suas sessões de WhatsApp
         </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {sessions.length === 0 ? (
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8">
+          <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="flex items-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-green-500/20">
-                <MessageCircle className="h-7 w-7 text-green-400" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-emerald-50">
+                <MessageCircle className="h-7 w-7 text-emerald-600" />
               </div>
               <div>
-                <h3 className="font-medium text-white">Nenhuma sessão</h3>
-                <p className="text-sm text-zinc-400">
+                <h3 className="font-medium text-slate-900">Nenhuma sessão</h3>
+                <p className="text-sm text-slate-500">
                   Conecte sua primeira sessão de WhatsApp
                 </p>
               </div>
@@ -45,19 +45,23 @@ export default async function WhatsAppPage() {
         ) : (
           sessions.map((session) => (
             <div key={session.id} className="space-y-4">
-              <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     {session.status === "connected" ? (
-                      <Wifi className="h-8 w-8 text-green-500" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50">
+                        <Wifi className="h-5 w-5 text-emerald-600" />
+                      </div>
                     ) : (
-                      <WifiOff className="h-8 w-8 text-zinc-500" />
+                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100">
+                        <WifiOff className="h-5 w-5 text-slate-400" />
+                      </div>
                     )}
                     <div>
-                      <h3 className="font-medium text-white">
+                      <h3 className="font-medium text-slate-900">
                         {session.name || session.sessionId}
                       </h3>
-                      <p className="text-sm text-zinc-400">
+                      <p className="text-sm text-slate-500">
                         {session.phoneNumber || session.status}
                       </p>
                     </div>
@@ -65,8 +69,8 @@ export default async function WhatsAppPage() {
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-medium ${
                       session.status === "connected"
-                        ? "bg-green-500/20 text-green-400"
-                        : "bg-zinc-700/50 text-zinc-400"
+                        ? "bg-emerald-50 text-emerald-600"
+                        : "bg-slate-100 text-slate-600"
                     }`}
                   >
                     {session.status}
@@ -84,9 +88,9 @@ export default async function WhatsAppPage() {
           ))
         )}
 
-        <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 p-8">
-          <h3 className="font-medium text-zinc-300">Nova sessão</h3>
-          <p className="mt-2 text-sm text-zinc-500">
+        <div className="rounded-2xl border border-dashed border-slate-200 bg-white/50 p-8">
+          <h3 className="font-medium text-slate-700">Nova sessão</h3>
+          <p className="mt-2 text-sm text-slate-500">
             Adicione outra conta de WhatsApp
           </p>
           <div className="mt-4">

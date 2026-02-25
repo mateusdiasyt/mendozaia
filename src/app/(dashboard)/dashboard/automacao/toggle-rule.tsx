@@ -26,8 +26,8 @@ export function ToggleRuleButton({
       disabled={pending}
       className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
         isActive
-          ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
-          : "bg-zinc-700 text-zinc-400 hover:bg-zinc-600"
+          ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
       } disabled:opacity-50`}
     >
       {pending ? "..." : isActive ? "Desativar" : "Ativar"}

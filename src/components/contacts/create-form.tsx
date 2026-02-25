@@ -30,7 +30,7 @@ export function CreateContactForm({
   return (
     <form action={handleSubmit} className={`space-y-4 ${className}`}>
       {error && (
-        <div className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
@@ -38,7 +38,7 @@ export function CreateContactForm({
       <div>
         <label
           htmlFor="name"
-          className="block text-sm font-medium text-zinc-300"
+          className="block text-sm font-medium text-slate-700"
         >
           Nome
         </label>
@@ -46,7 +46,7 @@ export function CreateContactForm({
           id="name"
           name="name"
           type="text"
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="Nome do contato"
         />
       </div>
@@ -54,7 +54,7 @@ export function CreateContactForm({
       <div>
         <label
           htmlFor="phone"
-          className="block text-sm font-medium text-zinc-300"
+          className="block text-sm font-medium text-slate-700"
         >
           Telefone *
         </label>
@@ -63,7 +63,7 @@ export function CreateContactForm({
           name="phone"
           type="tel"
           required
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="5511999999999"
         />
       </div>
@@ -71,7 +71,7 @@ export function CreateContactForm({
       <div>
         <label
           htmlFor="email"
-          className="block text-sm font-medium text-zinc-300"
+          className="block text-sm font-medium text-slate-700"
         >
           Email
         </label>
@@ -79,7 +79,7 @@ export function CreateContactForm({
           id="email"
           name="email"
           type="email"
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="email@exemplo.com"
         />
       </div>
@@ -87,14 +87,14 @@ export function CreateContactForm({
       <div className="flex gap-3 pt-2">
         <button
           type="submit"
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500"
+          className="rounded-xl bg-indigo-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-500"
         >
           Salvar
         </button>
         <button
           type="button"
           onClick={() => router.back()}
-          className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:bg-zinc-800"
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           Cancelar
         </button>

@@ -11,15 +11,15 @@ export default async function NovoContatoPage() {
     <div className="p-8">
       <Link
         href="/dashboard/contatos"
-        className="mb-6 inline-flex items-center gap-2 text-sm text-zinc-400 hover:text-white"
+        className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition-colors hover:text-slate-900"
       >
         <ArrowLeft className="h-4 w-4" />
         Voltar
       </Link>
 
       <div className="max-w-md">
-        <h1 className="text-2xl font-semibold text-white">Novo contato</h1>
-        <p className="mt-1 text-zinc-400">Adicione um novo contato à sua lista</p>
+        <h1 className="text-2xl font-semibold text-slate-900">Novo contato</h1>
+        <p className="mt-1 text-slate-500">Adicione um novo contato à sua lista</p>
 
         <CreateContactForm organizationId={org.id} className="mt-6" />
       </div>

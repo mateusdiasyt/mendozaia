@@ -133,36 +133,36 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
     router.refresh();
   }
 
+  const inputClass =
+    "mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+  const labelClass = "block text-sm font-medium text-slate-700";
+
   return (
     <form onSubmit={handleSubmit} className="mt-6 space-y-6">
       {error && (
-        <div className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-zinc-300">
-          Nome da regra *
-        </label>
+        <label className={labelClass}>Nome da regra *</label>
         <input
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className={inputClass}
           placeholder="Ex: Resposta para 'olá'"
         />
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-zinc-300">
-          Gatilho
-        </label>
+        <label className={labelClass}>Gatilho</label>
         <select
           value={triggerType}
           onChange={(e) => setTriggerType(e.target.value as TriggerType)}
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className={inputClass}
         >
           {Object.entries(TRIGGER_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -173,15 +173,13 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-zinc-300">
-          Condição
-        </label>
+        <label className={labelClass}>Condição</label>
         <select
           value={conditionType}
           onChange={(e) =>
             setConditionType(e.target.value as ConditionType)
           }
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className={inputClass}
         >
           {Object.entries(CONDITION_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -203,13 +201,13 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
                 keywords: e.target.value.split(",").map((k) => k.trim()),
               })
             }
-            className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+            className={inputClass}
             placeholder="olá, oi, bom dia (separados por vírgula)"
           />
         )}
 
         {conditionType === CONDITION_TYPES.OUTSIDE_BUSINESS_HOURS && (
-          <p className="mt-2 text-sm text-zinc-500">
+          <p className="mt-2 text-sm text-slate-500">
             Configure o horário comercial nas configurações da organização
             (settings.businessHours).
           </p>
@@ -223,20 +221,18 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
             onChange={(e) =>
               setConditionValue({ minutes: Number(e.target.value) || 30 })
             }
-            className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+            className={inputClass}
             placeholder="30"
           />
         )}
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-zinc-300">
-          Ação
-        </label>
+        <label className={labelClass}>Ação</label>
         <select
           value={actionType}
           onChange={(e) => setActionType(e.target.value as ActionType)}
-          className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+          className={inputClass}
         >
           {Object.entries(ACTION_LABELS).map(([value, label]) => (
             <option key={value} value={value}>
@@ -252,7 +248,7 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
               setActionPayload({ ...actionPayload, message: e.target.value })
             }
             rows={4}
-            className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+            className={inputClass}
             placeholder="Mensagem automática..."
           />
         )}
@@ -263,7 +259,7 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
             onChange={(e) =>
               setActionPayload({ ...actionPayload, tagId: e.target.value })
             }
-            className="mt-2 block w-full rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-3 text-white focus:border-indigo-500 focus:outline-none"
+            className={inputClass}
           >
             <option value="">Selecione uma etiqueta</option>
             {tags.map((tag) => (
@@ -278,14 +274,14 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
       <div className="flex gap-3">
         <button
           type="submit"
-          className="rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white hover:bg-indigo-500"
+          className="rounded-xl bg-indigo-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-500"
         >
           {rule ? "Salvar" : "Criar regra"}
         </button>
         <button
           type="button"
           onClick={() => router.back()}
-          className="rounded-lg border border-zinc-700 px-4 py-2 font-medium text-zinc-300 hover:bg-zinc-800"
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50"
         >
           Cancelar
         </button>

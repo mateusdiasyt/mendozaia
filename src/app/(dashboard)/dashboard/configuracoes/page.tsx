@@ -9,37 +9,37 @@ export default async function ConfiguracoesPage() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-white">Configurações</h1>
-        <p className="mt-1 text-zinc-400">
+        <h1 className="text-2xl font-semibold text-slate-900">Configurações</h1>
+        <p className="mt-1 text-slate-500">
           Gerencie sua conta e organização
         </p>
       </div>
 
-      <div className="space-y-8 max-w-2xl">
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-          <h3 className="font-medium text-white">Sua conta</h3>
-          <dl className="mt-4 space-y-2 text-sm">
+      <div className="space-y-6 max-w-2xl">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="font-medium text-slate-900">Sua conta</h3>
+          <dl className="mt-4 space-y-3 text-sm">
             <div>
-              <dt className="text-zinc-500">Nome</dt>
-              <dd className="text-white">{session?.user?.name}</dd>
+              <dt className="text-slate-500">Nome</dt>
+              <dd className="font-medium text-slate-900">{session?.user?.name}</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Email</dt>
-              <dd className="text-white">{session?.user?.email}</dd>
+              <dt className="text-slate-500">Email</dt>
+              <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
             </div>
           </dl>
         </div>
 
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-          <h3 className="font-medium text-white">Organização</h3>
-          <dl className="mt-4 space-y-2 text-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="font-medium text-slate-900">Organização</h3>
+          <dl className="mt-4 space-y-3 text-sm">
             <div>
-              <dt className="text-zinc-500">Nome</dt>
-              <dd className="text-white">{org.name}</dd>
+              <dt className="text-slate-500">Nome</dt>
+              <dd className="font-medium text-slate-900">{org.name}</dd>
             </div>
             <div>
-              <dt className="text-zinc-500">Plano</dt>
-              <dd className="text-white capitalize">{org.plan}</dd>
+              <dt className="text-slate-500">Plano</dt>
+              <dd className="font-medium capitalize text-slate-900">{org.plan}</dd>
             </div>
           </dl>
         </div>

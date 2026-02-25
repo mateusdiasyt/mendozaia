@@ -19,34 +19,34 @@ export default async function ContatosPage() {
     <div className="p-8">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Contatos</h1>
-          <p className="mt-1 text-zinc-400">
+          <h1 className="text-2xl font-semibold text-slate-900">Contatos</h1>
+          <p className="mt-1 text-slate-500">
             Gerencie seus contatos e etiquetas
           </p>
         </div>
         <Link
           href="/dashboard/contatos/novo"
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition-colors hover:bg-indigo-500"
+          className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-500"
         >
           <Plus className="h-5 w-5" />
           Novo contato
         </Link>
       </div>
 
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full">
           <thead>
-            <tr className="border-b border-zinc-800">
-              <th className="px-6 py-4 text-left text-sm font-medium text-zinc-400">
+            <tr className="border-b border-slate-100 bg-slate-50/50">
+              <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
                 Nome
               </th>
-              <th className="px-6 py-4 text-left text-sm font-medium text-zinc-400">
+              <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
                 Telefone
               </th>
-              <th className="px-6 py-4 text-left text-sm font-medium text-zinc-400">
+              <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
                 Email
               </th>
-              <th className="px-6 py-4 text-right text-sm font-medium text-zinc-400">
+              <th className="px-6 py-4 text-right text-sm font-medium text-slate-600">
                 Ações
               </th>
             </tr>
@@ -54,7 +54,7 @@ export default async function ContatosPage() {
           <tbody>
             {orgContacts.length === 0 ? (
               <tr>
-                <td colSpan={4} className="px-6 py-12 text-center text-zinc-400">
+                <td colSpan={4} className="px-6 py-16 text-center text-slate-500">
                   Nenhum contato ainda. Adicione seu primeiro contato.
                 </td>
               </tr>
@@ -62,19 +62,19 @@ export default async function ContatosPage() {
               orgContacts.map((contact) => (
                 <tr
                   key={contact.id}
-                  className="border-b border-zinc-800/50 transition-colors hover:bg-zinc-800/30"
+                  className="border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-0"
                 >
-                  <td className="px-6 py-4 font-medium text-white">
+                  <td className="px-6 py-4 font-medium text-slate-900">
                     {contact.name || "—"}
                   </td>
-                  <td className="px-6 py-4 text-zinc-300">{contact.phone}</td>
-                  <td className="px-6 py-4 text-zinc-400">
+                  <td className="px-6 py-4 text-slate-600">{contact.phone}</td>
+                  <td className="px-6 py-4 text-slate-500">
                     {contact.email || "—"}
                   </td>
                   <td className="px-6 py-4 text-right">
                     <Link
                       href="/dashboard/conversas"
-                      className="text-sm text-indigo-400 hover:text-indigo-300"
+                      className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
                     >
                       Ver conversas
                     </Link>

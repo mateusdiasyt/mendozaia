@@ -69,10 +69,10 @@ export function ChatView({
     <div className="flex flex-1 flex-col overflow-hidden">
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-6 space-y-4"
+        className="flex-1 overflow-y-auto bg-slate-50/50 p-6 space-y-4"
       >
         {messages.length === 0 ? (
-          <p className="py-8 text-center text-sm text-zinc-500">
+          <p className="py-8 text-center text-sm text-slate-500">
             Nenhuma mensagem ainda. Envie a primeira!
           </p>
         ) : (
@@ -84,10 +84,10 @@ export function ChatView({
               }`}
             >
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-2 ${
+                className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm ${
                   msg.direction === "outbound"
                     ? "bg-indigo-600 text-white"
-                    : "bg-zinc-800 text-zinc-100"
+                    : "bg-white text-slate-800 border border-slate-200"
                 }`}
               >
                 {msg.contentType === "text" && msg.content ? (
@@ -118,7 +118,7 @@ export function ChatView({
                   className={`mt-1 text-xs ${
                     msg.direction === "outbound"
                       ? "text-indigo-200"
-                      : "text-zinc-500"
+                      : "text-slate-400"
                   }`}
                 >
                   {new Date(msg.createdAt).toLocaleTimeString("pt-BR", {
@@ -134,10 +134,10 @@ export function ChatView({
 
       <form
         onSubmit={handleSubmit}
-        className="border-t border-zinc-800 p-4"
+        className="border-t border-slate-200 bg-white p-4"
       >
         {error && (
-          <p className="mb-2 text-sm text-red-400">{error}</p>
+          <p className="mb-2 text-sm text-red-500">{error}</p>
         )}
         <div className="flex gap-2">
           <input
@@ -146,12 +146,12 @@ export function ChatView({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Digite sua mensagem..."
             disabled={loading}
-            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800/50 px-4 py-3 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="flex items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm transition-colors hover:bg-indigo-500 disabled:opacity-50"
           >
             {loading ? (
               <Loader2 className="h-5 w-5 animate-spin" />

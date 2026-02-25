@@ -56,19 +56,19 @@ export default async function ConversaPage({
     .where(eq(conversations.id, id));
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-4 border-b border-zinc-800 px-6 py-4">
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center gap-4 border-b border-slate-200 bg-white px-6 py-4">
         <Link
           href="/dashboard/conversas"
-          className="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+          className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-medium text-white">
+          <h1 className="truncate font-medium text-slate-900">
             {conv.contactName || conv.contactPhone}
           </h1>
-          <p className="truncate text-sm text-zinc-400">
+          <p className="truncate text-sm text-slate-500">
             {conv.contactPhone}
             {conv.sessionName && ` · ${conv.sessionName}`}
           </p>

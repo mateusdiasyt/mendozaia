@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, contacts } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
 import Link from "next/link";
-import { MessageSquare, Users } from "lucide-react";
+import { MessageSquare, Users, MessageCircle, ArrowRight } from "lucide-react";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -12,7 +12,7 @@ export default async function DashboardPage() {
   if (!org) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-zinc-400">Nenhuma organização encontrada.</p>
+        <p className="text-slate-500">Nenhuma organização encontrada.</p>
       </div>
     );
   }
@@ -29,56 +29,87 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-white">
+      <div className="mb-10">
+        <h1 className="text-2xl font-semibold text-slate-900">
           Olá, {session?.user?.name?.split(" ")[0] ?? "usuário"}
         </h1>
-        <p className="mt-1 text-zinc-400">{org.name}</p>
+        <p className="mt-1 text-slate-500">{org.name}</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/dashboard/conversas"
-          className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:border-indigo-500/50 hover:bg-zinc-900"
+          className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
         >
-          <MessageSquare className="h-10 w-10 text-indigo-400" />
-          <h3 className="mt-4 font-medium text-white">Conversas</h3>
-          <p className="mt-1 text-3xl font-semibold text-white">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50">
+            <MessageSquare className="h-5 w-5 text-indigo-600" />
+          </div>
+          <h3 className="mt-4 font-medium text-slate-900">Conversas</h3>
+          <p className="mt-1 text-3xl font-semibold text-slate-900">
             {conversationsCount?.count ?? 0}
           </p>
-          <p className="mt-1 text-sm text-zinc-400">Caixa de entrada</p>
+          <p className="mt-1 text-sm text-slate-500">Caixa de entrada</p>
+          <div className="mt-4 flex items-center text-sm font-medium text-indigo-600 opacity-0 transition-opacity group-hover:opacity-100">
+            Ver conversas
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </div>
         </Link>
 
         <Link
           href="/dashboard/contatos"
-          className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:border-indigo-500/50 hover:bg-zinc-900"
+          className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
         >
-          <Users className="h-10 w-10 text-indigo-400" />
-          <h3 className="mt-4 font-medium text-white">Contatos</h3>
-          <p className="mt-1 text-3xl font-semibold text-white">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50">
+            <Users className="h-5 w-5 text-indigo-600" />
+          </div>
+          <h3 className="mt-4 font-medium text-slate-900">Contatos</h3>
+          <p className="mt-1 text-3xl font-semibold text-slate-900">
             {contactsCount?.count ?? 0}
           </p>
-          <p className="mt-1 text-sm text-zinc-400">Total de contatos</p>
+          <p className="mt-1 text-sm text-slate-500">Total de contatos</p>
+          <div className="mt-4 flex items-center text-sm font-medium text-indigo-600 opacity-0 transition-opacity group-hover:opacity-100">
+            Ver contatos
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </div>
         </Link>
 
         <Link
           href="/dashboard/whatsapp"
-          className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:border-indigo-500/50 hover:bg-zinc-900"
+          className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-emerald-200 hover:shadow-md"
         >
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/20">
-            <MessageSquare className="h-5 w-5 text-green-400" />
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50">
+            <MessageCircle className="h-5 w-5 text-emerald-600" />
           </div>
-          <h3 className="mt-4 font-medium text-white">WhatsApp</h3>
-          <p className="mt-1 text-sm text-zinc-400">Conectar sessão</p>
+          <h3 className="mt-4 font-medium text-slate-900">WhatsApp</h3>
+          <p className="mt-1 text-sm text-slate-500">Conectar sessão</p>
+          <div className="mt-4 flex items-center text-sm font-medium text-emerald-600 opacity-0 transition-opacity group-hover:opacity-100">
+            Conectar
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </div>
         </Link>
       </div>
 
-      <div className="mt-12 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
-        <h2 className="font-medium text-white">Início rápido</h2>
-        <ul className="mt-4 space-y-2 text-sm text-zinc-400">
-          <li>1. Conecte seu WhatsApp em &quot;WhatsApp&quot;</li>
-          <li>2. Importe ou adicione contatos</li>
-          <li>3. Configure respostas automáticas em &quot;Automação&quot;</li>
+      <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-medium text-slate-900">Início rápido</h2>
+        <ul className="mt-4 space-y-3 text-sm text-slate-600">
+          <li className="flex items-center gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+              1
+            </span>
+            Conecte seu WhatsApp em &quot;WhatsApp&quot;
+          </li>
+          <li className="flex items-center gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+              2
+            </span>
+            Importe ou adicione contatos
+          </li>
+          <li className="flex items-center gap-3">
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-medium text-slate-600">
+              3
+            </span>
+            Configure respostas automáticas em &quot;Automação&quot;
+          </li>
         </ul>
       </div>
     </div>
