@@ -2,7 +2,7 @@
  * Agente de IA com Gemini - gera respostas baseadas no histórico da conversa.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
 import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
@@ -10,6 +10,34 @@ import { DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
 
 export { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
 export type { GeminiModel } from "./ai-agent-constants";
+
+/** Retry com backoff ao receber 429 (rate limit). */
+async function generateWithRetry(
+  model: GenerativeModel,
+  prompt: string,
+  maxRetries = 3
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      if (!text) throw new Error("Resposta vazia da IA");
+      return text.trim();
+    } catch (err) {
+      lastError = err;
+      const msg = String(err);
+      const is429 = msg.includes("429") || msg.includes("Resource exhausted");
+      if (is429 && attempt < maxRetries) {
+        const delay = Math.pow(2, attempt) * 1000;
+        await new Promise((r) => setTimeout(r, delay));
+      } else {
+        throw err;
+      }
+    }
+  }
+  throw lastError;
+}
 
 export async function generateAIReply(
   conversationId: string,
@@ -57,15 +85,8 @@ Cliente: ${newMessage}
 
 Atendente:`;
 
-  const result = await genAI.getGenerativeModel({ model }).generateContent(prompt);
-  const response = result.response;
-  const text = response.text();
-
-  if (!text) {
-    throw new Error("Resposta vazia da IA");
-  }
-
-  return text.trim();
+  const generativeModel = genAI.getGenerativeModel({ model });
+  return generateWithRetry(generativeModel, prompt);
 }
 
 /** Testa a conexão com o Gemini sem precisar de conversa. */
@@ -86,8 +107,6 @@ Cliente: Oi, tudo bem?
 
 Atendente:`;
 
-  const result = await genAI.getGenerativeModel({ model }).generateContent(prompt);
-  const text = result.response.text();
-  if (!text) throw new Error("Resposta vazia da IA");
-  return text.trim();
+  const generativeModel = genAI.getGenerativeModel({ model });
+  return generateWithRetry(generativeModel, prompt);
 }

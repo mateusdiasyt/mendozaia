@@ -71,8 +71,12 @@ export async function testAiAgentConnection() {
     );
     return { success: true, reply };
   } catch (err) {
-    return {
-      error: err instanceof Error ? err.message : "Erro ao testar a IA",
-    };
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("429") || msg.includes("Resource exhausted")) {
+      return {
+        error: "Limite de requisições atingido. Aguarde alguns minutos e tente novamente.",
+      };
+    }
+    return { error: msg };
   }
 }
