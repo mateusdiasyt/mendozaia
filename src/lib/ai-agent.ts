@@ -193,11 +193,20 @@ ${memoryInstruction}`;
     if (!s.modelo) missing.push("modelo");
     if (!s.ano) missing.push("ano");
     if (!s.km) missing.push("quilometragem");
+    const hasAllSlots = s.modelo && s.ano && s.km;
     if (parts.length > 0) {
       basePrompt += `
 
 [DADOS EXTRAÍDOS DA CONVERSA - use estes dados, não peça de novo]
 Veículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}`;
+    }
+    // Cliente já completou modelo/ano/km E temos funções de reserva → SEMPRE perguntar data e horário
+    if (hasAllSlots && useReservationTools) {
+      basePrompt += `
+
+[IMPORTANTE] O cliente já informou modelo, ano e quilometragem. Você TEM as funções check_availability e create_reservation.
+Sua resposta AGORA deve ser: perguntar qual data e horário prefere. Ex.: "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
+PROIBIDO dizer "nossa equipe vai verificar", "retornar em breve" ou similar — use as funções e pergunte data/horário.`;
     }
   }
 
