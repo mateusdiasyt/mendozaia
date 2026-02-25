@@ -4,6 +4,7 @@ import { whatsappSessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { WhatsAppConnect } from "@/components/whatsapp/connect";
 import { SessionConnect } from "@/components/whatsapp/session-connect";
+import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
 import { MessageCircle, Wifi, WifiOff } from "lucide-react";
 
 export default async function WhatsAppPage() {
@@ -17,6 +18,7 @@ export default async function WhatsAppPage() {
 
   return (
     <div className="p-8">
+      <SyncWebhooksOnLoad sessionIds={sessions.map((s) => s.sessionId)} />
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-slate-900">WhatsApp</h1>
         <p className="mt-1 text-slate-500">

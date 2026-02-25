@@ -20,6 +20,13 @@ const getHeaders = (): Record<string, string> => {
   return headers;
 };
 
+const WEBHOOK_EVENTS = [
+  "MESSAGES_UPSERT",
+  "CONNECTION_UPDATE",
+  "QRCODE_UPDATED",
+  "PRESENCE_UPDATE",
+] as const;
+
 export async function createInstance(instanceName: string, webhookUrl?: string) {
   const baseUrl = getBaseUrl();
   const body = {
@@ -29,7 +36,7 @@ export async function createInstance(instanceName: string, webhookUrl?: string) 
     webhook: webhookUrl
       ? {
           url: webhookUrl,
-          events: ["MESSAGES_UPSERT", "CONNECTION_UPDATE", "QRCODE_UPDATED"],
+          events: [...WEBHOOK_EVENTS],
         }
       : undefined,
   };
@@ -110,4 +117,29 @@ export async function fetchProfilePictureUrl(
 
   const data = (await res.json()) as { profilePictureUrl?: string };
   return data?.profilePictureUrl ?? null;
+}
+
+/** Atualiza o webhook de uma instância existente (para adicionar PRESENCE_UPDATE, etc.) */
+export async function setInstanceWebhook(
+  instanceName: string,
+  webhookUrl: string
+): Promise<void> {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(
+    `${baseUrl}/webhook/set/${instanceName}`,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        url: webhookUrl,
+        events: [...WEBHOOK_EVENTS],
+        enabled: true,
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.warn("[evolution-api] setWebhook failed:", err);
+  }
 }

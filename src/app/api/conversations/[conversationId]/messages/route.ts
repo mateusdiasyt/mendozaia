@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/lib/db/schema";
+import {
+  conversations,
+  messages,
+} from "@/lib/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 
 /**
@@ -46,5 +49,14 @@ export async function GET(
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt));
 
-  return NextResponse.json({ messages: msgList });
+  const typingAt = (conv as { contactTypingAt?: Date | null })?.contactTypingAt;
+  const TYPING_TIMEOUT_MS = 12_000;
+  const isTyping =
+    typingAt &&
+    Date.now() - new Date(typingAt).getTime() < TYPING_TIMEOUT_MS;
+
+  return NextResponse.json({
+    messages: msgList,
+    typing: !!isTyping,
+  });
 }

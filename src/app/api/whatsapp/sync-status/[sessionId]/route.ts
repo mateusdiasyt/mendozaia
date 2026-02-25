@@ -9,7 +9,7 @@ import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { whatsappSessions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { fetchInstanceStatus } from "@/lib/evolution-api";
+import { fetchInstanceStatus, setInstanceWebhook } from "@/lib/evolution-api";
 
 export async function POST(
   _request: NextRequest,
@@ -47,6 +47,13 @@ export async function POST(
         { error: "Sessão não encontrada" },
         { status: 404 }
       );
+    }
+
+    const webhookUrl = process.env.NEXTAUTH_URL
+      ? `${process.env.NEXTAUTH_URL.replace(/\/$/, "")}/api/webhooks/whatsapp`
+      : null;
+    if (webhookUrl) {
+      await setInstanceWebhook(sessionId, webhookUrl);
     }
 
     const state = await fetchInstanceStatus(sessionId);

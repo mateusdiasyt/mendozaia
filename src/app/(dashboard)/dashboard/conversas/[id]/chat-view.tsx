@@ -34,12 +34,15 @@ export function ChatView({
   const lastCountRef = useRef(messages.length);
   const router = useRouter();
 
+  const [typing, setTyping] = useState(false);
+
   const fetchMessages = useCallback(async () => {
     try {
       const res = await fetch(`/api/conversations/${conversationId}/messages`);
       if (!res.ok) return;
       const data = await res.json();
       const fetched = (data.messages ?? []) as Message[];
+      setTyping(!!data.typing);
       if (fetched.length >= lastCountRef.current) {
         const hadNewMessages = fetched.length > lastCountRef.current;
         setMessages(
@@ -57,6 +60,7 @@ export function ChatView({
   }, [conversationId]);
 
   useEffect(() => {
+    fetchMessages(); // busca inicial
     let intervalId: ReturnType<typeof setInterval>;
 
     const schedulePoll = () => {
@@ -130,12 +134,13 @@ export function ChatView({
         ref={scrollRef}
         className="relative z-10 flex-1 overflow-y-auto p-6 space-y-2"
       >
-        {messages.length === 0 ? (
+        {messages.length === 0 && !typing ? (
           <p className="py-12 text-center text-sm text-[#667781]">
             Nenhuma mensagem ainda. Envie a primeira!
           </p>
         ) : (
-          messages.map((msg) => (
+          <>
+          {messages.map((msg) => (
             <div
               key={msg.id}
               className={`flex ${
@@ -192,7 +197,15 @@ export function ChatView({
                 </div>
               </div>
             </div>
-          ))
+          ))}
+          {typing && (
+            <div className="flex justify-start">
+              <div className="max-w-[65%] rounded-lg bg-white px-3 py-2 shadow-md">
+                <p className="text-sm italic text-[#667781]">digitando...</p>
+              </div>
+            </div>
+          )}
+          </>
         )}
       </div>
 

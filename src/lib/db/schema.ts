@@ -205,6 +205,8 @@ export const conversations = pgTable("conversations", {
   isArchived: boolean("is_archived").default(false).notNull(),
   /** Quando preenchido, a IA não responde nesta conversa até esta data/hora */
   aiDisabledUntil: timestamp("ai_disabled_until", { mode: "date" }),
+  /** Última vez que o contato estava digitando (para mostrar "digitando...") */
+  contactTypingAt: timestamp("contact_typing_at", { mode: "date" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

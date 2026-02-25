@@ -63,6 +63,45 @@ interface WebhookPayload {
   };
 }
 
+function parsePresenceUpdate(body: WebhookPayload): {
+  sessionId: string;
+  remoteJid: string;
+  presence: "composing" | "paused" | "available" | "unavailable" | "recording";
+} | null {
+  const event =
+    body.event ?? body.eventType ?? (body as WebhookPayload).action;
+  if (event !== "PRESENCE_UPDATE") return null;
+
+  const sessionId =
+    body.instance ?? body.instanceName ?? (body as WebhookPayload).sessionId;
+  if (!sessionId || typeof sessionId !== "string") return null;
+
+  const data = (body.data ?? body) as Record<string, unknown>;
+  let remoteJid = (data?.id ?? data?.remoteJid ?? data?.key?.remoteJid) as string | undefined;
+  let presence = (data?.lastKnownPresence ?? data?.presence ?? data?.presences?.[remoteJid]?.lastKnownPresence) as string | undefined;
+
+  if (data?.presences && typeof data.presences === "object") {
+    const presences = data.presences as Record<string, { lastKnownPresence?: string }>;
+    const firstKey = Object.keys(presences)[0];
+    if (firstKey) {
+      remoteJid = remoteJid ?? data?.id ?? firstKey;
+      presence = presence ?? presences[firstKey]?.lastKnownPresence;
+    }
+  }
+
+  if (!remoteJid || typeof remoteJid !== "string") return null;
+  if (!remoteJid.includes("@")) remoteJid = `${remoteJid}@s.whatsapp.net`;
+  if (remoteJid.endsWith("@g.us")) return null; // ignora grupos
+
+  const validPresence = ["composing", "paused", "available", "unavailable", "recording"].includes(
+    String(presence ?? "").toLowerCase()
+  )
+    ? (String(presence).toLowerCase() as "composing" | "paused" | "available" | "unavailable" | "recording")
+    : "paused";
+
+  return { sessionId, remoteJid, presence: validPresence };
+}
+
 function parseConnectionStatus(body: WebhookPayload): {
   sessionId: string;
   status: "connected" | "disconnected";
@@ -96,6 +135,44 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as WebhookPayload;
     const conn = parseConnectionStatus(body);
+    const presence = parsePresenceUpdate(body);
+
+    // PRESENCE_UPDATE: contato digitando
+    if (presence) {
+      const phone = presence.remoteJid.replace("@s.whatsapp.net", "");
+      const isTyping = presence.presence === "composing" || presence.presence === "recording";
+
+      const [wsSession] = await db
+        .select({ id: whatsappSessions.id })
+        .from(whatsappSessions)
+        .where(eq(whatsappSessions.sessionId, presence.sessionId))
+        .limit(1);
+
+      if (wsSession) {
+        const [conv] = await db
+          .select({ id: conversations.id })
+          .from(conversations)
+          .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+          .where(
+            and(
+              eq(contacts.phone, phone),
+              eq(conversations.whatsappSessionId, wsSession.id)
+            )
+          )
+          .limit(1);
+
+        if (conv) {
+          await db
+            .update(conversations)
+            .set({
+              contactTypingAt: isTyping ? new Date() : null,
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, conv.id));
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
 
     // CONNECTION_UPDATE: atualizar status da sessão
     if (conn) {
