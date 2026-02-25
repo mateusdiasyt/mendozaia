@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { updateAiAgentConfig, testAiAgentConnection } from "@/app/actions/organization";
 import { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent-constants";
-import { Bot, Loader2, Trash2 } from "lucide-react";
+import { PROMPT_TEMPLATES, PROMPT_TEMPLATE_CATEGORIES } from "@/lib/prompt-templates";
+import { Bot, Loader2, Trash2, FileText } from "lucide-react";
 
 interface AiAgentFormProps {
   initialConfig: {
@@ -180,11 +181,46 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
       </div>
 
       <div>
+        <label className={labelClass}>Templates de prompt</label>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <select
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id) return;
+              e.target.value = "";
+              const template = PROMPT_TEMPLATES.find((t) => t.id === id);
+              if (!template) return;
+              if (systemPrompt.trim() && !confirm("Substituir o prompt atual pelo template?"))
+                return;
+              setSystemPrompt(template.prompt);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          >
+            <option value="">Usar template...</option>
+            {PROMPT_TEMPLATE_CATEGORIES.map((cat) => (
+              <optgroup key={cat} label={cat}>
+                {PROMPT_TEMPLATES.filter((t) => t.category === cat).map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} — {t.description}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            <FileText className="h-3.5 w-3.5" />
+            Escolha um template e personalize [NOME], [CIDADE] etc.
+          </span>
+        </div>
+      </div>
+
+      <div>
         <label className={labelClass}>Prompt do sistema</label>
         <textarea
           value={systemPrompt}
           onChange={(e) => setSystemPrompt(e.target.value)}
-          rows={8}
+          rows={12}
           className={inputClass}
           placeholder="Instruções para o comportamento do assistente..."
         />
