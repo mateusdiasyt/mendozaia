@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -27,12 +28,16 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-screen w-60 flex-col border-r border-slate-200 bg-white shadow-sm">
-      <div className="flex h-16 items-center border-b border-slate-100 px-6">
-        <Link
-          href="/dashboard"
-          className="text-lg font-semibold tracking-tight text-slate-900"
-        >
-          Mendoza IA
+      <div className="flex h-16 items-center justify-center border-b border-slate-100 px-4">
+        <Link href="/dashboard" className="flex items-center">
+          <Image
+            src="/logo.png"
+            alt="Mendoza - Atendimento com IA"
+            width={140}
+            height={40}
+            priority
+            className="h-10 w-auto max-w-[140px] object-contain object-left"
+          />
         </Link>
       </div>
 

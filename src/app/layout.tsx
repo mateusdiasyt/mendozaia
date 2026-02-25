@@ -12,6 +12,9 @@ const plusJakarta = Plus_Jakarta_Sans({
 export const metadata: Metadata = {
   title: "Mendoza IA - CRM WhatsApp",
   description: "Plataforma profissional de automação de WhatsApp",
+  icons: {
+    icon: "/icon.png",
+  },
 };
 
 export default function RootLayout({
