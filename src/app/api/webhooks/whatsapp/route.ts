@@ -376,6 +376,7 @@ export async function POST(request: NextRequest) {
         const apiKey = aiAgent.apiKey || undefined;
         const reply = await generateAIReply(
           conversation.id,
+          contact.id,
           messageText,
           systemPrompt,
           model,

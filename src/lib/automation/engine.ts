@@ -127,6 +127,7 @@ async function executeAction(
     try {
       const reply = await generateAIReply(
         context.conversationId,
+        context.contactId,
         context.messageContent,
         systemPrompt,
         model,

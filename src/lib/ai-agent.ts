@@ -1,5 +1,5 @@
 /**
- * Agente de IA com Gemini - gera respostas baseadas no histórico da conversa.
+ * Agente de IA com Gemini - gera respostas baseadas no histórico e memórias do contato.
  */
 
 import { GoogleGenerativeAI, GenerativeModel } from "@google/generative-ai";
@@ -7,9 +7,16 @@ import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
+import {
+  getContactMemories,
+  saveContactMemory,
+  formatMemoriesForPrompt,
+} from "./contact-memories";
 
 export { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "./ai-agent-constants";
 export type { GeminiModel } from "./ai-agent-constants";
+
+const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
 
 /** Retry com backoff ao receber 429 (rate limit). */
 async function generateWithRetry(
@@ -39,8 +46,24 @@ async function generateWithRetry(
   throw lastError;
 }
 
+function extractAndRemoveMemories(text: string): {
+  cleanReply: string;
+  memories: Array<{ key: string; value: string }>;
+} {
+  const memories: Array<{ key: string; value: string }> = [];
+  const cleanReply = text.replace(MEMORY_EXTRACT_REGEX, (_, key, value) => {
+    memories.push({ key: key?.trim() ?? "", value: value?.trim() ?? "" });
+    return "";
+  });
+  return {
+    cleanReply: cleanReply.replace(/\n{3,}/g, "\n\n").trim(),
+    memories: memories.filter((m) => m.key && m.value),
+  };
+}
+
 export async function generateAIReply(
   conversationId: string,
+  contactId: string,
   newMessage: string,
   systemPrompt: string,
   model: string = "gemini-2.0-flash",
@@ -53,16 +76,20 @@ export async function generateAIReply(
 
   const genAI = new GoogleGenerativeAI(apiKey);
 
-  const recentMessages = await db
-    .select({
-      direction: messages.direction,
-      content: messages.content,
-    })
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .limit(30);
+  const [memories, recentMessages] = await Promise.all([
+    getContactMemories(contactId),
+    db
+      .select({
+        direction: messages.direction,
+        content: messages.content,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .limit(50),
+  ]);
 
+  const memoriesBlock = formatMemoriesForPrompt(memories);
   const historyText = recentMessages
     .filter((m): m is { direction: string; content: string } => !!m.content)
     .map((m) =>
@@ -70,23 +97,48 @@ export async function generateAIReply(
     )
     .join("\n");
 
-  const prompt = historyText
+  const memoryInstruction = `
+Quando o cliente informar algo importante (nome, email, preferências, pedido, etc.), adicione no FINAL da sua resposta, em linhas separadas: [MEMÓRIA:chave=valor]
+Exemplo: se o cliente disser "meu nome é João", termine sua resposta com: [MEMÓRIA:name=João]
+Use apenas uma linha por informação. Não invente informações.`;
+
+  const basePrompt = memoriesBlock
     ? `${systemPrompt}
 
-Histórico da conversa:
+${memoriesBlock}
+${memoryInstruction}`
+    : `${systemPrompt}
+${memoryInstruction}`;
+
+  const fullPrompt = historyText
+    ? `${basePrompt}
+
+Histórico recente da conversa:
 ${historyText}
 
 Cliente: ${newMessage}
 
 Atendente:`
-    : `${systemPrompt}
+    : `${basePrompt}
 
 Cliente: ${newMessage}
 
 Atendente:`;
 
   const generativeModel = genAI.getGenerativeModel({ model });
-  return generateWithRetry(generativeModel, prompt);
+  const rawReply = await generateWithRetry(generativeModel, fullPrompt);
+
+  const { cleanReply, memories: newMemories } = extractAndRemoveMemories(rawReply);
+
+  for (const m of newMemories) {
+    try {
+      await saveContactMemory(contactId, m.key, m.value);
+    } catch (err) {
+      console.error("[ai-agent] Failed to save memory:", err);
+    }
+  }
+
+  return cleanReply || rawReply;
 }
 
 /** Testa a conexão com o Gemini sem precisar de conversa. */

@@ -133,6 +133,22 @@ export const contacts = pgTable("contacts", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/** Memórias extraídas pela IA sobre o contato (nome, preferências, etc.) */
+export const contactMemories = pgTable(
+  "contact_memories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    key: text("key").notNull(), // ex: "name", "email", "preferences"
+    value: text("value").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("contact_memories_contact_key_idx").on(t.contactId, t.key)]
+);
+
 export const contactTags = pgTable(
   "contact_tags",
   {
