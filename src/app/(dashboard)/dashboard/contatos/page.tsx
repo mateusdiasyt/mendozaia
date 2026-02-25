@@ -73,10 +73,10 @@ export default async function ContatosPage() {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <Link
-                      href={`/dashboard?contact=${contact.id}`}
+                      href="/dashboard/conversas"
                       className="text-sm text-indigo-400 hover:text-indigo-300"
                     >
-                      Conversar
+                      Ver conversas
                     </Link>
                   </td>
                 </tr>

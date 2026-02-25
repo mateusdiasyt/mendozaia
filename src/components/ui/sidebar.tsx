@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { href: "/dashboard", label: "Conversas", icon: MessageSquare },
+  { href: "/dashboard/conversas", label: "Conversas", icon: MessageSquare },
   { href: "/dashboard/contatos", label: "Contatos", icon: Users },
   { href: "/dashboard/whatsapp", label: "WhatsApp", icon: MessageCircle },
   { href: "/dashboard/automacao", label: "Automação", icon: Zap },
@@ -34,7 +34,8 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 p-4">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive =
+          pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}

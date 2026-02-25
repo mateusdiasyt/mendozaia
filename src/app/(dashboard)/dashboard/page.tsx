@@ -38,7 +38,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <Link
-          href="/dashboard"
+          href="/dashboard/conversas"
           className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-6 transition-colors hover:border-indigo-500/50 hover:bg-zinc-900"
         >
           <MessageSquare className="h-10 w-10 text-indigo-400" />
