@@ -135,6 +135,24 @@ function extractDate(text: string, now: Date): { year: number; month: number; da
     return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
   }
 
+  // Ex.: "dia 26 as 14h" (sem mês explícito) -> assume mês atual, ou próximo mês se já passou
+  const dayOnly = text.match(/\bdia\s+(\d{1,2})\b/i);
+  if (dayOnly) {
+    const day = Number(dayOnly[1]);
+    if (day >= 1 && day <= 31) {
+      let year = now.getFullYear();
+      let month = now.getMonth() + 1;
+      const tentative = new Date(year, month - 1, day, 0, 0, 0, 0);
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      if (tentative < today) {
+        const nextMonthBase = new Date(year, month, 1);
+        year = nextMonthBase.getFullYear();
+        month = nextMonthBase.getMonth() + 1;
+      }
+      return { year, month, day };
+    }
+  }
+
   const monthMap: Record<string, number> = {
     janeiro: 1,
     fevereiro: 2,
