@@ -170,20 +170,27 @@ export async function POST(request: NextRequest) {
         businessHours: settings?.businessHours,
       },
       {
-        // Injetar executor para envio via API VPS quando implementado
-        sendMessage: async (convId, message) => {
+        sendMessage: async (_convId, message) => {
           const apiUrl = process.env.WHATSAPP_API_URL;
-          if (apiUrl) {
-            await fetch(`${apiUrl}/send-message`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sessionId,
-                to: phone,
-                text: message,
-              }),
-            });
+          const apiKey = process.env.EVOLUTION_API_KEY;
+          if (!apiUrl) return;
+
+          const instanceName = session.sessionId;
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+          if (apiKey) {
+            headers["apikey"] = apiKey;
           }
+
+          await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              number: phone.replace(/\D/g, ""),
+              text: message,
+            }),
+          });
         },
       }
     );

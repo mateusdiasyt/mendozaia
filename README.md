@@ -51,7 +51,8 @@ npm run dev
 | `DATABASE_URL` | Connection string do Neon PostgreSQL |
 | `AUTH_SECRET` | Segredo para NextAuth (gere com `openssl rand -base64 32`) |
 | `NEXTAUTH_URL` | URL base da aplicação |
-| `WHATSAPP_API_URL` | URL da API do WhatsApp na VPS |
+| `WHATSAPP_API_URL` | URL da Evolution API (ex: https://mendozaia-evolution-api.bohu4g.easypanel.host) |
+| `EVOLUTION_API_KEY` | API key da Evolution API (obtida no Manager) |
 
 ## Estrutura
 
@@ -75,3 +76,11 @@ src/
 - `npm run start` - Servidor de produção
 - `npm run db:push` - Aplicar schema no banco
 - `npm run db:generate` - Gerar migrações
+
+## Troubleshooting
+
+**Erro 500 ao criar conta?** Verifique:
+
+1. **Tabelas existem?** Rode `npm run db:push` localmente com o mesmo `DATABASE_URL` da Vercel (copie do projeto Vercel → Settings → Environment Variables)
+2. **DATABASE_URL** está correta na Vercel e aponta para o Neon
+3. Após alterar variáveis na Vercel, faça um novo deploy (Redeploy)

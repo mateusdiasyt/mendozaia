@@ -10,33 +10,38 @@ import { nanoid } from "nanoid";
 import { AuthError } from "next-auth";
 
 export async function signUp(formData: FormData) {
-  const raw = {
-    name: formData.get("name") as string,
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
-    confirmPassword: formData.get("confirmPassword") as string,
-    organizationName: formData.get("organizationName") as string,
-  };
-
-  const parsed = signUpSchema.safeParse(raw);
-  if (!parsed.success) {
-    return {
-      error: parsed.error.flatten().fieldErrors,
+  try {
+    const raw = {
+      name: formData.get("name") as string,
+      email: formData.get("email") as string,
+      password: formData.get("password") as string,
+      confirmPassword: formData.get("confirmPassword") as string,
+      organizationName: formData.get("organizationName") as string,
     };
-  }
 
-  const { name, email, password, organizationName } = parsed.data;
+    const parsed = signUpSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        error: parsed.error.flatten().fieldErrors,
+      };
+    }
 
-  const [existing] = await db.select().from(users).where(eq(users.email, email));
-  if (existing) {
-    return { error: { email: ["Este email já está cadastrado"] } };
-  }
+    const { name, email, password, organizationName } = parsed.data;
 
-  const passwordHash = await bcrypt.hash(password, 12);
-  const userId = crypto.randomUUID();
+    if (!process.env.DATABASE_URL) {
+      console.error("[signUp] DATABASE_URL não configurada");
+      return { error: { _form: ["Erro de configuração. Verifique as variáveis de ambiente."] } };
+    }
 
-  await db.transaction(async (tx) => {
-    await tx.insert(users).values({
+    const [existing] = await db.select().from(users).where(eq(users.email, email));
+    if (existing) {
+      return { error: { email: ["Este email já está cadastrado"] } };
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const userId = crypto.randomUUID();
+
+    await db.insert(users).values({
       id: userId,
       name,
       email,
@@ -44,7 +49,7 @@ export async function signUp(formData: FormData) {
     });
 
     const slug = `${organizationName.toLowerCase().replace(/\s+/g, "-")}-${nanoid(6)}`;
-    const [org] = await tx
+    const [org] = await db
       .insert(organizations)
       .values({
         name: organizationName,
@@ -52,16 +57,22 @@ export async function signUp(formData: FormData) {
       })
       .returning();
 
-    if (org) {
-      await tx.insert(memberships).values({
-        userId,
-        organizationId: org.id,
-        role: "admin",
-      });
+    if (!org) {
+      throw new Error("Falha ao criar organização");
     }
-  });
 
-  return { success: true };
+    await db.insert(memberships).values({
+      userId,
+      organizationId: org.id,
+      role: "admin",
+    });
+
+    return { success: true };
+  } catch (err) {
+    console.error("[signUp] Erro:", err);
+    const message = err instanceof Error ? err.message : "Erro ao criar conta";
+    return { error: { _form: [message] } };
+  }
 }
 
 export async function signInAction(formData: FormData) {
