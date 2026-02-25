@@ -1,19 +1,19 @@
 import type { ListReservation } from "@/app/actions/reservations";
 import { CancelReservationButton } from "./cancel-reservation-button";
 
-function formatDate(d: Date) {
-  return new Date(d).toLocaleDateString("pt-BR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+function formatDate(d: Date | string) {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  const day = dt.getDate().toString().padStart(2, "0");
+  const month = (dt.getMonth() + 1).toString().padStart(2, "0");
+  const year = dt.getFullYear();
+  return `${day}/${month}/${year}`;
 }
 
-function formatTime(d: Date) {
-  return new Date(d).toLocaleTimeString("pt-BR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatTime(d: Date | string) {
+  const dt = typeof d === "string" ? new Date(d) : d;
+  const hour = dt.getHours().toString().padStart(2, "0");
+  const minute = dt.getMinutes().toString().padStart(2, "0");
+  return `${hour}:${minute}`;
 }
 
 function statusLabel(s: string) {
@@ -74,7 +74,7 @@ export function ReservationsTable({
               key={r.id}
               className="border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-0"
             >
-              <td className="px-6 py-4">
+              <td className="px-6 py-4" suppressHydrationWarning>
                 <span className="font-medium text-slate-900">
                   {formatDate(r.startAt)}
                 </span>

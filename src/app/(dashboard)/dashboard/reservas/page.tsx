@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { listReservations } from "@/app/actions/reservations";
 import Link from "next/link";
@@ -31,16 +32,34 @@ export default async function ReservasPage({
     );
   }
 
-  const params = await searchParams;
-  const from = params.from ? new Date(params.from) : undefined;
-  const to = params.to ? new Date(params.to) : undefined;
-  const status = params.status;
+  let reservations: Awaited<ReturnType<typeof listReservations>>["reservations"] = [];
+  try {
+    const params = await searchParams;
+    const fromStr = params.from?.trim();
+    const toStr = params.to?.trim();
+    const from = fromStr && !Number.isNaN(Date.parse(fromStr)) ? new Date(fromStr) : undefined;
+    const to = toStr && !Number.isNaN(Date.parse(toStr)) ? new Date(toStr) : undefined;
+    const status = params.status?.trim() || undefined;
 
-  const { reservations } = await listReservations({
-    from,
-    to,
-    status: status || undefined,
-  });
+    const result = await listReservations({
+      from,
+      to,
+      status: status || undefined,
+    });
+    reservations = result.reservations;
+  } catch (err) {
+    console.error("[reservas] Erro ao carregar:", err);
+    return (
+      <div className="p-8">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+          <p className="font-medium">Erro ao carregar reservas</p>
+          <p className="mt-1 text-sm">
+            Verifique se as migrações do banco foram executadas (db:push ou db:migrate).
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8">
@@ -60,7 +79,9 @@ export default async function ReservasPage({
         </Link>
       </div>
 
-      <ReservationsFilters className="mb-6" />
+      <Suspense fallback={<div className="mb-6 h-20 animate-pulse rounded-xl bg-slate-100" />}>
+        <ReservationsFilters className="mb-6" />
+      </Suspense>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <ReservationsTable reservations={reservations} />

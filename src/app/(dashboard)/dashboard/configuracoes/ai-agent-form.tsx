@@ -210,7 +210,7 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
           </select>
           <span className="flex items-center gap-1.5 text-xs text-slate-500">
             <FileText className="h-3.5 w-3.5" />
-            Escolha um template e personalize [NOME], [CIDADE] etc.
+            Escolha um template e substitua [NOME], [CIDADE], [VEICULOS_ATENDIDOS] etc.
           </span>
         </div>
       </div>
