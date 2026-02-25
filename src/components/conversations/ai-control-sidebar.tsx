@@ -8,40 +8,41 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import {
-  setConversationAIDisabled,
-  setConversationAIEnabled,
-  AI_DISABLE_DURATIONS,
-} from "@/app/actions/messages";
+import { setConversationAIDisabled, setConversationAIEnabled } from "@/app/actions/messages";
+import { AI_DISABLE_DURATIONS } from "@/lib/conversation-ai";
 
 interface AIControlSidebarProps {
   conversationId: string;
-  aiDisabledUntil: Date | null;
+  aiDisabledUntil: Date | string | null;
 }
 
 export function AIControlSidebar({
   conversationId,
   aiDisabledUntil,
 }: AIControlSidebarProps) {
-  const [until, setUntil] = useState<Date | null>(
-    aiDisabledUntil ? new Date(aiDisabledUntil) : null
-  );
+  const [until, setUntil] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     setUntil(aiDisabledUntil ? new Date(aiDisabledUntil) : null);
   }, [aiDisabledUntil]);
 
-  const isDisabled = until && until > new Date();
-  const untilFormatted = until
-    ? until.toLocaleString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : null;
+  const isDisabled = mounted && until && until > new Date();
+  const untilFormatted =
+    mounted && until && isDisabled
+      ? until.toLocaleString("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : null;
 
   async function handleDisable(hours: number) {
     setLoading(true);
@@ -81,22 +82,26 @@ export function AIControlSidebar({
         {/* Status */}
         <div
           className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
-            isDisabled ? "bg-amber-50" : "bg-emerald-50"
+            !mounted ? "bg-[#f5f6f6]" : isDisabled ? "bg-amber-50" : "bg-emerald-50"
           }`}
         >
-          {isDisabled ? (
+          {!mounted ? (
+            <Bot className="h-5 w-5 shrink-0 text-[#667781]" />
+          ) : isDisabled ? (
             <BotOff className="h-5 w-5 shrink-0 text-amber-600" />
           ) : (
             <Bot className="h-5 w-5 shrink-0 text-emerald-600" />
           )}
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-[#111b21]">
-              {isDisabled ? "IA desativada" : "IA ativa"}
+              {!mounted ? "Carregando..." : isDisabled ? "IA desativada" : "IA ativa"}
             </p>
             <p className="text-xs text-[#667781]">
-              {isDisabled
+              {isDisabled && untilFormatted
                 ? `Até ${untilFormatted}`
-                : "Respondendo automaticamente"}
+                : !mounted
+                  ? "..."
+                  : "Respondendo automaticamente"}
             </p>
           </div>
         </div>
