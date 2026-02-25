@@ -67,20 +67,20 @@ export function ChatView({
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      {/* Fundo com padrão sutil estilo WhatsApp */}
+      {/* Fundo com padrão sutil - pointer-events-none para não bloquear cliques */}
       <div
-        className="absolute inset-0 opacity-[0.04]"
+        className="pointer-events-none absolute inset-0 opacity-[0.05]"
         style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23667781' fill-opacity='0.5'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
         }}
       />
 
       <div
         ref={scrollRef}
-        className="relative flex-1 overflow-y-auto p-6 space-y-2"
+        className="relative z-10 flex-1 overflow-y-auto p-6 space-y-2"
       >
         {messages.length === 0 ? (
-          <p className="py-12 text-center text-sm text-[#8696a0]">
+          <p className="py-12 text-center text-sm text-[#667781]">
             Nenhuma mensagem ainda. Envie a primeira!
           </p>
         ) : (
@@ -92,10 +92,10 @@ export function ChatView({
               }`}
             >
               <div
-                className={`max-w-[65%] rounded-lg px-3 py-2 shadow-md ${
+                className={`max-w-[65%] rounded-lg px-3 py-2 shadow-sm ${
                   msg.direction === "outbound"
-                    ? "bg-[#005c4b] text-[#e9edef] rounded-br-md"
-                    : "bg-[#202c33] text-[#e9edef] rounded-bl-md"
+                    ? "bg-[#d9fdd3] text-[#111b21]"
+                    : "bg-white text-[#111b21] shadow-md"
                 }`}
               >
                 {msg.contentType === "text" && msg.content ? (
@@ -116,7 +116,7 @@ export function ChatView({
                       href={msg.mediaUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm underline"
+                      className="text-sm underline text-[#00a884]"
                     >
                       [{msg.contentType}]
                     </a>
@@ -125,13 +125,7 @@ export function ChatView({
                   <p className="text-sm opacity-70">[Mídia]</p>
                 )}
                 <div className="mt-1 flex items-center justify-end gap-1">
-                  <span
-                    className={`text-[10px] ${
-                      msg.direction === "outbound"
-                        ? "text-[#99beb7]"
-                        : "text-[#8696a0]"
-                    }`}
-                  >
+                  <span className="text-[10px] text-[#667781]">
                     {new Date(msg.createdAt).toLocaleTimeString("pt-BR", {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -154,10 +148,10 @@ export function ChatView({
       {/* Input */}
       <form
         onSubmit={handleSubmit}
-        className="relative shrink-0 border-t border-[#2a3942] bg-[#202c33] p-3"
+        className="relative z-10 shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] p-3"
       >
         {error && (
-          <p className="mb-2 text-sm text-red-400">{error}</p>
+          <p className="mb-2 text-sm text-red-500">{error}</p>
         )}
         <div className="flex items-end gap-2">
           <input
@@ -166,7 +160,7 @@ export function ChatView({
             onChange={(e) => setInput(e.target.value)}
             placeholder="Digite uma mensagem"
             disabled={loading}
-            className="flex-1 rounded-lg border-0 bg-[#2a3942] px-4 py-3 text-[#e9edef] placeholder-[#8696a0] focus:outline-none focus:ring-1 focus:ring-[#00a884] disabled:opacity-50"
+            className="flex-1 rounded-lg border-0 bg-white px-4 py-3 text-[#111b21] shadow-sm placeholder-[#667781] focus:outline-none focus:ring-1 focus:ring-[#00a884] disabled:opacity-50"
           />
           <button
             type="submit"

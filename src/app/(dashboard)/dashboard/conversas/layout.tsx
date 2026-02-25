@@ -38,9 +38,9 @@ export default async function ConversasLayout({
     .orderBy(desc(conversations.lastMessageAt));
 
   return (
-    <div className="flex h-[calc(100vh-0px)] min-h-[500px] w-full shrink-0">
+    <div className="flex min-h-0 w-full flex-1 shrink-0">
       <ConversationList list={list} />
-      <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-[#0b141a]">
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-[#efeae2]">
         {children}
       </div>
     </div>

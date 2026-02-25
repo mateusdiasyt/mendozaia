@@ -58,17 +58,17 @@ export default async function ConversaPage({
 
   return (
     <>
-      {/* Header estilo WhatsApp Web */}
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#2a3942] bg-[#202c33] px-4">
+      {/* Header tema claro WhatsApp Web */}
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#e9edef] bg-[#f0f2f5] px-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-sm font-medium text-white">
             {initials}
           </div>
           <div>
-            <h1 className="font-medium text-[#e9edef]">
+            <h1 className="font-medium text-[#111b21]">
               {displayName}
             </h1>
-            <p className="text-xs text-[#8696a0]">
+            <p className="text-xs text-[#667781]">
               {conv.contactPhone}
               {conv.sessionName && ` · ${conv.sessionName}`}
             </p>
@@ -77,7 +77,7 @@ export default async function ConversaPage({
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
             title="Vide chamada"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -86,7 +86,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
             title="Ligar"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -95,7 +95,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
             title="Buscar"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -104,7 +104,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#8696a0] transition-colors hover:bg-[#2a3942] hover:text-white"
+            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
             title="Menu"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
