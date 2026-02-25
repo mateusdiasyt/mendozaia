@@ -46,3 +46,33 @@ export async function updateAiAgentConfig(config: AiAgentConfig) {
 
   return { success: true };
 }
+
+export async function testAiAgentConnection() {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
+
+  const { testAIConnection } = await import("@/lib/ai-agent");
+  const { DEFAULT_SYSTEM_PROMPT } = await import("@/lib/ai-agent-constants");
+
+  try {
+    const reply = await testAIConnection(
+      (aiAgent.systemPrompt as string) || DEFAULT_SYSTEM_PROMPT,
+      (aiAgent.model as string) || "gemini-1.5-flash",
+      (aiAgent.apiKey as string) || undefined
+    );
+    return { success: true, reply };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : "Erro ao testar a IA",
+    };
+  }
+}

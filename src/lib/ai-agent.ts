@@ -67,3 +67,27 @@ Atendente:`;
 
   return text.trim();
 }
+
+/** Testa a conexão com o Gemini sem precisar de conversa. */
+export async function testAIConnection(
+  systemPrompt: string,
+  model: string,
+  apiKeyOverride?: string | null
+): Promise<string> {
+  const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("Chave da API Gemini não configurada.");
+  }
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const prompt = `${systemPrompt}
+
+Cliente: Oi, tudo bem?
+
+Atendente:`;
+
+  const result = await genAI.getGenerativeModel({ model }).generateContent(prompt);
+  const text = result.response.text();
+  if (!text) throw new Error("Resposta vazia da IA");
+  return text.trim();
+}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateAiAgentConfig } from "@/app/actions/organization";
+import { updateAiAgentConfig, testAiAgentConnection } from "@/app/actions/organization";
 import { GEMINI_MODELS, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent-constants";
 import { Bot, Loader2, Trash2 } from "lucide-react";
 
@@ -29,6 +29,8 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
   );
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -188,7 +190,7 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
         </p>
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <button
           type="submit"
           disabled={saving}
@@ -203,7 +205,41 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
             "Salvar configurações"
           )}
         </button>
+        <button
+          type="button"
+          disabled={saving || testing}
+          onClick={async () => {
+            setTesting(true);
+            setTestResult(null);
+            setMessage(null);
+            const result = await testAiAgentConnection();
+            setTesting(false);
+            if (result?.error) {
+              setMessage({ type: "error", text: result.error });
+            } else if (result?.reply) {
+              setTestResult(result.reply);
+              setMessage({ type: "success", text: "Conexão com a IA funcionando!" });
+            }
+          }}
+          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
+        >
+          {testing ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Testando...
+            </>
+          ) : (
+            "Testar IA"
+          )}
+        </button>
       </div>
+
+      {testResult && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-700">Resposta de teste:</p>
+          <p className="mt-2 text-slate-600">{testResult}</p>
+        </div>
+      )}
     </form>
   );
 }

@@ -114,16 +114,21 @@ export async function POST(request: NextRequest) {
 
     const sessionId = body.instance ?? body.instanceName ?? body.sessionId;
 
-    // MESSAGES_UPSERT: processar mensagem
-    const msgSessionId =
-      sessionId ?? body.data?.key?.remoteJid?.split("@")[0];
+    // MESSAGES_UPSERT: Evolution API pode enviar payload em body.data ou no root
+    const payload = (body.data ?? body) as Record<string, unknown>;
+    const key = (payload?.key ?? body.data?.key) as { remoteJid?: string; fromMe?: boolean } | undefined;
+    const msg = (payload?.message ?? body.data?.message) as MessageContent | undefined;
+
+    const msgSessionId = sessionId;
     if (!msgSessionId) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     }
 
-    const isInbound = !body.data?.key?.fromMe;
-    const msg = body.data?.message;
-    const remoteJid = body.data?.key?.remoteJid;
+    const isInbound = !key?.fromMe;
+    let remoteJid = key?.remoteJid;
+    if (typeof remoteJid === "string" && !remoteJid.includes("@")) {
+      remoteJid = `${remoteJid}@s.whatsapp.net`;
+    }
 
     if (!isInbound || !remoteJid) {
       return NextResponse.json({ ok: true }); // Ignora mensagens outbound
@@ -291,10 +296,13 @@ export async function POST(request: NextRequest) {
       | undefined;
 
     const executor = {
-      sendMessage: async (_convId: string, message: string) => {
+      sendMessage: async (convId: string, message: string) => {
         const apiUrl = process.env.WHATSAPP_API_URL;
         const apiKey = process.env.EVOLUTION_API_KEY;
-        if (!apiUrl) return;
+        if (!apiUrl) {
+          console.error("[webhook] WHATSAPP_API_URL não configurada");
+          return;
+        }
 
         const instanceName = session.sessionId;
         const headers: Record<string, string> = {
@@ -304,14 +312,34 @@ export async function POST(request: NextRequest) {
           headers["apikey"] = apiKey;
         }
 
-        await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
+        const number = phone.replace(/\D/g, "");
+        const res = await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
           method: "POST",
           headers,
-          body: JSON.stringify({
-            number: phone.replace(/\D/g, ""),
-            text: message,
-          }),
+          body: JSON.stringify({ number, text: message }),
         });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          console.error("[webhook] Evolution API sendText failed:", res.status, err);
+          return;
+        }
+
+        await db.insert(messages).values({
+          conversationId: convId,
+          direction: "outbound",
+          contentType: "text",
+          content: message,
+          status: "sent",
+        });
+        await db
+          .update(conversations)
+          .set({
+            lastMessageAt: new Date(),
+            lastMessagePreview: message.slice(0, 100),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, convId));
       },
     };
 
