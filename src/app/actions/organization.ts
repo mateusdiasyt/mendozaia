@@ -66,7 +66,7 @@ export async function testAiAgentConnection() {
   try {
     const reply = await testAIConnection(
       (aiAgent.systemPrompt as string) || DEFAULT_SYSTEM_PROMPT,
-      (aiAgent.model as string) || "gemini-1.5-flash",
+      (aiAgent.model as string) || "gemini-2.0-flash",
       (aiAgent.apiKey as string) || undefined
     );
     return { success: true, reply };

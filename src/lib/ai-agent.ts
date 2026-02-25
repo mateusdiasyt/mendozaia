@@ -15,7 +15,7 @@ export async function generateAIReply(
   conversationId: string,
   newMessage: string,
   systemPrompt: string,
-  model: string = "gemini-1.5-flash",
+  model: string = "gemini-2.0-flash",
   apiKeyOverride?: string | null
 ): Promise<string> {
   const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;

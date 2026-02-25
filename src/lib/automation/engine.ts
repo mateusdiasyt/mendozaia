@@ -117,7 +117,7 @@ async function executeAction(
 
     const aiAgent = (org?.settings as { aiAgent?: { systemPrompt?: string; model?: string; apiKey?: string | null } })?.aiAgent;
     const systemPrompt = aiAgent?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    const model = aiAgent?.model || "gemini-1.5-flash";
+    const model = aiAgent?.model || "gemini-2.0-flash";
     const apiKey = aiAgent?.apiKey || undefined;
 
     try {

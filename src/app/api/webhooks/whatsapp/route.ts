@@ -363,7 +363,7 @@ export async function POST(request: NextRequest) {
     if (!didReply && aiAgent?.enabled && aiAgent?.useAsFallback && messageText) {
       try {
         const systemPrompt = aiAgent.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-        const model = aiAgent.model || "gemini-1.5-flash";
+        const model = aiAgent.model || "gemini-2.0-flash";
         const apiKey = aiAgent.apiKey || undefined;
         const reply = await generateAIReply(
           conversation.id,

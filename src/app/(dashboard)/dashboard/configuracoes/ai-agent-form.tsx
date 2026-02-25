@@ -25,7 +25,7 @@ export function AiAgentForm({ initialConfig }: AiAgentFormProps) {
     initialConfig.systemPrompt || DEFAULT_SYSTEM_PROMPT
   );
   const [model, setModel] = useState(
-    initialConfig.model || "gemini-1.5-flash"
+    initialConfig.model || "gemini-2.0-flash"
   );
   const [apiKey, setApiKey] = useState("");
   const [saving, setSaving] = useState(false);
