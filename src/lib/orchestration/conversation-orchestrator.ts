@@ -211,7 +211,7 @@ function enforceReservationReply(ctx: OrchestrationContext, aiReply: string): st
     return aiReply;
   }
 
-  if (ctx.usesVehicleSlots && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
+  if (ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
     if (containsDateOrTimeHint(ctx.messageContent)) {
       return "Perfeito, recebi sua data e horário. Vou consultar a disponibilidade agora.";
     }
@@ -249,15 +249,17 @@ export async function loadConversationContext(
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
   const systemPrompt = (aiAgent.systemPrompt as string) ?? "";
+  const reservationsEnabled = !!(settings.reservationsEnabled as boolean);
   const usesVehicleSlots =
     /modelo|ano|quilometragem|veículo/i.test(systemPrompt) &&
     /agendamento|agendar|mecânica/i.test(systemPrompt);
+  const shouldExtractVehicleSlots = usesVehicleSlots || reservationsEnabled;
 
   const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
   const existingSlots = metadata.vehicleSlots as VehicleSlots | undefined;
 
   let vehicleSlots = existingSlots;
-  if (usesVehicleSlots) {
+  if (shouldExtractVehicleSlots) {
     // Buscar as 20 mensagens MAIS RECENTES (não as primeiras 20 da conversa)
     const recentDesc = await db
       .select({ direction: messages.direction, content: messages.content })
@@ -295,10 +297,10 @@ export async function loadConversationContext(
     handoffReason: conv.handoffReason ?? null,
     isPriority: conv.isPriority ?? false,
     assignedToId: conv.assignedToId ?? null,
-    reservationsEnabled: !!(settings.reservationsEnabled as boolean),
+    reservationsEnabled,
     aiAgentEnabled: !!(aiAgent.enabled as boolean),
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
-    vehicleSlots: usesVehicleSlots ? vehicleSlots : undefined,
+    vehicleSlots: shouldExtractVehicleSlots ? vehicleSlots : undefined,
     usesVehicleSlots,
   };
 }
@@ -479,6 +481,12 @@ export async function processInboundMessage(
     stateBefore: ctx.conversationState,
     decision: result.decision,
     reason: result.reason,
+    metadata: {
+      reservationsEnabled: ctx.reservationsEnabled,
+      usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+      vehicleSlots: ctx.vehicleSlots ?? null,
+      messageContent: ctx.messageContent,
+    },
   });
 
   if (options.automationDidReply) {
@@ -498,7 +506,6 @@ export async function processInboundMessage(
   // consulta disponibilidade direto no sistema de reservas (sem depender da IA).
   if (
     ctx.reservationsEnabled &&
-    ctx.usesVehicleSlots &&
     ctx.vehicleSlots &&
     hasAllVehicleSlots(ctx.vehicleSlots)
   ) {

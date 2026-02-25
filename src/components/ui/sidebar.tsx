@@ -13,6 +13,7 @@ import {
   MessageCircle,
   LayoutDashboard,
   Calendar,
+  Activity,
 } from "lucide-react";
 
 const baseNavItems = [
@@ -40,6 +41,7 @@ export function Sidebar({
           },
         ]
       : []),
+    { href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity },
     ...baseNavItems.slice(4),
   ];
   const pathname = usePathname();
