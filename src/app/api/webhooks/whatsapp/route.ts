@@ -16,13 +16,43 @@ import {
 import { eq, and } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 
-// Formato esperado da Evolution API
+// Formato esperado da Evolution API (texto e mídia)
+interface MessageContent {
+  conversation?: string;
+  extendedTextMessage?: { text?: string };
+  imageMessage?: {
+    caption?: string;
+    url?: string;
+    base64?: string;
+    mimetype?: string;
+  };
+  audioMessage?: {
+    url?: string;
+    base64?: string;
+    mimetype?: string;
+    ptt?: boolean;
+  };
+  videoMessage?: {
+    caption?: string;
+    url?: string;
+    base64?: string;
+    mimetype?: string;
+  };
+  documentMessage?: {
+    caption?: string;
+    url?: string;
+    base64?: string;
+    mimetype?: string;
+    fileName?: string;
+  };
+}
+
 interface WebhookPayload {
   instance?: string;
   event?: string;
   data?: {
     key?: { remoteJid?: string; fromMe?: boolean };
-    message?: { conversation?: string; extendedTextMessage?: { text?: string } };
+    message?: MessageContent;
     state?: string;
   };
 }
@@ -60,13 +90,48 @@ export async function POST(request: NextRequest) {
     }
 
     const isInbound = !body.data?.key?.fromMe;
-    const messageText =
-      body.data?.message?.conversation ??
-      body.data?.message?.extendedTextMessage?.text;
+    const msg = body.data?.message;
     const remoteJid = body.data?.key?.remoteJid;
 
     if (!isInbound || !remoteJid) {
       return NextResponse.json({ ok: true }); // Ignora mensagens outbound
+    }
+
+    // Extrair texto e mídia da mensagem
+    let messageText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
+    let contentType = "text" as string;
+    let mediaUrl: string | null = null;
+    const metadata: Record<string, unknown> = {};
+
+    if (msg?.imageMessage) {
+      contentType = "image";
+      messageText = msg.imageMessage.caption ?? messageText;
+      mediaUrl = msg.imageMessage.base64
+        ? `data:${msg.imageMessage.mimetype ?? "image/jpeg"};base64,${msg.imageMessage.base64}`
+        : msg.imageMessage.url ?? null;
+      metadata.mimetype = msg.imageMessage.mimetype;
+    } else if (msg?.audioMessage) {
+      contentType = msg.audioMessage.ptt ? "audio" : "audio";
+      mediaUrl = msg.audioMessage.base64
+        ? `data:${msg.audioMessage.mimetype ?? "audio/ogg"};base64,${msg.audioMessage.base64}`
+        : msg.audioMessage.url ?? null;
+      metadata.mimetype = msg.audioMessage.mimetype;
+      metadata.ptt = msg.audioMessage.ptt;
+    } else if (msg?.videoMessage) {
+      contentType = "video";
+      messageText = msg.videoMessage.caption ?? messageText;
+      mediaUrl = msg.videoMessage.base64
+        ? `data:${msg.videoMessage.mimetype ?? "video/mp4"};base64,${msg.videoMessage.base64}`
+        : msg.videoMessage.url ?? null;
+      metadata.mimetype = msg.videoMessage.mimetype;
+    } else if (msg?.documentMessage) {
+      contentType = "document";
+      messageText = msg.documentMessage.caption ?? messageText;
+      mediaUrl = msg.documentMessage.base64
+        ? `data:${msg.documentMessage.mimetype ?? "application/octet-stream"};base64,${msg.documentMessage.base64}`
+        : msg.documentMessage.url ?? null;
+      metadata.mimetype = msg.documentMessage.mimetype;
+      metadata.fileName = msg.documentMessage.fileName;
     }
 
     // Buscar sessão WhatsApp e organização
@@ -123,6 +188,11 @@ export async function POST(request: NextRequest) {
       )
       .limit(1);
 
+    const messagePreview =
+      contentType === "text"
+        ? messageText?.slice(0, 100)
+        : `[${contentType}] ${messageText?.slice(0, 80) || ""}`.trim();
+
     if (!conversation) {
       [conversation] = await db
         .insert(conversations)
@@ -131,7 +201,7 @@ export async function POST(request: NextRequest) {
           contactId: contact.id,
           whatsappSessionId: session.id,
           lastMessageAt: new Date(),
-          lastMessagePreview: messageText?.slice(0, 100),
+          lastMessagePreview: messagePreview,
         })
         .returning();
     }
@@ -143,12 +213,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Salvar mensagem recebida
+    // Salvar mensagem recebida (texto e mídia)
     await db.insert(messages).values({
       conversationId: conversation.id,
       direction: "inbound",
-      contentType: "text",
-      content: messageText ?? "",
+      contentType,
+      content: messageText || null,
+      mediaUrl,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
 
     // Atualizar conversa
@@ -156,7 +228,7 @@ export async function POST(request: NextRequest) {
       .update(conversations)
       .set({
         lastMessageAt: new Date(),
-        lastMessagePreview: messageText?.slice(0, 100),
+        lastMessagePreview: messagePreview,
         unreadCount: conversation.unreadCount + 1,
       })
       .where(eq(conversations.id, conversation.id));
@@ -185,7 +257,7 @@ export async function POST(request: NextRequest) {
         conversationId: conversation.id,
         contactId: contact.id,
         contactPhone: phone,
-        messageContent: messageText ?? undefined,
+        messageContent: messageText || undefined,
         messageDirection: "inbound",
         lastMessageAt: new Date(),
         assignedToId: conversation.assignedToId,
