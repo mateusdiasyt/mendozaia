@@ -1,0 +1,237 @@
+import {
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+  boolean,
+  jsonb,
+  integer,
+  primaryKey,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+
+// ==================== AUTH (NextAuth/Auth.js compatible) ====================
+
+export const users = pgTable("users", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  name: text("name"),
+  email: text("email").unique(),
+  emailVerified: timestamp("emailVerified", { mode: "date" }),
+  image: text("image"),
+  passwordHash: text("password_hash"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("providerAccountId").notNull(),
+    refresh_token: text("refresh_token"),
+    access_token: text("access_token"),
+    expires_at: integer("expires_at"),
+    token_type: text("token_type"),
+    scope: text("scope"),
+    id_token: text("id_token"),
+    session_state: text("session_state"),
+  },
+  (account) => ({
+    compositePk: primaryKey({
+      columns: [account.provider, account.providerAccountId],
+    }),
+  })
+);
+
+export const sessions = pgTable("sessions", {
+  sessionToken: text("sessionToken").primaryKey(),
+  userId: text("userId")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expires: timestamp("expires", { mode: "date" }).notNull(),
+});
+
+export const verificationTokens = pgTable(
+  "verification_tokens",
+  {
+    identifier: text("identifier").notNull(),
+    token: text("token").notNull(),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+  },
+  (vt) => ({
+    compositePk: primaryKey({
+      columns: [vt.identifier, vt.token],
+    }),
+  })
+);
+
+// ==================== ORGANIZAÇÕES ====================
+
+export const organizations = pgTable("organizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logo: text("logo"),
+  plan: text("plan").default("free").notNull(),
+  status: text("status").default("active").notNull(), // active, suspended, cancelled
+  settings: jsonb("settings").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const memberships = pgTable(
+  "memberships",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("member"), // admin, member, viewer
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.organizationId] }),
+    uniqueIndex("memberships_user_org_idx").on(t.userId, t.organizationId),
+  ]
+);
+
+// ==================== ETIQUETAS ====================
+
+export const tags = pgTable("tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  color: text("color").default("#6366f1"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== CONTATOS ====================
+
+export const contacts = pgTable("contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  phone: text("phone").notNull(),
+  name: text("name"),
+  email: text("email"),
+  customFields: jsonb("custom_fields").$type<Record<string, string>>(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const contactTags = pgTable(
+  "contact_tags",
+  {
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.contactId, t.tagId] })]
+);
+
+// ==================== SESSÕES WHATSAPP ====================
+
+export const whatsappSessions = pgTable("whatsapp_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull().unique(),
+  name: text("name"),
+  status: text("status").default("disconnected").notNull(), // disconnected, connecting, connected
+  phoneNumber: text("phone_number"),
+  qrCode: text("qr_code"),
+  lastConnectedAt: timestamp("last_connected_at"),
+  vpsApiUrl: text("vps_api_url"),
+  webhookSecret: text("webhook_secret"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== CONVERSAS E MENSAGENS ====================
+
+export const conversations = pgTable("conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  contactId: uuid("contact_id")
+    .notNull()
+    .references(() => contacts.id, { onDelete: "cascade" }),
+  whatsappSessionId: uuid("whatsapp_session_id")
+    .notNull()
+    .references(() => whatsappSessions.id, { onDelete: "cascade" }),
+  pipelineStage: text("pipeline_stage").default("inbox"), // inbox, qualified, proposal, negotiation, closed_won, closed_lost
+  assignedToId: text("assigned_to_id").references(() => users.id, {
+    onDelete: "set null",
+  }),
+  lastMessageAt: timestamp("last_message_at"),
+  lastMessagePreview: text("last_message_preview"),
+  unreadCount: integer("unread_count").default(0).notNull(),
+  isArchived: boolean("is_archived").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const messages = pgTable("messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  waMessageId: text("wa_message_id"),
+  direction: text("direction").notNull(), // inbound, outbound
+  contentType: text("content_type").default("text").notNull(), // text, image, audio, video, document
+  content: text("content"),
+  mediaUrl: text("media_url"),
+  status: text("status").default("sent"), // sent, delivered, read, failed
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// ==================== REGRAS DE AUTOMAÇÃO ====================
+
+export const automationRules = pgTable("automation_rules", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  triggerType: text("trigger_type").notNull(), // keyword, schedule, webhook
+  triggerConfig: jsonb("trigger_config").$type<{
+    keywords?: string[];
+    schedule?: string;
+    [key: string]: unknown;
+  }>(),
+  actionType: text("action_type").notNull(), // reply, assign, tag
+  actionConfig: jsonb("action_config").$type<{
+    message?: string;
+    assignToId?: string;
+    tagId?: string;
+    [key: string]: unknown;
+  }>(),
+  isActive: boolean("is_active").default(true).notNull(),
+  priority: integer("priority").default(0).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== TABELAS DE SISTEMA (Admin) ====================
+// Organizações são os "clientes" do dono da plataforma
