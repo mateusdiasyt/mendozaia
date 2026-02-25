@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { automationRules } from "@/lib/db/schema";
@@ -31,6 +32,7 @@ export async function createAutomationRule(input: CreateRuleInput) {
     priority: input.priority ?? 0,
   });
 
+  revalidatePath("/dashboard/automacao");
   return { success: true };
 }
 
@@ -65,6 +67,7 @@ export async function updateAutomationRule(
       )
     );
 
+  revalidatePath("/dashboard/automacao");
   return { success: true };
 }
 

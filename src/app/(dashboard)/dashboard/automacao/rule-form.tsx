@@ -133,8 +133,7 @@ export function RuleForm({ organizationId, tags, rule }: RuleFormProps) {
       }
     }
 
-    router.push("/dashboard/automacao");
-    router.refresh();
+    window.location.href = "/dashboard/automacao";
   }
 
   const inputClass =
