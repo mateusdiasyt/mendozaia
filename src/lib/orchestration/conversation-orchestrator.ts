@@ -262,6 +262,13 @@ function buildMissingVehicleInfoReply(missing: ("modelo" | "ano" | "km")[]): str
   return "Para eu consultar a disponibilidade e já te ajudar com a reserva, me informe *modelo, ano e quilometragem* do veículo.";
 }
 
+function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, available: boolean): string {
+  const friendlyDate = formatDateForPtBr(parsed.dateStr);
+  return available
+    ? `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`
+    : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
+}
+
 function enforceReservationReply(ctx: OrchestrationContext, aiReply: string): string {
   if (!ctx.reservationsEnabled || !looksLikeFallbackReservationReply(aiReply)) {
     return aiReply;
@@ -583,10 +590,7 @@ export async function processInboundMessage(
         parsed.timeStr,
         60
       );
-      const friendlyDate = formatDateForPtBr(parsed.dateStr);
-      const reply = availability.available
-        ? `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`
-        : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
+      const reply = buildAvailabilityReply(parsed, availability.available);
 
       await options.sendMessage(ctx.conversationId, reply);
       await logOrchestration({
@@ -636,6 +640,46 @@ export async function processInboundMessage(
         didReply: true,
         decision: "tool_then_ai",
         reason: "Solicitou data/horário para continuar reserva",
+        silence: false,
+      };
+    }
+  }
+
+  // Fluxo determinístico para reservas gerais (sem exigir slots de veículo):
+  // se cliente informar data/hora e reservas estiverem ativas, consulta disponibilidade.
+  if (ctx.reservationsEnabled && !ctx.usesVehicleSlots) {
+    const parsed = extractReservationDateTime(ctx.messageContent);
+    if (parsed) {
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        parsed.dateStr,
+        parsed.timeStr,
+        60
+      );
+      const reply = buildAvailabilityReply(parsed, availability.available);
+
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_auto_check_general",
+        decision: "tool_then_ai",
+        reason: "Disponibilidade consultada automaticamente em fluxo geral",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_AUTO_CHECK_GENERAL",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          available: availability.available,
+          usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Disponibilidade consultada automaticamente (fluxo geral)",
         silence: false,
       };
     }

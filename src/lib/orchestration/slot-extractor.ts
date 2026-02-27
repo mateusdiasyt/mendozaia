@@ -25,6 +25,26 @@ const INVALID_MODELO_TERMS = new Set([
   "dia",
 ]);
 
+function normalizeModel(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
+export function isValidVehicleModel(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  const normalized = normalizeModel(value);
+  if (normalized.length <= 3) return false;
+  if (INVALID_MODELO_TERMS.has(normalized)) return false;
+  if (/^\d+$/.test(normalized)) return false;
+  if (/\b(km|mil|quilometragem|amanh[ãa]|hoje|dia|as|horario)\b/i.test(value)) {
+    return false;
+  }
+  return true;
+}
+
 /** Extrai ano de veículo (1980-2035). */
 function extractYear(text: string): number | undefined {
   const match = text.match(/\b(19[89]\d|20[0-3]\d)\b/);
@@ -81,13 +101,7 @@ function extractModelo(text: string): string | undefined {
       .replace(/\s*(?:,|\.|;)\s*$/, "")
       .replace(/\s+/g, " ")
       .trim();
-    const normalized = candidate.toLowerCase();
-    const invalid =
-      /\b(km|mil|quilometragem|amanh[ãa]|hoje|dia|às?|hor[áa]rio)\b/i.test(candidate) ||
-      /^\d+$/.test(candidate) ||
-      INVALID_MODELO_TERMS.has(normalized) ||
-      normalized.length <= 3;
-    if (!invalid && candidate.length >= 2 && candidate.length <= 50) return candidate;
+    if (isValidVehicleModel(candidate) && candidate.length <= 50) return candidate;
   }
   return undefined;
 }
@@ -137,7 +151,7 @@ export function extractSlotsFromMessages(
 /** Retorna quais slots estão faltando. */
 export function getMissingSlots(slots: VehicleSlots): ("modelo" | "ano" | "km")[] {
   const missing: ("modelo" | "ano" | "km")[] = [];
-  if (!slots.modelo?.trim()) missing.push("modelo");
+  if (!isValidVehicleModel(slots.modelo)) missing.push("modelo");
   if (!slots.ano) missing.push("ano");
   if (!slots.km) missing.push("km");
   return missing;
