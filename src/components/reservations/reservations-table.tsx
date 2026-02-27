@@ -1,6 +1,13 @@
 import type { ListReservation } from "@/app/actions/reservations";
 import { CancelReservationButton } from "./cancel-reservation-button";
 
+type ReservationRow = ListReservation & {
+  customerName?: string | null;
+  vehicleModel?: string | null;
+  vehicleYear?: number | null;
+  vehicleKm?: number | null;
+};
+
 function formatDate(d: Date | string) {
   const dt = typeof d === "string" ? new Date(d) : d;
   const day = dt.getDate().toString().padStart(2, "0");
@@ -72,7 +79,12 @@ export function ReservationsTable({
             </td>
           </tr>
         ) : (
-          reservations.map((r) => (
+          reservations.map((r) => {
+            const row = r as ReservationRow;
+            const displayName = row.customerName ?? row.contactName ?? "—";
+            const hasVehicleInfo =
+              !!row.vehicleModel || !!row.vehicleYear || !!row.vehicleKm;
+            return (
             <tr
               key={r.id}
               className="border-b border-slate-100 transition-colors hover:bg-slate-50/50 last:border-0"
@@ -90,7 +102,7 @@ export function ReservationsTable({
               </td>
               <td className="px-6 py-4">
                 <span className="font-medium text-slate-900">
-                  {("customerName" in r ? (r.customerName as string | null) : r.contactName) || "—"}
+                  {displayName}
                 </span>
                 {r.contactPhone && (
                   <span className="block text-sm text-slate-500">
@@ -99,13 +111,11 @@ export function ReservationsTable({
                 )}
               </td>
               <td className="px-6 py-4 text-sm text-slate-700">
-                {("vehicleModel" in r && r.vehicleModel) ||
-                ("vehicleYear" in r && r.vehicleYear) ||
-                ("vehicleKm" in r && r.vehicleKm) ? (
+                {hasVehicleInfo ? (
                   <div className="space-y-0.5">
-                    <div>{(r as ListReservation & { vehicleModel?: string | null }).vehicleModel ?? "—"}</div>
+                    <div>{row.vehicleModel ?? "—"}</div>
                     <div className="text-xs text-slate-500">
-                      Ano: {(r as ListReservation & { vehicleYear?: number | null }).vehicleYear ?? "—"} · Km: {(r as ListReservation & { vehicleKm?: number | null }).vehicleKm ?? "—"}
+                      Ano: {row.vehicleYear ?? "—"} · Km: {row.vehicleKm ?? "—"}
                     </div>
                   </div>
                 ) : (
@@ -134,7 +144,8 @@ export function ReservationsTable({
                 )}
               </td>
             </tr>
-          ))
+            );
+          })
         )}
       </tbody>
     </table>
