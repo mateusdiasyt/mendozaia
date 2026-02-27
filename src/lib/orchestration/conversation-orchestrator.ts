@@ -11,6 +11,7 @@ import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
 import { generateAIReply } from "@/lib/ai-agent";
 import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
+import { getContactMemories, saveContactMemory } from "@/lib/contact-memories";
 import {
   extractSlotsFromMessages,
   extractVehicleSlotsFromText,
@@ -83,6 +84,22 @@ function looksLikeGreeting(text: string): boolean {
     t.startsWith("opa") ||
     t.startsWith("hey")
   );
+}
+
+function looksLikeAskKnownName(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(sabe|lembra|tem)\b.*\b(meu nome|nome)\b/.test(t);
+}
+
+function looksLikeAskKnownVehicle(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(sabe|lembra|entendeu|tem)\b.*\b(carro|veiculo|modelo)\b/.test(t);
 }
 
 function pad2(n: number): string {
@@ -920,11 +937,15 @@ export async function loadConversationContext(
     .where(eq(organizations.id, params.organizationId))
     .limit(1);
 
-  const [contact] = await db
-    .select({ name: contacts.name })
-    .from(contacts)
-    .where(eq(contacts.id, params.contactId))
-    .limit(1);
+  const [contactRows, memories] = await Promise.all([
+    db
+      .select({ name: contacts.name })
+      .from(contacts)
+      .where(eq(contacts.id, params.contactId))
+      .limit(1),
+    getContactMemories(params.contactId),
+  ]);
+  const [contact] = contactRows;
 
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
@@ -936,7 +957,15 @@ export async function loadConversationContext(
   const shouldExtractVehicleSlots = usesVehicleSlots || reservationsEnabled;
 
   const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
-  const existingSlots = metadata.vehicleSlots as VehicleSlots | undefined;
+  const rememberedYear = memories.vehicle_year ? Number(memories.vehicle_year) : undefined;
+  const rememberedKm = memories.vehicle_km ? Number(memories.vehicle_km) : undefined;
+  const memoryVehicleSlots: Partial<VehicleSlots> = {
+    modelo: memories.vehicle_model || undefined,
+    ano: rememberedYear && Number.isFinite(rememberedYear) ? rememberedYear : undefined,
+    km: rememberedKm && Number.isFinite(rememberedKm) ? rememberedKm : undefined,
+  };
+  const metadataSlots = metadata.vehicleSlots as VehicleSlots | undefined;
+  const existingSlots = mergeVehicleSlots(memoryVehicleSlots, metadataSlots ?? {});
   const pendingReservation = metadata.pendingReservation as
     | { dateStr?: string; timeStr?: string; durationMinutes?: number }
     | undefined;
@@ -954,10 +983,7 @@ export async function loadConversationContext(
     const extracted = extractSlotsFromMessages(recentRows);
     vehicleSlots = mergeVehicleSlots(existingSlots, extracted);
 
-    if (
-      (extracted.modelo || extracted.ano || extracted.km) &&
-      JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlots)
-    ) {
+    if (JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlots)) {
       await db
         .update(conversations)
         .set({
@@ -965,6 +991,16 @@ export async function loadConversationContext(
           updatedAt: new Date(),
         })
         .where(eq(conversations.id, params.conversationId));
+    }
+
+    if (vehicleSlots?.modelo) {
+      await saveContactMemory(params.contactId, "vehicle_model", vehicleSlots.modelo);
+    }
+    if (vehicleSlots?.ano) {
+      await saveContactMemory(params.contactId, "vehicle_year", String(vehicleSlots.ano));
+    }
+    if (vehicleSlots?.km) {
+      await saveContactMemory(params.contactId, "vehicle_km", String(vehicleSlots.km));
     }
   }
 
@@ -1349,6 +1385,54 @@ export async function processInboundMessage(
       decision: "human_only",
       reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
       silence: true,
+    };
+  }
+
+  if (looksLikeAskKnownName(ctx.messageContent) || looksLikeAskKnownVehicle(ctx.messageContent)) {
+    const knownName = contactName?.trim() || null;
+    const knownVehicle = ctx.vehicleSlots ?? {};
+    const hasKnownVehicle = !!(knownVehicle.modelo || knownVehicle.ano || knownVehicle.km);
+    const vehicleLabel = [
+      knownVehicle.modelo ? knownVehicle.modelo : null,
+      knownVehicle.ano ? String(knownVehicle.ano) : null,
+      knownVehicle.km ? `${knownVehicle.km} km` : null,
+    ]
+      .filter(Boolean)
+      .join(" - ");
+
+    let reply = "Ainda não tenho tudo salvo aqui.";
+    if (knownName && hasKnownVehicle) {
+      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*. Continua com esses dados?`;
+    } else if (knownName) {
+      reply = `Tenho seu nome salvo como *${knownName}*. Pode me confirmar modelo, ano e km do veículo para eu atualizar?`;
+    } else if (hasKnownVehicle) {
+      reply = `Tenho seu veículo salvo como *${vehicleLabel}*. Pode me confirmar se continua com ele? Se quiser, já me passe seu nome também.`;
+    } else {
+      reply = "Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.";
+    }
+
+    await options.sendMessage(ctx.conversationId, reply);
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "known_profile_reply",
+      decision: "tool_then_ai",
+      reason: "Cliente perguntou dados já salvos (nome/veículo)",
+      traceId: params.traceId,
+      stage: "orchestrator.profile",
+      decisionCode: "KNOWN_PROFILE_REPLY",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        hasKnownName: !!knownName,
+        hasKnownVehicle,
+        knownVehicle,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Retorno de dados salvos para cliente",
+      silence: false,
     };
   }
 
