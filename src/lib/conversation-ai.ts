@@ -5,4 +5,5 @@ export const AI_DISABLE_DURATIONS = [
   { hours: 6, label: "6 horas" },
   { hours: 12, label: "12 horas" },
   { hours: 24, label: "24 horas" },
+  { hours: 87600, label: "Para sempre" }, // 10 anos = efetivamente permanente
 ] as const;

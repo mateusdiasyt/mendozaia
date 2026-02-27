@@ -34,14 +34,19 @@ export function AIControlSidebar({
   }, [aiDisabledUntil]);
 
   const isDisabled = mounted && until && until > new Date();
+  const isForever =
+    until &&
+    until.getTime() - Date.now() > 365 * 24 * 60 * 60 * 1000; // mais de 1 ano
   const untilFormatted =
     mounted && until && isDisabled
-      ? until.toLocaleString("pt-BR", {
-          day: "2-digit",
-          month: "2-digit",
-          hour: "2-digit",
-          minute: "2-digit",
-        })
+      ? isForever
+        ? "Permanente"
+        : until.toLocaleString("pt-BR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          })
       : null;
 
   async function handleDisable(hours: number) {
@@ -163,8 +168,8 @@ export function AIControlSidebar({
 
         {/* Info */}
         <p className="mt-auto text-xs text-[#667781]">
-          Ao responder manualmente, a IA é desativada automaticamente por 3 horas
-          nesta conversa.
+          Ao responder pela plataforma ou pelo WhatsApp, a IA é desativada
+          automaticamente por 3 horas nesta conversa.
         </p>
       </div>
     </aside>

@@ -208,8 +208,8 @@ export async function POST(request: NextRequest) {
       remoteJid = `${remoteJid}@s.whatsapp.net`;
     }
 
-    if (!isInbound || !remoteJid) {
-      return NextResponse.json({ ok: true }); // Ignora mensagens outbound
+    if (!remoteJid) {
+      return NextResponse.json({ ok: true });
     }
 
     // Ignora mensagens de grupos — só processa contatos diretos (@s.whatsapp.net)
@@ -217,7 +217,75 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true }); // Ignora grupos
     }
 
-    // Extrair texto e mídia da mensagem
+    // MENSAGEM OUTBOUND (humano respondeu pelo WhatsApp): desativa IA por 3h
+    if (!isInbound) {
+      const phone = remoteJid.replace("@s.whatsapp.net", "");
+
+      const [session] = await db
+        .select()
+        .from(whatsappSessions)
+        .where(eq(whatsappSessions.sessionId, msgSessionId))
+        .limit(1);
+
+      if (session) {
+        const [contact] = await db
+          .select()
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.organizationId, session.organizationId),
+              eq(contacts.phone, phone)
+            )
+          )
+          .limit(1);
+
+        if (contact) {
+          const [conversation] = await db
+            .select()
+            .from(conversations)
+            .where(
+              and(
+                eq(conversations.contactId, contact.id),
+                eq(conversations.whatsappSessionId, session.id)
+              )
+            )
+            .limit(1);
+
+          if (conversation) {
+            let outboundText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
+            if (msg?.imageMessage) outboundText = msg.imageMessage.caption ?? outboundText;
+            if (msg?.videoMessage) outboundText = msg.videoMessage?.caption ?? outboundText;
+            if (msg?.documentMessage) outboundText = msg.documentMessage?.caption ?? outboundText;
+
+            const preview =
+              outboundText?.slice(0, 100) || "[mídia]";
+
+            await db.insert(messages).values({
+              conversationId: conversation.id,
+              direction: "outbound",
+              contentType: "text",
+              content: outboundText || null,
+              status: "sent",
+            });
+
+            const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+
+            await db
+              .update(conversations)
+              .set({
+                lastMessageAt: new Date(),
+                lastMessagePreview: preview,
+                updatedAt: new Date(),
+                aiDisabledUntil: threeHoursFromNow, // Humano respondeu pelo WhatsApp
+              })
+              .where(eq(conversations.id, conversation.id));
+          }
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Extrair texto e mídia da mensagem (inbound)
     let messageText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
     let contentType = "text" as string;
     let mediaUrl: string | null = null;
