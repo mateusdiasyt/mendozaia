@@ -297,15 +297,18 @@ function buildMissingReservationProfileReply(
   missingVehicle: ("modelo" | "ano" | "km")[]
 ): string {
   const parts: string[] = [];
-  if (missingName) parts.push("*nome*");
-  if (missingVehicle.includes("modelo")) parts.push("*modelo*");
-  if (missingVehicle.includes("ano")) parts.push("*ano*");
-  if (missingVehicle.includes("km")) parts.push("*quilometragem*");
+  if (missingName) parts.push("*nome do cliente*");
+  if (missingVehicle.includes("modelo")) parts.push("*modelo do veículo*");
+  if (missingVehicle.includes("ano")) parts.push("*ano do veículo*");
+  if (missingVehicle.includes("km")) parts.push("*quilometragem (km)*");
 
   if (parts.length === 0) {
     return "Perfeito. Pode me confirmar a reserva?";
   }
-  return `Antes de confirmar, me informe ${parts.join(", ")} do veículo.`;
+  if (parts.length === 1) {
+    return `Antes de confirmar, me informe ${parts[0]}.`;
+  }
+  return `Antes de confirmar, me informe ${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
 }
 
 function looksLikeReservationConfirmation(text: string): boolean {
@@ -689,10 +692,67 @@ export async function processInboundMessage(
   }
 
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
-  if (ctx.reservationsEnabled && ctx.pendingReservation && looksLikeReservationConfirmation(ctx.messageContent)) {
+  if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
     const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
     const missingName = !contactName;
+
+    if (!looksLikeReservationConfirmation(ctx.messageContent)) {
+      if (missingName || missingVehicle.length > 0) {
+        await options.sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(missingName, missingVehicle)
+        );
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "reservation_pending_collect_profile",
+          decision: "tool_then_ai",
+          reason: "Reserva pendente aguardando nome/dados do veículo",
+          traceId: params.traceId,
+          stage: "orchestrator.reservations",
+          decisionCode: "RESERVATION_PENDING_COLLECT_PROFILE",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            missingName,
+            missingVehicle,
+            vehicleSlots: ctx.vehicleSlots ?? null,
+            pendingReservation: pending,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Reserva pendente: coletando dados faltantes",
+          silence: false,
+        };
+      }
+
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva."
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_pending_waiting_confirmation",
+        decision: "tool_then_ai",
+        reason: "Reserva pendente aguardando confirmação explícita",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_PENDING_WAIT_CONFIRMATION",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          pendingReservation: pending,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Reserva pendente aguardando confirmação",
+        silence: false,
+      };
+    }
 
     if (missingName || missingVehicle.length > 0) {
       await options.sendMessage(
