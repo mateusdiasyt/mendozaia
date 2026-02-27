@@ -943,6 +943,7 @@ type OilFlowState = {
 
 type WorkshopState = {
   carInShop: boolean;
+  awaitingVehicleDetails: boolean;
 };
 
 function getVehicleConfirmationState(
@@ -1016,6 +1017,7 @@ function getWorkshopState(metadata: Record<string, unknown>): WorkshopState {
   const flow = (metadata.workshopFlow as Record<string, unknown> | undefined) ?? {};
   return {
     carInShop: flow.carInShop === true,
+    awaitingVehicleDetails: flow.awaitingVehicleDetails === true,
   };
 }
 
@@ -1673,9 +1675,34 @@ export async function processInboundMessage(
     };
   }
 
-  if (looksLikeVehicleStatusInquiry(ctx.messageContent) && !workshopState.carInShop) {
+  const missingWorkshopVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+  if (
+    (looksLikeVehicleStatusInquiry(ctx.messageContent) || workshopState.awaitingVehicleDetails) &&
+    !workshopState.carInShop
+  ) {
+    if (missingWorkshopVehicle.length > 0) {
+      await persistWorkshopState(ctx.conversationId, conversationMetadata, {
+        carInShop: false,
+        awaitingVehicleDetails: true,
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        `Antes de direcionar para o mecânico técnico, preciso registrar os dados do veículo.\n${buildMissingReservationProfileReply(
+          false,
+          missingWorkshopVehicle
+        )}`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitação de status com dados do veículo incompletos",
+        silence: false,
+      };
+    }
+
     await persistWorkshopState(ctx.conversationId, conversationMetadata, {
       carInShop: true,
+      awaitingVehicleDetails: false,
     });
     await options.sendMessage(
       ctx.conversationId,

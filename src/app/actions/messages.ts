@@ -115,6 +115,7 @@ export async function setConversationCarInShop(
     workshopFlow: {
       ...workshopFlow,
       carInShop,
+      awaitingVehicleDetails: false,
       updatedAt: new Date().toISOString(),
     },
   };

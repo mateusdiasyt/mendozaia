@@ -165,31 +165,20 @@ export function AIControlSidebar({
           <p className="mt-1 text-xs text-[#667781]">
             Quando marcado como Sim, a IA fica desativada para atendimento humano.
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
+          <div className="mt-3">
+            <label htmlFor="car-in-shop" className="mb-1 block text-xs text-[#667781]">
+              Status
+            </label>
+            <select
+              id="car-in-shop"
               disabled={updatingWorkshop}
-              onClick={() => handleSetCarInShop(true)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-                carInWorkshop
-                  ? "border-emerald-600 bg-emerald-50 text-emerald-700"
-                  : "border-[#e9edef] bg-white text-[#111b21] hover:bg-[#f5f6f6]"
-              }`}
+              value={carInWorkshop ? "yes" : "no"}
+              onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
+              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
             >
-              Sim
-            </button>
-            <button
-              type="button"
-              disabled={updatingWorkshop}
-              onClick={() => handleSetCarInShop(false)}
-              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
-                !carInWorkshop
-                  ? "border-[#00a884] bg-emerald-50 text-[#007a63]"
-                  : "border-[#e9edef] bg-white text-[#111b21] hover:bg-[#f5f6f6]"
-              }`}
-            >
-              Não
-            </button>
+              <option value="yes">Sim</option>
+              <option value="no">Não</option>
+            </select>
           </div>
         </div>
 
