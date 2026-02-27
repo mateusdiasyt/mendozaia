@@ -559,6 +559,44 @@ function normalizePlainText(value: string): string {
     .trim();
 }
 
+function isLikelySingleWordHumanName(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (containsDateOrTimeHint(trimmed) || looksLikeReservationIntent(trimmed)) return false;
+  if (!/^[a-zà-ú' ]{2,40}$/i.test(trimmed)) return false;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length !== 1) return false;
+  const normalized = normalizePlainText(trimmed);
+  if (
+    [
+      "oi",
+      "ola",
+      "ok",
+      "sim",
+      "quero",
+      "confirmo",
+      "onix",
+      "gol",
+      "hb20",
+      "civic",
+      "corolla",
+      "palio",
+      "uno",
+      "ka",
+      "fox",
+      "sandero",
+      "prisma",
+      "tracker",
+      "compass",
+      "renegade",
+    ].includes(normalized)
+  ) {
+    return false;
+  }
+  if (/\b\d{1,2}\s*w\s*\d{2}\b/i.test(normalized)) return false;
+  return true;
+}
+
 function extractCustomerName(
   text: string,
   options?: {
@@ -1179,6 +1217,7 @@ export async function processInboundMessage(
   }
   const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
   const missingNameProfile = !contactName;
+  const likelySingleWordName = isLikelySingleWordHumanName(ctx.messageContent);
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
@@ -1194,6 +1233,61 @@ export async function processInboundMessage(
       durationMs: Date.now() - startedAt,
     });
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
+  if (
+    ctx.reservationsEnabled &&
+    ctx.usesVehicleSlots &&
+    (ctx.pendingReservation || intakeStage === "awaiting_reservation_profile") &&
+    (missingNameProfile || missingVehicleProfile.length > 0) &&
+    likelySingleWordName
+  ) {
+    const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
+    const promptState = getPromptRepeatState(conversationMetadata, promptKey);
+    const candidateName = ctx.messageContent.trim().replace(/\s+/g, " ");
+    const baseMissingReply = buildSmartMissingReservationProfileReply(
+      missingNameProfile,
+      missingVehicleProfile,
+      promptState.repeatCount
+    );
+    const clarificationPrefix = missingNameProfile
+      ? `Só para confirmar: *${candidateName}* é seu nome?\n`
+      : contactName
+        ? `Perfeito, *${contactName}*. `
+        : "";
+    await options.sendMessage(
+      ctx.conversationId,
+      `${clarificationPrefix}${baseMissingReply}`.trim()
+    );
+    await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+      collectionStage: "collect_profile",
+      lastPromptKey: promptKey,
+      lastPromptRepeatCount: promptState.nextCount,
+      slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+    });
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "reservation_profile_single_name_clarification",
+      decision: "tool_then_ai",
+      reason: "Mensagem curta tratada como possível nome; solicitando perfil restante",
+      traceId: params.traceId,
+      stage: "orchestrator.reservations",
+      decisionCode: "RESERVATION_PROFILE_SINGLE_NAME_CLARIFY",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+        candidateName,
+        missingName: missingNameProfile,
+        missingVehicle: missingVehicleProfile,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Confirmação de nome e coleta de dados faltantes",
+      silence: false,
+    };
   }
 
   // Respeita pausa manual da IA/handoff humano antes de qualquer fluxo determinístico.
