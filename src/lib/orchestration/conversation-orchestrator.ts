@@ -1203,7 +1203,9 @@ export async function processInboundMessage(
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
   const allowSingleWordName = isPendingWithoutName || isReservationProfileCollection;
   const explicitNameIntro = hasExplicitNameIntro(ctx.messageContent);
-  const canCaptureNameNow = !contactName && (explicitNameIntro || isCollectProfileStage);
+  const wantsNameUpdate = !!contactName && explicitNameIntro;
+  const canCaptureNameNow =
+    (!contactName && (explicitNameIntro || isCollectProfileStage)) || wantsNameUpdate;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(ctx.messageContent, {
@@ -1225,6 +1227,21 @@ export async function processInboundMessage(
       .set({ name: inferredName, updatedAt: new Date() })
       .where(eq(contacts.id, ctx.contactId));
     contactName = inferredName;
+  } else if (contactName && inferredName && explicitNameIntro) {
+    const normalize = (v: string) =>
+      v
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (normalize(inferredName) !== normalize(contactName)) {
+      await db
+        .update(contacts)
+        .set({ name: inferredName, updatedAt: new Date() })
+        .where(eq(contacts.id, ctx.contactId));
+      contactName = inferredName;
+    }
   }
   const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
   const missingNameProfile = !contactName;
