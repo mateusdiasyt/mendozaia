@@ -1650,7 +1650,9 @@ export async function processInboundMessage(
     !ctx.pendingReservation &&
     !looksLikeReservationIntent(ctx.messageContent)
   ) {
-    const triageReply = "Olá, tudo bem? Qual sua dúvida?";
+    const triageReply = contactName?.trim()
+      ? `Olá, *${contactName.trim()}*! Tudo bem? Qual sua dúvida?`
+      : "Olá, tudo bem? Qual sua dúvida?";
     await options.sendMessage(ctx.conversationId, triageReply);
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
     await logOrchestration({
