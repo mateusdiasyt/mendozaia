@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { memberships, organizations } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 
-export async function getCurrentOrganization() {
+export async function getCurrentMembership() {
   const session = await auth();
   if (!session?.user?.id) return null;
 
@@ -22,6 +22,11 @@ export async function getCurrentOrganization() {
     )
     .limit(1);
 
+  return membership ?? null;
+}
+
+export async function getCurrentOrganization() {
+  const membership = await getCurrentMembership();
   return membership?.organization ?? null;
 }
 

@@ -16,6 +16,7 @@ import {
   Activity,
   Package,
   Wrench,
+  ShieldCheck,
 } from "lucide-react";
 
 const baseNavItems = [
@@ -29,8 +30,10 @@ const baseNavItems = [
 
 export function Sidebar({
   reservationsEnabled = false,
+  isAdmin = false,
 }: {
   reservationsEnabled?: boolean;
+  isAdmin?: boolean;
 }) {
   const navItems = [
     ...baseNavItems.slice(0, 4),
@@ -54,6 +57,9 @@ export function Sidebar({
         ]
       : []),
     { href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity },
+    ...(isAdmin
+      ? [{ href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck }]
+      : []),
     ...baseNavItems.slice(4),
   ];
   const pathname = usePathname();
