@@ -310,6 +310,32 @@ function scoreMatch(haystack: string, tokens: string[]): number {
   return score;
 }
 
+function extractOilSpec(text: string): string | null {
+  const normalized = normalizeForSearch(text);
+  const match = normalized.match(/\b(\d{1,2}\s*w\s*\d{2})\b/i);
+  if (!match) return null;
+  return match[1].replace(/\s+/g, "").toUpperCase();
+}
+
+function isOilExchangeIntent(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return /\b(oleo|troca de oleo|troca oleo|lubrificacao)\b/.test(t);
+}
+
+function shouldAskOilQualification(text: string): boolean {
+  return isOilExchangeIntent(text) && !extractOilSpec(text);
+}
+
+function isGenericBudgetRequest(text: string): boolean {
+  const t = normalizeForSearch(text);
+  const asksBudget = /\b(orcamento|preco|valor|quanto)\b/.test(t);
+  const hasSpecificNeed =
+    /\b(oleo|filtro|troca|revisao|freio|alinhamento|balanceamento|suspensao|embreagem|bateria|pneu|motor)\b/.test(
+      t
+    );
+  return asksBudget && !hasSpecificNeed;
+}
+
 async function buildCatalogReply(
   organizationId: string,
   messageContent: string,
@@ -333,6 +359,8 @@ async function buildCatalogReply(
       .where(eq(services.organizationId, organizationId)),
   ]);
 
+  const oilSpec = extractOilSpec(messageContent);
+
   const productMatches = allProducts
     .filter((p) => p.isActive)
     .map((p) => ({
@@ -340,6 +368,12 @@ async function buildCatalogReply(
       score: scoreMatch(`${p.name} ${p.model ?? ""} ${p.description ?? ""}`, tokens),
     }))
     .filter((x) => x.score > 0)
+    .filter((x) => {
+      if (!oilSpec) return true;
+      const haystack = normalizeForSearch(`${x.item.name} ${x.item.model ?? ""} ${x.item.description ?? ""}`);
+      const normalizedOilSpec = normalizeForSearch(oilSpec);
+      return haystack.includes(normalizedOilSpec);
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
     .map((x) => x.item);
@@ -377,7 +411,7 @@ async function buildCatalogReply(
     }
   }
   lines.push("");
-  lines.push("Se quiser, já te ajudo com o agendamento também.");
+  lines.push("Se você quiser, já deixo um horário reservado pra resolver isso. Qual dia e horário prefere?");
 
   return {
     reply: lines.join("\n"),
@@ -1119,11 +1153,37 @@ export async function processInboundMessage(
     };
   }
 
-  if (
-    intakeStage === "awaiting_need" &&
-    !looksLikeReservationIntent(ctx.messageContent) &&
-    looksLikeCatalogIntent(ctx.messageContent)
-  ) {
+  if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(ctx.messageContent)) {
+    if (shouldAskOilQualification(ctx.messageContent)) {
+      const oilQualificationReply =
+        "Perfeito! Pra eu te passar certinho, qual óleo seu carro usa (ex.: 5W30, 10W40) e qual é o veículo/ano?";
+      await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "intake_ask_oil_spec",
+        decision: "tool_then_ai",
+        reason: "Cliente pediu troca de óleo sem especificação do tipo",
+        traceId: params.traceId,
+        stage: "orchestrator.catalog",
+        decisionCode: "INTAKE_ASK_OIL_SPEC",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando especificação do óleo para orçamento",
+        silence: false,
+      };
+    }
+
+    if (!isGenericBudgetRequest(ctx.messageContent)) {
+      // Cliente já descreveu o problema; deixa a busca do catálogo seguir.
+    } else {
     const followUp = "Certo. Qual seria o seu problema?";
     await options.sendMessage(ctx.conversationId, followUp);
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
@@ -1147,6 +1207,7 @@ export async function processInboundMessage(
       reason: "Solicitando detalhamento da necessidade",
       silence: false,
     };
+    }
   }
 
   // Consulta determinística de catálogo (produtos/serviços) para perguntas de preço.
@@ -1156,8 +1217,37 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
+    if (shouldAskOilQualification(ctx.messageContent)) {
+      const oilQualificationReply =
+        "Pra te indicar o valor correto da troca, me confirma qual óleo você usa (ex.: 5W30, 10W40). Se não souber, eu já organizo um horário pra avaliação.";
+      await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      if (intakeStage !== "awaiting_issue") {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      }
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "catalog_need_oil_spec",
+        decision: "tool_then_ai",
+        reason: "Consulta de óleo sem especificação",
+        traceId: params.traceId,
+        stage: "orchestrator.catalog",
+        decisionCode: "CATALOG_NEED_OIL_SPEC",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando tipo de óleo antes de cotar",
+        silence: false,
+      };
+    }
+
     const catalog = await buildCatalogReply(ctx.organizationId, ctx.messageContent, {
-      skipIntentCheck: intakeStage === "awaiting_issue",
+      skipIntentCheck: intakeStage === "awaiting_issue" || intakeStage === "awaiting_need",
     });
     if (catalog) {
       await options.sendMessage(ctx.conversationId, catalog.reply);
