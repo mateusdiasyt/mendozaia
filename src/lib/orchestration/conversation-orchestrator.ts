@@ -234,6 +234,19 @@ function looksLikeVehicleInfoMessage(text: string): boolean {
   );
 }
 
+function looksLikeReservationIntent(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(agendar|agendamento|reservar|reserva|horario|horarios|disponibilidade|vaga|vagas)\b/.test(
+      t
+    ) ||
+    containsDateOrTimeHint(t)
+  );
+}
+
 async function findLatestInboundReservationDateTime(
   conversationId: string
 ): Promise<{ dateStr: string; timeStr: string } | null> {
@@ -754,6 +767,68 @@ export async function processInboundMessage(
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
   }
 
+  // Fluxo robusto de coleta de perfil para reservas em oficinas:
+  // sempre que houver sinal de intenção de agendamento, coleta nome + dados do veículo
+  // antes de avançar para confirmação de horário.
+  if (ctx.reservationsEnabled && ctx.usesVehicleSlots) {
+    const vehicleSlotsFromCurrent = extractVehicleSlotsFromText(ctx.messageContent);
+    const hasVehicleInfoInCurrentMessage = Boolean(
+      vehicleSlotsFromCurrent.modelo ||
+        vehicleSlotsFromCurrent.ano ||
+        vehicleSlotsFromCurrent.km
+    );
+    const hasReservationSignal =
+      looksLikeGreeting(ctx.messageContent) ||
+      looksLikeReservationIntent(ctx.messageContent) ||
+      !!ctx.pendingReservation ||
+      hasVehicleInfoInCurrentMessage;
+
+    if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
+      const parsedForPending =
+        extractReservationDateTime(ctx.messageContent) ??
+        (await findLatestInboundReservationDateTime(ctx.conversationId));
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        parsedForPending
+          ? {
+              dateStr: parsedForPending.dateStr,
+              timeStr: parsedForPending.timeStr,
+              durationMinutes: 60,
+            }
+          : ctx.pendingReservation ?? null
+      );
+      await options.sendMessage(
+        ctx.conversationId,
+        buildMissingReservationProfileReply(missingNameProfile, missingVehicleProfile)
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_collect_profile",
+        decision: "tool_then_ai",
+        reason: "Coletando nome e dados do veículo para continuidade da reserva",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_COLLECT_PROFILE",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          missingName: missingNameProfile,
+          missingVehicle: missingVehicleProfile,
+          hasVehicleInfoInCurrentMessage,
+          hasPendingReservation: !!ctx.pendingReservation,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando perfil obrigatório antes de reservar",
+        silence: false,
+      };
+    }
+  }
+
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
@@ -1010,6 +1085,34 @@ export async function processInboundMessage(
     }
 
     if (!containsDateOrTimeHint(ctx.messageContent)) {
+      if (missingNameProfile) {
+        await options.sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(true, [])
+        );
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "reservation_collect_missing_name",
+          decision: "tool_then_ai",
+          reason: "Dados do veículo completos, mas nome do cliente ainda não informado",
+          traceId: params.traceId,
+          stage: "orchestrator.reservations",
+          decisionCode: "RESERVATION_COLLECT_MISSING_NAME",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            vehicleSlots: ctx.vehicleSlots,
+            messageContent: ctx.messageContent,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Solicitou nome antes de pedir data/horário",
+          silence: false,
+        };
+      }
+
       const reply =
         "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
       await options.sendMessage(ctx.conversationId, reply);
