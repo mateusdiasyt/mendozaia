@@ -80,6 +80,12 @@ function extractModelo(text: string): string | undefined {
   if (!trimmed || trimmed.length < 2) return undefined;
 
   const ano = extractYear(trimmed);
+  const km = extractKm(trimmed);
+  const hasVehicleHint = /\b(modelo|ve[ií]culo|carro)\b/i.test(trimmed);
+  // Sem pista de veículo (ano/km/keyword), não inferir modelo para evitar falso positivo.
+  if (!ano && !km && !hasVehicleHint) {
+    return undefined;
+  }
   let candidate: string | undefined;
 
   const beforeYear = ano
@@ -89,7 +95,7 @@ function extractModelo(text: string): string | undefined {
     candidate = beforeYear[1].replace(/\b(é|um|uma|o|a)\s+/gi, "").trim();
   }
 
-  if (!candidate) {
+  if (!candidate && hasVehicleHint) {
     const isModelo = trimmed.match(/\b(?:é\s+um?\s+)?([a-záàâãéêíóôõúç0-9\s]{2,40}?)(?:\s+com\s+|\s+-\s+|$)/i);
     if (isModelo && !/^\d+$/.test(isModelo[1].trim())) {
       candidate = isModelo[1].trim();

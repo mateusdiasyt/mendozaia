@@ -402,6 +402,88 @@ function buildMissingReservationProfileReply(
   return `Antes de confirmar, me informe ${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
 }
 
+type SlotConfidence = "none" | "low" | "medium" | "high";
+type ReservationCollectionStage =
+  | "collect_profile"
+  | "collect_datetime"
+  | "confirm_reservation"
+  | "completed";
+
+function inferCollectionStage(
+  missingName: boolean,
+  missingVehicle: ("modelo" | "ano" | "km")[],
+  pendingReservation: OrchestrationContext["pendingReservation"]
+): ReservationCollectionStage {
+  if (missingName || missingVehicle.length > 0) return "collect_profile";
+  if (pendingReservation) return "confirm_reservation";
+  return "collect_datetime";
+}
+
+function buildSlotConfidenceMap(
+  contactName: string | null,
+  slots: VehicleSlots
+): Record<"nome" | "modelo" | "ano" | "km", SlotConfidence> {
+  const nome: SlotConfidence = contactName ? (contactName.trim().length >= 3 ? "high" : "medium") : "none";
+  const modelo: SlotConfidence = slots.modelo
+    ? slots.modelo.trim().split(/\s+/).length >= 2
+      ? "high"
+      : "medium"
+    : "none";
+  const ano: SlotConfidence = slots.ano ? "high" : "none";
+  const km: SlotConfidence = slots.km ? "high" : "none";
+  return { nome, modelo, ano, km };
+}
+
+function buildProfilePromptKey(
+  missingName: boolean,
+  missingVehicle: ("modelo" | "ano" | "km")[]
+): string {
+  const ordered = [...missingVehicle].sort().join(",");
+  return `profile:name=${missingName ? "1" : "0"}:vehicle=${ordered || "-"}`;
+}
+
+function getPromptRepeatState(
+  metadata: Record<string, unknown>,
+  promptKey: string
+): { repeatCount: number; nextCount: number } {
+  const flow = (metadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
+  const lastPromptKey = typeof flow.lastPromptKey === "string" ? flow.lastPromptKey : "";
+  const lastPromptRepeatCount =
+    typeof flow.lastPromptRepeatCount === "number" ? flow.lastPromptRepeatCount : 0;
+  const repeatCount = lastPromptKey === promptKey ? lastPromptRepeatCount : 0;
+  return { repeatCount, nextCount: repeatCount + 1 };
+}
+
+function buildSmartMissingReservationProfileReply(
+  missingName: boolean,
+  missingVehicle: ("modelo" | "ano" | "km")[],
+  repeatCount: number
+): string {
+  const base = buildMissingReservationProfileReply(missingName, missingVehicle);
+  if (repeatCount <= 0) return base;
+  if (repeatCount === 1) {
+    return `${base}\n\nExemplo: *Mateus, Onix 2019, 80 mil km*.`;
+  }
+  return `${base}\n\nPara evitar erro, envie em uma única mensagem: *Nome, Modelo, Ano e KM*.\nExemplo: *Mateus, Onix 2019, 80 mil km*.`;
+}
+
+async function persistReservationFlowMetadata(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  patch: Record<string, unknown>
+): Promise<void> {
+  const currentFlow = (currentMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
+  const nextFlow = { ...currentFlow, ...patch };
+  const nextMetadata = { ...currentMetadata, reservationFlow: nextFlow };
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata: nextMetadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
 function looksLikeReservationConfirmation(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -826,10 +908,22 @@ export async function processInboundMessage(
             }
           : ctx.pendingReservation ?? null
       );
+      const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
+      const promptState = getPromptRepeatState(conversationMetadata, promptKey);
       await options.sendMessage(
         ctx.conversationId,
-        buildMissingReservationProfileReply(missingNameProfile, missingVehicleProfile)
+        buildSmartMissingReservationProfileReply(
+          missingNameProfile,
+          missingVehicleProfile,
+          promptState.repeatCount
+        )
       );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_profile",
+        lastPromptKey: promptKey,
+        lastPromptRepeatCount: promptState.nextCount,
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -843,6 +937,11 @@ export async function processInboundMessage(
         metadata: {
           missingName: missingNameProfile,
           missingVehicle: missingVehicleProfile,
+          stage: inferCollectionStage(
+            missingNameProfile,
+            missingVehicleProfile,
+            ctx.pendingReservation
+          ),
           hasVehicleInfoInCurrentMessage,
           hasPendingReservation: !!ctx.pendingReservation,
           messageContent: ctx.messageContent,
@@ -865,10 +964,22 @@ export async function processInboundMessage(
 
     if (!looksLikeReservationConfirmation(ctx.messageContent)) {
       if (missingName || missingVehicle.length > 0) {
+        const promptKey = buildProfilePromptKey(missingName, missingVehicle);
+        const promptState = getPromptRepeatState(conversationMetadata, promptKey);
         await options.sendMessage(
           ctx.conversationId,
-          buildMissingReservationProfileReply(missingName, missingVehicle)
+          buildSmartMissingReservationProfileReply(
+            missingName,
+            missingVehicle,
+            promptState.repeatCount
+          )
         );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_profile",
+          lastPromptKey: promptKey,
+          lastPromptRepeatCount: promptState.nextCount,
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         await logOrchestration({
           conversationId: ctx.conversationId,
           organizationId: ctx.organizationId,
@@ -898,6 +1009,10 @@ export async function processInboundMessage(
         ctx.conversationId,
         "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva."
       );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "confirm_reservation",
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -921,10 +1036,22 @@ export async function processInboundMessage(
     }
 
     if (missingName || missingVehicle.length > 0) {
+      const promptKey = buildProfilePromptKey(missingName, missingVehicle);
+      const promptState = getPromptRepeatState(conversationMetadata, promptKey);
       await options.sendMessage(
         ctx.conversationId,
-        buildMissingReservationProfileReply(missingName, missingVehicle)
+        buildSmartMissingReservationProfileReply(
+          missingName,
+          missingVehicle,
+          promptState.repeatCount
+        )
       );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_profile",
+        lastPromptKey: promptKey,
+        lastPromptRepeatCount: promptState.nextCount,
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -1008,6 +1135,10 @@ export async function processInboundMessage(
         ctx.conversationId,
         `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}.`
       );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "completed",
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -1051,6 +1182,8 @@ export async function processInboundMessage(
 
     if (parsed) {
       if (missingNameProfile) {
+        const promptKey = buildProfilePromptKey(true, []);
+        const promptState = getPromptRepeatState(conversationMetadata, promptKey);
         await savePendingReservation(ctx.conversationId, conversationMetadata, {
           dateStr: parsed.dateStr,
           timeStr: parsed.timeStr,
@@ -1058,8 +1191,14 @@ export async function processInboundMessage(
         });
         await options.sendMessage(
           ctx.conversationId,
-          buildMissingReservationProfileReply(true, [])
+          buildSmartMissingReservationProfileReply(true, [], promptState.repeatCount)
         );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_profile",
+          lastPromptKey: promptKey,
+          lastPromptRepeatCount: promptState.nextCount,
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         return {
           didReply: true,
           decision: "tool_then_ai",
@@ -1114,10 +1253,18 @@ export async function processInboundMessage(
 
     if (!containsDateOrTimeHint(ctx.messageContent)) {
       if (missingNameProfile) {
+        const promptKey = buildProfilePromptKey(true, []);
+        const promptState = getPromptRepeatState(conversationMetadata, promptKey);
         await options.sendMessage(
           ctx.conversationId,
-          buildMissingReservationProfileReply(true, [])
+          buildSmartMissingReservationProfileReply(true, [], promptState.repeatCount)
         );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_profile",
+          lastPromptKey: promptKey,
+          lastPromptRepeatCount: promptState.nextCount,
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         await logOrchestration({
           conversationId: ctx.conversationId,
           organizationId: ctx.organizationId,
@@ -1144,6 +1291,10 @@ export async function processInboundMessage(
       const reply =
         "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
       await options.sendMessage(ctx.conversationId, reply);
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_datetime",
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -1173,6 +1324,8 @@ export async function processInboundMessage(
     const parsed = extractReservationDateTime(ctx.messageContent);
     if (parsed) {
       if (missingNameProfile || missingVehicleProfile.length > 0) {
+        const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
+        const promptState = getPromptRepeatState(conversationMetadata, promptKey);
         await savePendingReservation(ctx.conversationId, conversationMetadata, {
           dateStr: parsed.dateStr,
           timeStr: parsed.timeStr,
@@ -1180,8 +1333,18 @@ export async function processInboundMessage(
         });
         await options.sendMessage(
           ctx.conversationId,
-          buildMissingReservationProfileReply(missingNameProfile, missingVehicleProfile)
+          buildSmartMissingReservationProfileReply(
+            missingNameProfile,
+            missingVehicleProfile,
+            promptState.repeatCount
+          )
         );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_profile",
+          lastPromptKey: promptKey,
+          lastPromptRepeatCount: promptState.nextCount,
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         return {
           didReply: true,
           decision: "tool_then_ai",
@@ -1387,6 +1550,8 @@ export async function processInboundMessage(
 
     if (parsed) {
       if (missingNameProfile || missing.length > 0) {
+        const promptKey = buildProfilePromptKey(missingNameProfile, missing);
+        const promptState = getPromptRepeatState(conversationMetadata, promptKey);
         await savePendingReservation(ctx.conversationId, conversationMetadata, {
           dateStr: parsed.dateStr,
           timeStr: parsed.timeStr,
@@ -1394,8 +1559,18 @@ export async function processInboundMessage(
         });
         await options.sendMessage(
           ctx.conversationId,
-          buildMissingReservationProfileReply(missingNameProfile, missing)
+          buildSmartMissingReservationProfileReply(
+            missingNameProfile,
+            missing,
+            promptState.repeatCount
+          )
         );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_profile",
+          lastPromptKey: promptKey,
+          lastPromptRepeatCount: promptState.nextCount,
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         return {
           didReply: true,
           decision: "tool_then_ai",
