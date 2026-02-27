@@ -14,6 +14,8 @@ import {
   LayoutDashboard,
   Calendar,
   Activity,
+  Package,
+  Wrench,
 } from "lucide-react";
 
 const baseNavItems = [
@@ -38,6 +40,16 @@ export function Sidebar({
             href: "/dashboard/reservas",
             label: "Reservas",
             icon: Calendar,
+          },
+          {
+            href: "/dashboard/produtos",
+            label: "Produtos",
+            icon: Package,
+          },
+          {
+            href: "/dashboard/servicos",
+            label: "Serviços",
+            icon: Wrench,
           },
         ]
       : []),

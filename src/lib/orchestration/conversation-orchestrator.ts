@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/lib/db";
-import { conversations, organizations, messages, contacts } from "@/lib/db/schema";
+import { conversations, organizations, messages, contacts, products, services } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
@@ -245,6 +245,142 @@ function looksLikeReservationIntent(text: string): boolean {
     ) ||
     containsDateOrTimeHint(t)
   );
+}
+
+function looksLikeCatalogIntent(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(valor|preco|orcamento|quanto|produto|peca|oleo|filtro|servico|troca)\b/.test(t);
+}
+
+function formatCurrencyFromCents(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function normalizeForSearch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractSearchTokens(text: string): string[] {
+  const stop = new Set([
+    "qual",
+    "quais",
+    "valor",
+    "preco",
+    "orcamento",
+    "quanto",
+    "tem",
+    "de",
+    "da",
+    "do",
+    "um",
+    "uma",
+    "pra",
+    "para",
+    "troca",
+    "servico",
+    "produto",
+  ]);
+  return normalizeForSearch(text)
+    .split(" ")
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !stop.has(t));
+}
+
+function scoreMatch(haystack: string, tokens: string[]): number {
+  if (tokens.length === 0) return 0;
+  const normalized = normalizeForSearch(haystack);
+  let score = 0;
+  for (const token of tokens) {
+    if (normalized.includes(token)) score += 1;
+  }
+  return score;
+}
+
+async function buildCatalogReply(
+  organizationId: string,
+  messageContent: string
+): Promise<{
+  reply: string;
+  productMatches: number;
+  serviceMatches: number;
+} | null> {
+  if (!looksLikeCatalogIntent(messageContent)) return null;
+
+  const tokens = extractSearchTokens(messageContent);
+  const [allProducts, allServices] = await Promise.all([
+    db
+      .select()
+      .from(products)
+      .where(eq(products.organizationId, organizationId)),
+    db
+      .select()
+      .from(services)
+      .where(eq(services.organizationId, organizationId)),
+  ]);
+
+  const productMatches = allProducts
+    .filter((p) => p.isActive)
+    .map((p) => ({
+      item: p,
+      score: scoreMatch(`${p.name} ${p.model ?? ""} ${p.description ?? ""}`, tokens),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => x.item);
+
+  const serviceMatches = allServices
+    .filter((s) => s.isActive)
+    .map((s) => ({
+      item: s,
+      score: scoreMatch(`${s.name} ${s.description ?? ""}`, tokens),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((x) => x.item);
+
+  if (productMatches.length === 0 && serviceMatches.length === 0) {
+    return null;
+  }
+
+  const lines: string[] = [];
+  if (productMatches.length > 0) {
+    lines.push("*Produtos encontrados:*");
+    for (const p of productMatches) {
+      const stockText =
+        p.stockQuantity > 0 ? `em estoque (${p.stockQuantity})` : "sem estoque no momento";
+      const modelText = p.model ? ` - ${p.model}` : "";
+      lines.push(`- ${p.name}${modelText}: ${formatCurrencyFromCents(p.priceCents)} (${stockText})`);
+    }
+  }
+  if (serviceMatches.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("*Serviços encontrados:*");
+    for (const s of serviceMatches) {
+      lines.push(`- ${s.name}: ${formatCurrencyFromCents(s.priceCents)} (${s.durationMinutes} min)`);
+    }
+  }
+  lines.push("");
+  lines.push("Se quiser, já te ajudo com o agendamento também.");
+
+  return {
+    reply: lines.join("\n"),
+    productMatches: productMatches.length,
+    serviceMatches: serviceMatches.length,
+  };
 }
 
 async function findLatestInboundReservationDateTime(
@@ -910,6 +1046,75 @@ export async function processInboundMessage(
     };
   }
 
+  // Triagem inicial: antes de partir para reserva, entende se a demanda é
+  // orçamento de produto/serviço ou agendamento.
+  if (
+    ctx.reservationsEnabled &&
+    ctx.usesVehicleSlots &&
+    looksLikeGreeting(ctx.messageContent) &&
+    !ctx.pendingReservation &&
+    !looksLikeReservationIntent(ctx.messageContent)
+  ) {
+    const triageReply =
+      "Olá! Me conta rapidinho: você quer *orçamento de produto/serviço* ou *agendar um horário*?";
+    await options.sendMessage(ctx.conversationId, triageReply);
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "reservation_entry_triage",
+      decision: "tool_then_ai",
+      reason: "Saudação recebida; iniciando triagem antes da reserva",
+      traceId: params.traceId,
+      stage: "orchestrator.reservations",
+      decisionCode: "RESERVATION_ENTRY_TRIAGE",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Triagem inicial enviada",
+      silence: false,
+    };
+  }
+
+  // Consulta determinística de catálogo (produtos/serviços) para perguntas de preço.
+  // Só entra quando não há intenção clara de reservar horário.
+  if (
+    !looksLikeReservationIntent(ctx.messageContent) &&
+    !containsDateOrTimeHint(ctx.messageContent) &&
+    !looksLikeReservationConfirmation(ctx.messageContent)
+  ) {
+    const catalog = await buildCatalogReply(ctx.organizationId, ctx.messageContent);
+    if (catalog) {
+      await options.sendMessage(ctx.conversationId, catalog.reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "catalog_quote_reply",
+        decision: "tool_then_ai",
+        reason: "Consulta de produtos/serviços respondida de forma determinística",
+        traceId: params.traceId,
+        stage: "orchestrator.catalog",
+        decisionCode: "CATALOG_QUOTE_REPLY",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+          productMatches: catalog.productMatches,
+          serviceMatches: catalog.serviceMatches,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Orçamento de catálogo respondido",
+        silence: false,
+      };
+    }
+  }
+
   // Fluxo robusto de coleta de perfil para reservas em oficinas:
   // sempre que houver sinal de intenção de agendamento, coleta nome + dados do veículo
   // antes de avançar para confirmação de horário.
@@ -921,7 +1126,6 @@ export async function processInboundMessage(
         vehicleSlotsFromCurrent.km
     );
     const hasReservationSignal =
-      looksLikeGreeting(ctx.messageContent) ||
       looksLikeReservationIntent(ctx.messageContent) ||
       !!ctx.pendingReservation ||
       hasVehicleInfoInCurrentMessage;
