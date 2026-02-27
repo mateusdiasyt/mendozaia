@@ -877,12 +877,20 @@ function buildSmartMissingReservationProfileReply(
 
 function buildVehicleFollowUpForOilQuote(slots: VehicleSlots | undefined): string {
   const vehicleSlots = slots ?? {};
-  const missingVehicle = getMissingSlots(vehicleSlots);
-  if (missingVehicle.length > 0) {
-    return `Antes de finalizar, preciso confirmar os dados do veículo.\n${buildMissingReservationProfileReply(
-      false,
-      missingVehicle
-    )}`;
+  const missingRequired: ("modelo" | "ano")[] = [];
+  if (!vehicleSlots.modelo) missingRequired.push("modelo");
+  if (!vehicleSlots.ano) missingRequired.push("ano");
+
+  if (missingRequired.length > 0) {
+    const requiredLine =
+      missingRequired.length === 2
+        ? "Antes de finalizar, preciso confirmar o *modelo* e o *ano* do veículo."
+        : `Antes de finalizar, preciso confirmar o *${missingRequired[0]}* do veículo.`;
+    return `${requiredLine}\nSe conseguir, me passe também a *quilometragem (km)* para deixar o orçamento mais preciso. Se não souber, é só me avisar que eu continuo o atendimento.`;
+  }
+
+  if (!vehicleSlots.km) {
+    return "Consegue me passar a *quilometragem (km)* do veículo? Isso ajuda a deixar o orçamento mais preciso. Se não souber, é só me avisar que eu continuo o atendimento.";
   }
 
   const vehicleLabel = [
@@ -1616,7 +1624,7 @@ export async function processInboundMessage(
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
       await options.sendMessage(
         ctx.conversationId,
-        "Perfeito, vamos atualizar os dados do veículo.\nMe informe o *modelo*, *ano* e *km* do carro atual."
+        "Perfeito, vamos atualizar os dados do veículo.\nMe informe o *modelo* e o *ano* do carro atual. Se conseguir, me passe também o *km* para deixar o orçamento mais preciso. Se não souber, tudo bem."
       );
       return {
         didReply: true,
@@ -1658,7 +1666,7 @@ export async function processInboundMessage(
       }
       await options.sendMessage(
         ctx.conversationId,
-        "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo."
+        "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo. Se souber o *km*, também ajuda a deixar o orçamento mais preciso."
       );
       return {
         didReply: true,
