@@ -1104,6 +1104,20 @@ export async function processInboundMessage(
     const missing = getMissingSlots(slots);
 
     if (hasDateOrTime && missing.length > 0) {
+      const parsedForPending =
+        extractReservationDateTime(ctx.messageContent) ??
+        (await findLatestInboundReservationDateTime(ctx.conversationId));
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        parsedForPending
+          ? {
+              dateStr: parsedForPending.dateStr,
+              timeStr: parsedForPending.timeStr,
+              durationMinutes: 60,
+            }
+          : ctx.pendingReservation ?? null
+      );
       const reply = buildMissingVehicleInfoReply(missing);
       await options.sendMessage(ctx.conversationId, reply);
       await logOrchestration({
@@ -1139,6 +1153,20 @@ export async function processInboundMessage(
     const missing = getMissingSlots(slots);
 
     if (ctx.usesVehicleSlots && missing.length > 0) {
+      const parsedForPending =
+        extractReservationDateTime(ctx.messageContent) ??
+        (await findLatestInboundReservationDateTime(ctx.conversationId));
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        parsedForPending
+          ? {
+              dateStr: parsedForPending.dateStr,
+              timeStr: parsedForPending.timeStr,
+              durationMinutes: 60,
+            }
+          : ctx.pendingReservation ?? null
+      );
       const reply = buildMissingVehicleInfoReply(missing);
       await options.sendMessage(ctx.conversationId, reply);
       await logOrchestration({
