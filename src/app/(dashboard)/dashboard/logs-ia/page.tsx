@@ -3,6 +3,7 @@ import { desc, eq } from "drizzle-orm";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { orchestrationLogs } from "@/lib/db/schema";
+import { CopyTextButton } from "./copy-text-button";
 
 type LogMetadata = Record<string, unknown> | null;
 
@@ -54,6 +55,43 @@ function decisionBadgeClass(decision: string | null): string {
   return "bg-slate-100 text-slate-700";
 }
 
+function compactJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "{}";
+  }
+}
+
+function formatLogLineForClipboard(log: {
+  createdAt: Date;
+  event: string;
+  decision: string | null;
+  reason: string | null;
+  conversationId: string;
+  stateBefore: string | null;
+  stateAfter: string | null;
+  metadata: unknown;
+}): string {
+  const metadata = (log.metadata as LogMetadata) ?? null;
+  const traceId = getMetaString(metadata, "traceId") ?? "-";
+  const code = getMetaString(metadata, "decisionCode") ?? "-";
+  const durationMs = getMetaNumber(metadata, "durationMs");
+  return [
+    `[${formatDate(log.createdAt)}]`,
+    `trace=${traceId}`,
+    `event=${log.event}`,
+    `code=${code}`,
+    `decision=${log.decision ?? "-"}`,
+    `reason=${log.reason ?? "-"}`,
+    `duration=${durationLabel(durationMs)}`,
+    `conversation=${log.conversationId}`,
+    `stateBefore=${log.stateBefore ?? "-"}`,
+    `stateAfter=${log.stateAfter ?? "-"}`,
+    `metadata=${compactJson(metadata)}`,
+  ].join(" | ");
+}
+
 export default async function LogsIAPage() {
   const org = await getCurrentOrganization();
   if (!org) return null;
@@ -74,6 +112,7 @@ export default async function LogsIAPage() {
     .where(eq(orchestrationLogs.organizationId, org.id))
     .orderBy(desc(orchestrationLogs.createdAt))
     .limit(200);
+  const logsForClipboard = logs.map((log) => formatLogLineForClipboard(log)).join("\n");
 
   return (
     <div className="p-8">
@@ -84,13 +123,30 @@ export default async function LogsIAPage() {
             Timeline técnica da mensagem: webhook → automação → orquestrador → IA/ferramentas.
           </p>
         </div>
-        <Link
-          href="/dashboard/logs-ia"
-          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-        >
-          Atualizar
-        </Link>
+        <div className="flex items-center gap-2">
+          <CopyTextButton text={logsForClipboard} label="Copiar últimos 200 logs" />
+          <Link
+            href="/dashboard/logs-ia"
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Atualizar
+          </Link>
+        </div>
       </div>
+
+      <details className="mb-4 rounded-xl border border-slate-200 bg-white p-4">
+        <summary className="cursor-pointer text-sm font-medium text-slate-800">
+          Texto pronto para colar no Cursor
+        </summary>
+        <p className="mt-2 text-xs text-slate-500">
+          Copie este bloco para enviar diagnóstico sem screenshot.
+        </p>
+        <textarea
+          readOnly
+          value={logsForClipboard}
+          className="mt-2 h-40 w-full rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-xs text-slate-700"
+        />
+      </details>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="max-h-[75vh] overflow-auto">
@@ -107,12 +163,13 @@ export default async function LogsIAPage() {
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Conversa</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Estados</th>
                 <th className="px-4 py-3 text-left font-semibold text-slate-700">Metadata</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-700">Copiar</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {logs.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-500">
                     Nenhum log encontrado para esta organização.
                   </td>
                 </tr>
@@ -164,6 +221,12 @@ export default async function LogsIAPage() {
                       <pre className="whitespace-pre-wrap break-words rounded bg-slate-50 p-2 text-xs text-slate-700">
                         {renderMetadata(metadata)}
                       </pre>
+                    </td>
+                    <td className="px-4 py-3">
+                      <CopyTextButton
+                        text={formatLogLineForClipboard(log)}
+                        label="Copiar linha"
+                      />
                     </td>
                         </>
                       );
