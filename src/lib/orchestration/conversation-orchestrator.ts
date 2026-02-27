@@ -847,6 +847,27 @@ function buildSmartMissingReservationProfileReply(
   return `${base}\n\nPara evitar erro, envie em uma única mensagem: *Nome, Modelo, Ano e KM*.\nExemplo: *Mateus, Onix 2019, 80 mil km*.`;
 }
 
+function buildVehicleFollowUpForOilQuote(slots: VehicleSlots | undefined): string {
+  const vehicleSlots = slots ?? {};
+  const missingVehicle = getMissingSlots(vehicleSlots);
+  if (missingVehicle.length > 0) {
+    return `Antes de finalizar, preciso confirmar os dados do veículo.\n${buildMissingReservationProfileReply(
+      false,
+      missingVehicle
+    )}`;
+  }
+
+  const vehicleLabel = [
+    vehicleSlots.modelo ? vehicleSlots.modelo : null,
+    vehicleSlots.ano ? String(vehicleSlots.ano) : null,
+    vehicleSlots.km ? `${vehicleSlots.km} km` : null,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  return `Antes de seguir, confirmando: estou com o veículo *${vehicleLabel}*.\nSe mudou, me informe o novo *modelo, ano e km* para eu atualizar.`;
+}
+
 async function persistReservationFlowMetadata(
   conversationId: string,
   currentMetadata: Record<string, unknown>,
@@ -2189,7 +2210,16 @@ export async function processInboundMessage(
       skipIntentCheck: intakeStage === "awaiting_issue" || intakeStage === "awaiting_need",
     });
     if (catalog) {
-      await options.sendMessage(ctx.conversationId, catalog.reply);
+      const oilCatalogContext =
+        normalizeForSearch(catalog.selectedServiceName ?? "").includes("oleo") ||
+        normalizeForSearch(catalog.selectedProductName ?? "").includes("oleo") ||
+        normalizeForSearch(reservationContext.serviceName ?? "").includes("oleo") ||
+        isOilExchangeIntent(ctx.messageContent);
+      const finalCatalogReply = oilCatalogContext
+        ? `${catalog.reply}\n\n${buildVehicleFollowUpForOilQuote(ctx.vehicleSlots)}`
+        : catalog.reply;
+
+      await options.sendMessage(ctx.conversationId, finalCatalogReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: catalog.selectedServiceName,
         productName: catalog.selectedProductName,
