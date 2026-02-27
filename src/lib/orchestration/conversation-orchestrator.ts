@@ -405,7 +405,7 @@ function buildCatalogQueryWithContext(
     /\b(oleo|filtro|revisao|freio|alinhamento|balanceamento|suspensao|embreagem|bateria|pneu|motor)\b/.test(
       normalized
     );
-  if (!looksLikeCatalogIntent(messageContent) || hasSpecificNeed) {
+  if (hasSpecificNeed) {
     return messageContent;
   }
   const ctxTerms = [context.serviceName, context.productName].filter(
@@ -1698,6 +1698,10 @@ export async function processInboundMessage(
       const oilQualificationReply =
         "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -1823,6 +1827,10 @@ export async function processInboundMessage(
       const oilQualificationReply =
         "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
       if (intakeStage !== "awaiting_issue") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       }
