@@ -32,6 +32,7 @@ export interface ProcessInboundMessageParams {
   contactPhone: string;
   messageContent: string;
   messageContentType?: string;
+  traceId?: string;
 }
 
 export interface ProcessResult {
@@ -437,8 +438,10 @@ export function decideNextAction(ctx: OrchestrationContext): OrchestratorResult 
 /** Chama a IA e retorna resposta filtrada. Retorna null se não devolver. */
 export async function callAIWithContext(
   ctx: OrchestrationContext,
-  sendMessage: (convId: string, text: string) => Promise<void>
+  sendMessage: (convId: string, text: string) => Promise<void>,
+  options?: { traceId?: string }
 ): Promise<boolean> {
+  const aiStartedAt = Date.now();
   const [org] = await db
     .select({ settings: organizations.settings })
     .from(organizations)
@@ -475,6 +478,10 @@ export async function callAIWithContext(
         event: "ai_response_filtered",
         decision: "ai_respond",
         reason: "Resposta filtrada (vazia ou inválida)",
+        traceId: options?.traceId,
+        stage: "orchestrator.ai",
+        decisionCode: "AI_RESPONSE_FILTERED",
+        durationMs: Date.now() - aiStartedAt,
       });
       return false;
     }
@@ -502,6 +509,10 @@ export async function callAIWithContext(
       decision: "ai_respond",
       reason: "Resposta enviada",
       metadata: { length: filtered.length, handoffTriggered: triggersHandoff },
+      traceId: options?.traceId,
+      stage: "orchestrator.ai",
+      decisionCode: "AI_RESPONSE_SENT",
+      durationMs: Date.now() - aiStartedAt,
     });
     return true;
   } catch (err) {
@@ -513,6 +524,10 @@ export async function callAIWithContext(
       decision: "ai_respond",
       reason: "Falha ao chamar IA",
       metadata: { error: String(err) },
+      traceId: options?.traceId,
+      stage: "orchestrator.ai",
+      decisionCode: "AI_CALL_ERROR",
+      durationMs: Date.now() - aiStartedAt,
     });
     return false;
   }
@@ -529,6 +544,7 @@ export async function processInboundMessage(
     sendMessage: (convId: string, text: string) => Promise<void>;
   }
 ): Promise<ProcessResult> {
+  const startedAt = Date.now();
   const ctx = await loadConversationContext(params);
   if (!ctx) {
     return { didReply: options.automationDidReply, decision: "silence", reason: "Contexto não encontrado", silence: true };
@@ -536,6 +552,17 @@ export async function processInboundMessage(
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "orchestrator_skipped",
+      decision: "automation_only",
+      reason: "Automação já respondeu",
+      traceId: params.traceId,
+      stage: "orchestrator.entry",
+      decisionCode: "AUTOMATION_ALREADY_REPLIED",
+      durationMs: Date.now() - startedAt,
+    });
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
   }
 
@@ -568,6 +595,10 @@ export async function processInboundMessage(
         event: "reservation_auto_check",
         decision: "tool_then_ai",
         reason: "Disponibilidade consultada automaticamente pelo orquestrador",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_AUTO_CHECK",
+        durationMs: Date.now() - startedAt,
         metadata: {
           dateStr: parsed.dateStr,
           timeStr: parsed.timeStr,
@@ -593,6 +624,10 @@ export async function processInboundMessage(
         event: "reservation_next_step",
         decision: "tool_then_ai",
         reason: "Solicitando data/horário após dados completos do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_ASK_DATE_TIME",
+        durationMs: Date.now() - startedAt,
         metadata: {
           vehicleSlots: ctx.vehicleSlots,
         },
@@ -622,6 +657,10 @@ export async function processInboundMessage(
         event: "reservation_collect_missing_vehicle_info",
         decision: "tool_then_ai",
         reason: "Cliente informou data/horário, mas faltam dados do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_COLLECT_MISSING_VEHICLE_INFO",
+        durationMs: Date.now() - startedAt,
         metadata: {
           missingSlots: missing,
           vehicleSlots: slots,
@@ -646,6 +685,19 @@ export async function processInboundMessage(
     stateBefore: ctx.conversationState,
     decision: result.decision,
     reason: result.reason,
+    traceId: params.traceId,
+    stage: "orchestrator.decision",
+    decisionCode:
+      result.decision === "automation_only"
+        ? "AUTOMATION_ONLY"
+        : result.decision === "human_only"
+          ? "HUMAN_ONLY"
+          : result.decision === "silence"
+            ? "SILENCE"
+            : result.decision === "tool_then_ai"
+              ? "TOOL_THEN_AI"
+              : "AI_RESPOND",
+    durationMs: Date.now() - startedAt,
     metadata: {
       reservationsEnabled: ctx.reservationsEnabled,
       usesVehicleSlots: ctx.usesVehicleSlots ?? false,
@@ -663,7 +715,9 @@ export async function processInboundMessage(
     };
   }
 
-  const aiReplied = await callAIWithContext(ctx, options.sendMessage);
+  const aiReplied = await callAIWithContext(ctx, options.sendMessage, {
+    traceId: params.traceId,
+  });
   return {
     didReply: aiReplied,
     decision: result.decision,

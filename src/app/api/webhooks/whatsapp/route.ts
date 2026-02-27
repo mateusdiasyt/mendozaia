@@ -16,6 +16,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { processInboundMessage } from "@/lib/orchestration";
+import { logOrchestration } from "@/lib/orchestration/logger";
 
 // Formato esperado da Evolution API (texto e mídia)
 interface MessageContent {
@@ -400,6 +401,7 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    const traceId = crypto.randomUUID();
 
     // Salvar mensagem recebida (texto e mídia)
     await db.insert(messages).values({
@@ -409,6 +411,21 @@ export async function POST(request: NextRequest) {
       content: messageText || null,
       mediaUrl,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    });
+
+    await logOrchestration({
+      conversationId: conversation.id,
+      organizationId: session.organizationId,
+      event: "webhook_inbound_received",
+      reason: "Mensagem inbound recebida no webhook",
+      traceId,
+      stage: "webhook.inbound",
+      decisionCode: "WEBHOOK_INBOUND_RECEIVED",
+      metadata: {
+        contentType,
+        hasText: !!messageText?.trim(),
+        fromMe: false,
+      },
     });
 
     // Atualizar conversa
@@ -503,10 +520,28 @@ export async function POST(request: NextRequest) {
       aiDisabledUntil: conversation.aiDisabledUntil ?? null,
     };
 
+    const automationStartedAt = Date.now();
     const { didReply } = await processMessageReceivedRules(context, executor);
+    await logOrchestration({
+      conversationId: conversation.id,
+      organizationId: session.organizationId,
+      event: "automation_processed",
+      decision: didReply ? "automation_only" : "tool_then_ai",
+      reason: didReply
+        ? "Automação respondeu antes do orquestrador"
+        : "Automação não respondeu; segue para orquestrador",
+      traceId,
+      stage: "automation.engine",
+      decisionCode: didReply ? "AUTOMATION_REPLIED" : "AUTOMATION_NO_REPLY",
+      durationMs: Date.now() - automationStartedAt,
+      metadata: {
+        didReply,
+      },
+    });
 
     // Orquestrador: IA nunca responde diretamente, passa por esta camada
-    await processInboundMessage(
+    const orchestratorStartedAt = Date.now();
+    const orchestratorResult = await processInboundMessage(
       {
         conversationId: conversation.id,
         organizationId: session.organizationId,
@@ -514,6 +549,7 @@ export async function POST(request: NextRequest) {
         contactPhone: phone,
         messageContent: messageText || "",
         messageContentType: contentType,
+        traceId,
       },
       {
         automationDidReply: didReply,
@@ -522,6 +558,25 @@ export async function POST(request: NextRequest) {
         },
       }
     );
+    await logOrchestration({
+      conversationId: conversation.id,
+      organizationId: session.organizationId,
+      event: "orchestrator_result",
+      decision: orchestratorResult.decision,
+      reason: orchestratorResult.reason,
+      traceId,
+      stage: "orchestrator.exit",
+      decisionCode: orchestratorResult.didReply
+        ? "ORCHESTRATOR_REPLIED"
+        : orchestratorResult.silence
+          ? "ORCHESTRATOR_SILENCE"
+          : "ORCHESTRATOR_NO_REPLY",
+      durationMs: Date.now() - orchestratorStartedAt,
+      metadata: {
+        didReply: orchestratorResult.didReply,
+        silence: orchestratorResult.silence,
+      },
+    });
 
     return NextResponse.json({ ok: true });
   } catch (err) {

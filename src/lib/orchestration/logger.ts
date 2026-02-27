@@ -13,9 +13,21 @@ export async function logOrchestration(params: {
   stateAfter?: string;
   decision?: string;
   reason?: string;
+  traceId?: string;
+  stage?: string;
+  decisionCode?: string;
+  durationMs?: number;
   metadata?: Record<string, unknown>;
 }): Promise<void> {
   try {
+    const metadata: Record<string, unknown> = {
+      ...(params.metadata ?? {}),
+      ...(params.traceId ? { traceId: params.traceId } : {}),
+      ...(params.stage ? { stage: params.stage } : {}),
+      ...(params.decisionCode ? { decisionCode: params.decisionCode } : {}),
+      ...(typeof params.durationMs === "number" ? { durationMs: params.durationMs } : {}),
+    };
+
     await db.insert(orchestrationLogs).values({
       conversationId: params.conversationId,
       organizationId: params.organizationId,
@@ -24,7 +36,7 @@ export async function logOrchestration(params: {
       stateAfter: params.stateAfter ?? null,
       decision: params.decision ?? null,
       reason: params.reason ?? null,
-      metadata: params.metadata ?? undefined,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
     });
   } catch (err) {
     console.error("[orchestration] Log failed:", err);
