@@ -129,8 +129,10 @@ function isSimpleNegative(text: string): boolean {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
-  return /^(nao|não|negativo|errado)$/.test(t);
+  return /\b(nao|negativo|errado|nao sei)\b/.test(t);
 }
 
 function pad2(n: number): string {
