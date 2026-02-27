@@ -300,6 +300,73 @@ function extractSearchTokens(text: string): string[] {
     .filter((t) => t.length >= 3 && !stop.has(t));
 }
 
+function getCatalogPromptRepeatState(
+  metadata: Record<string, unknown>,
+  promptKey: string
+): { repeatCount: number; nextCount: number } {
+  const flow = (metadata.catalogFlow as Record<string, unknown> | undefined) ?? {};
+  const lastPromptKey = typeof flow.lastPromptKey === "string" ? flow.lastPromptKey : "";
+  const lastPromptRepeatCount =
+    typeof flow.lastPromptRepeatCount === "number" ? flow.lastPromptRepeatCount : 0;
+  const repeatCount = lastPromptKey === promptKey ? lastPromptRepeatCount : 0;
+  return { repeatCount, nextCount: repeatCount + 1 };
+}
+
+async function persistCatalogPromptState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  promptKey: string,
+  nextCount: number
+): Promise<void> {
+  const flow = (currentMetadata.catalogFlow as Record<string, unknown> | undefined) ?? {};
+  const nextMetadata = {
+    ...currentMetadata,
+    catalogFlow: {
+      ...flow,
+      lastPromptKey: promptKey,
+      lastPromptRepeatCount: nextCount,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata: nextMetadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function buildCatalogClarificationReply(repeatCount: number): string {
+  if (repeatCount <= 0) {
+    return "Quero te passar o valor certo. É *troca de óleo*, *revisão* ou outro serviço?";
+  }
+  if (repeatCount === 1) {
+    return "Me descreve rapidinho o que você quer cotar e, se tiver, o item (ex.: troca de óleo 5W30).";
+  }
+  return "Pra eu te atender sem erro, manda em uma frase: *serviço + produto/veículo*. Ex.: *valor da troca de óleo 5W30 do Onix 2022*.";
+}
+
+function buildCatalogQueryWithContext(
+  messageContent: string,
+  context: { serviceName: string | null; productName: string | null }
+): string {
+  const normalized = normalizeForSearch(messageContent);
+  const hasSpecificNeed =
+    /\b(oleo|filtro|revisao|freio|alinhamento|balanceamento|suspensao|embreagem|bateria|pneu|motor)\b/.test(
+      normalized
+    );
+  if (!looksLikeCatalogIntent(messageContent) || hasSpecificNeed) {
+    return messageContent;
+  }
+  const ctxTerms = [context.serviceName, context.productName].filter(
+    (v): v is string => !!v?.trim()
+  );
+  if (ctxTerms.length === 0) return messageContent;
+  return `${messageContent} ${ctxTerms.join(" ")}`;
+}
+
 function scoreMatch(haystack: string, tokens: string[]): number {
   if (tokens.length === 0) return 0;
   const normalized = normalizeForSearch(haystack);
@@ -1288,7 +1355,8 @@ export async function processInboundMessage(
       };
     }
 
-    const catalog = await buildCatalogReply(ctx.organizationId, ctx.messageContent, {
+    const catalogQuery = buildCatalogQueryWithContext(ctx.messageContent, reservationContext);
+    const catalog = await buildCatalogReply(ctx.organizationId, catalogQuery, {
       skipIntentCheck: intakeStage === "awaiting_issue" || intakeStage === "awaiting_need",
     });
     if (catalog) {
@@ -1312,6 +1380,7 @@ export async function processInboundMessage(
         durationMs: Date.now() - startedAt,
         metadata: {
           messageContent: ctx.messageContent,
+          catalogQuery,
           productMatches: catalog.productMatches,
           serviceMatches: catalog.serviceMatches,
         },
@@ -1324,7 +1393,57 @@ export async function processInboundMessage(
       };
     }
 
-    if (intakeStage === "awaiting_issue") {
+    const shouldClarifyCatalog =
+      intakeStage === "awaiting_issue" ||
+      looksLikeCatalogIntent(ctx.messageContent) ||
+      (Boolean(reservationContext.serviceName || reservationContext.productName) &&
+        /\b(valor|preco|quanto|troca|servico)\b/.test(normalizeForSearch(ctx.messageContent)));
+
+    if (shouldClarifyCatalog) {
+      const promptKey = "catalog:clarify_intent";
+      const promptState = getCatalogPromptRepeatState(conversationMetadata, promptKey);
+      await options.sendMessage(
+        ctx.conversationId,
+        buildCatalogClarificationReply(promptState.repeatCount)
+      );
+      await persistCatalogPromptState(
+        ctx.conversationId,
+        conversationMetadata,
+        promptKey,
+        promptState.nextCount
+      );
+      if (intakeStage !== "awaiting_issue") {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      }
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "catalog_clarify_no_match",
+        decision: "tool_then_ai",
+        reason: "Consulta de catálogo sem match; solicitando clarificação",
+        traceId: params.traceId,
+        stage: "orchestrator.catalog",
+        decisionCode: "CATALOG_CLARIFY_NO_MATCH",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+          catalogQuery,
+          intakeStage,
+          hasReservationContext: Boolean(
+            reservationContext.serviceName || reservationContext.productName
+          ),
+          repeatCount: promptState.repeatCount,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Sem match no catálogo; pedindo clarificação da intenção",
+        silence: false,
+      };
+    }
+
+    if (getIntakeStage(conversationMetadata) === "awaiting_issue") {
       const fallbackReservation =
         "Entendi. Nesse caso, posso te ajudar com o agendamento para avaliarmos melhor. Me informe seu nome e os dados do veículo (modelo, ano e km).";
       await options.sendMessage(ctx.conversationId, fallbackReservation);
