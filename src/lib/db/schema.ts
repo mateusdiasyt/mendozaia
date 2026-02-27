@@ -267,6 +267,7 @@ export const products = pgTable("products", {
     .notNull()
     .references(() => organizations.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  category: text("category"),
   model: text("model"),
   description: text("description"),
   priceCents: integer("price_cents").notNull(),

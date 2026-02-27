@@ -4,6 +4,7 @@ import {
   conversations,
   contacts,
   contactMemories,
+  products,
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
@@ -60,7 +61,12 @@ export default async function ConversaPage({
     .where(
       and(
         eq(contactMemories.contactId, conv.contactId),
-        inArray(contactMemories.key, ["vehicle_model", "vehicle_year", "vehicle_km"])
+        inArray(contactMemories.key, [
+          "vehicle_model",
+          "vehicle_year",
+          "vehicle_km",
+          "vehicle_oil_spec",
+        ])
       )
     );
 
@@ -68,6 +74,17 @@ export default async function ConversaPage({
   const vehicleModel = memoryByKey.vehicle_model ?? null;
   const vehicleYear = memoryByKey.vehicle_year ?? null;
   const vehicleKm = memoryByKey.vehicle_km ?? null;
+  const vehicleOilSpec = memoryByKey.vehicle_oil_spec ?? null;
+  const oilProducts = await db
+    .select({ id: products.id, name: products.name, model: products.model })
+    .from(products)
+    .where(
+      and(
+        eq(products.organizationId, org.id),
+        eq(products.isActive, true),
+        eq(products.category, "oleo")
+      )
+    );
   const workshopFlow =
     (conv.conversationStateMetadata as Record<string, unknown> | undefined)?.workshopFlow as
       | Record<string, unknown>
@@ -156,6 +173,8 @@ export default async function ConversaPage({
           vehicleModel={vehicleModel}
           vehicleYear={vehicleYear}
           vehicleKm={vehicleKm}
+          vehicleOilSpec={vehicleOilSpec}
+          oilProducts={oilProducts}
           carInShop={carInShop}
         />
       </div>

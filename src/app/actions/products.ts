@@ -13,6 +13,13 @@ function parseCurrencyToCents(raw: string): number {
   return Math.round(value * 100);
 }
 
+function normalizeProductCategory(raw: string): string | null {
+  const value = raw.trim().toLowerCase();
+  if (!value) return null;
+  const allowed = new Set(["oleo", "filtro", "peca", "acessorio", "outros"]);
+  return allowed.has(value) ? value : "outros";
+}
+
 export async function listProducts() {
   const org = await getCurrentOrganization();
   if (!org) return { products: [] as Array<typeof products.$inferSelect> };
@@ -31,6 +38,7 @@ export async function createProduct(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   const model = ((formData.get("model") as string) || "").trim();
   const description = ((formData.get("description") as string) || "").trim();
+  const category = normalizeProductCategory((formData.get("category") as string) || "");
   const priceCents = parseCurrencyToCents((formData.get("price") as string) || "0");
   const stockQuantity = Number(formData.get("stockQuantity") || 0);
   const isActive = formData.get("isActive") === "on";
@@ -41,6 +49,7 @@ export async function createProduct(formData: FormData) {
   await db.insert(products).values({
     organizationId: org.id,
     name,
+    category,
     model: model || null,
     description: description || null,
     priceCents,

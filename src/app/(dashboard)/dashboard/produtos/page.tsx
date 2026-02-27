@@ -39,6 +39,17 @@ export default async function ProdutosPage() {
             placeholder="Modelo/Marca (opcional)"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
+          <select
+            name="category"
+            defaultValue="outros"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
+          >
+            <option value="oleo">Óleo</option>
+            <option value="filtro">Filtro</option>
+            <option value="peca">Peça</option>
+            <option value="acessorio">Acessório</option>
+            <option value="outros">Outros</option>
+          </select>
           <input
             name="price"
             required
@@ -78,6 +89,7 @@ export default async function ProdutosPage() {
           <thead className="bg-slate-50 text-left text-slate-600">
             <tr>
               <th className="px-4 py-3">Produto</th>
+              <th className="px-4 py-3">Categoria</th>
               <th className="px-4 py-3">Preço</th>
               <th className="px-4 py-3">Estoque</th>
               <th className="px-4 py-3">Status</th>
@@ -92,6 +104,9 @@ export default async function ProdutosPage() {
                   {item.model ? (
                     <p className="text-xs text-slate-500">{item.model}</p>
                   ) : null}
+                </td>
+                <td className="px-4 py-3 text-slate-700">
+                  {(item.category || "outros").toUpperCase()}
                 </td>
                 <td className="px-4 py-3 text-slate-700">
                   {formatCurrencyFromCents(item.priceCents)}
@@ -132,7 +147,7 @@ export default async function ProdutosPage() {
             ))}
             {products.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                   Nenhum produto cadastrado ainda.
                 </td>
               </tr>

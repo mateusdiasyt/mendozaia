@@ -13,6 +13,7 @@ import {
   setConversationAIDisabled,
   setConversationAIEnabled,
   setConversationCarInShop,
+  setConversationVehicleOil,
   resetConversationForTesting,
 } from "@/app/actions/messages";
 import { useRouter } from "next/navigation";
@@ -24,6 +25,8 @@ interface AIControlSidebarProps {
   vehicleModel?: string | null;
   vehicleYear?: string | null;
   vehicleKm?: string | null;
+  vehicleOilSpec?: string | null;
+  oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
 }
 
@@ -33,6 +36,8 @@ export function AIControlSidebar({
   vehicleModel,
   vehicleYear,
   vehicleKm,
+  vehicleOilSpec,
+  oilProducts = [],
   carInShop = false,
 }: AIControlSidebarProps) {
   const router = useRouter();
@@ -42,6 +47,8 @@ export function AIControlSidebar({
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [carInWorkshop, setCarInWorkshop] = useState(carInShop);
+  const [oilSpec, setOilSpec] = useState(vehicleOilSpec ?? "");
+  const [updatingOil, setUpdatingOil] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -54,6 +61,10 @@ export function AIControlSidebar({
   useEffect(() => {
     setCarInWorkshop(carInShop);
   }, [carInShop]);
+
+  useEffect(() => {
+    setOilSpec(vehicleOilSpec ?? "");
+  }, [vehicleOilSpec]);
 
   const isDisabled = mounted && until && until > new Date();
   const isForever =
@@ -131,6 +142,18 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleSetOilSpec(nextValue: string) {
+    setUpdatingOil(true);
+    try {
+      await setConversationVehicleOil(conversationId, nextValue || null);
+      setOilSpec(nextValue);
+    } catch {
+      //
+    } finally {
+      setUpdatingOil(false);
+    }
+  }
+
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l border-[#e9edef] bg-white">
       <div className="border-b border-[#e9edef] px-4 py-3">
@@ -155,6 +178,29 @@ export function AIControlSidebar({
             <p>
               KM: <span className="font-medium">{vehicleKm || "Não informado"}</span>
             </p>
+          </div>
+          <div className="mt-3">
+            <label htmlFor="vehicle-oil-spec" className="mb-1 block text-xs text-[#667781]">
+              Óleo
+            </label>
+            <select
+              id="vehicle-oil-spec"
+              disabled={updatingOil}
+              value={oilSpec}
+              onChange={(event) => handleSetOilSpec(event.target.value)}
+              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+            >
+              <option value="">Não informado</option>
+              {oilProducts.map((item) => {
+                const value = item.model?.trim() ? item.model.trim() : item.name.trim();
+                const label = item.model?.trim() ? `${item.model.trim()} — ${item.name}` : item.name;
+                return (
+                  <option key={item.id} value={value}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
           </div>
         </div>
 

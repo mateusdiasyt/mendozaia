@@ -7,10 +7,12 @@ import { db } from "@/lib/db";
 import {
   conversations,
   contacts,
+  contactMemories,
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { saveContactMemory } from "@/lib/contact-memories";
 
 export async function setConversationAIDisabled(
   conversationId: string,
@@ -131,6 +133,47 @@ export async function setConversationCarInShop(
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
   return { success: true, carInShop };
+}
+
+export async function setConversationVehicleOil(
+  conversationId: string,
+  oilSpec: string | null
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select({ id: conversations.id, contactId: conversations.contactId })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const value = (oilSpec ?? "").trim();
+  if (!value) {
+    await db
+      .delete(contactMemories)
+      .where(
+        and(
+          eq(contactMemories.contactId, conv.contactId),
+          eq(contactMemories.key, "vehicle_oil_spec")
+        )
+      );
+  } else {
+    await saveContactMemory(conv.contactId, "vehicle_oil_spec", value);
+  }
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  return { success: true, oilSpec: value || null };
 }
 
 export async function sendMessage(conversationId: string, text: string) {
