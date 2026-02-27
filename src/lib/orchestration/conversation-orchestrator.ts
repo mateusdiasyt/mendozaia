@@ -1676,19 +1676,23 @@ export async function processInboundMessage(
   }
 
   const missingWorkshopVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+  const missingWorkshopName = !contactName;
   if (
     (looksLikeVehicleStatusInquiry(ctx.messageContent) || workshopState.awaitingVehicleDetails) &&
     !workshopState.carInShop
   ) {
-    if (missingWorkshopVehicle.length > 0) {
+    if (missingWorkshopName || missingWorkshopVehicle.length > 0) {
       await persistWorkshopState(ctx.conversationId, conversationMetadata, {
         carInShop: false,
         awaitingVehicleDetails: true,
       });
+      if (missingWorkshopName) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+      }
       await options.sendMessage(
         ctx.conversationId,
-        `Antes de direcionar para o mecânico técnico, preciso registrar os dados do veículo.\n${buildMissingReservationProfileReply(
-          false,
+        `Antes de direcionar para o mecânico técnico, preciso registrar alguns dados.\n${buildMissingReservationProfileReply(
+          missingWorkshopName,
           missingWorkshopVehicle
         )}`
       );
