@@ -1680,7 +1680,7 @@ export async function processInboundMessage(
   if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(ctx.messageContent)) {
     if (shouldAskOilQualification(ctx.messageContent)) {
       const oilQualificationReply =
-        "Perfeito! Pra eu te passar certinho, qual óleo seu carro usa (ex.: 5W30, 10W40) e qual é o veículo/ano?";
+        "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       await logOrchestration({
@@ -1743,7 +1743,7 @@ export async function processInboundMessage(
   ) {
     if (shouldAskOilQualification(ctx.messageContent)) {
       const oilQualificationReply =
-        "Pra te indicar o valor correto da troca, me confirma qual óleo você usa (ex.: 5W30, 10W40). Se não souber, eu já organizo um horário pra avaliação.";
+        "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
       if (intakeStage !== "awaiting_issue") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
