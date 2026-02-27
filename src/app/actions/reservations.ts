@@ -83,7 +83,37 @@ export async function listReservations(filters?: {
     result = result.filter((r) => r.status === filters.status);
   }
 
-  return { reservations: result };
+  const enriched = result.map((r) => {
+    let customerNameFromNotes: string | null = null;
+    let vehicleModel: string | null = null;
+    let vehicleYear: number | null = null;
+    let vehicleKm: number | null = null;
+
+    if (r.notes) {
+      try {
+        const parsed = JSON.parse(r.notes) as {
+          customerName?: string;
+          vehicle?: { modelo?: string; ano?: number; km?: number };
+        };
+        customerNameFromNotes = parsed.customerName ?? null;
+        vehicleModel = parsed.vehicle?.modelo ?? null;
+        vehicleYear = parsed.vehicle?.ano ?? null;
+        vehicleKm = parsed.vehicle?.km ?? null;
+      } catch {
+        // notas antigas em texto livre
+      }
+    }
+
+    return {
+      ...r,
+      customerName: customerNameFromNotes ?? r.contactName ?? null,
+      vehicleModel,
+      vehicleYear,
+      vehicleKm,
+    };
+  });
+
+  return { reservations: enriched };
 }
 
 export type ListReservation = Awaited<

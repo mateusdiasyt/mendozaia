@@ -36,6 +36,7 @@ export interface OrchestrationContext {
   handoffReason: string | null;
   isPriority: boolean;
   assignedToId: string | null;
+  contactName?: string | null;
   reservationsEnabled: boolean;
   aiAgentEnabled: boolean;
   aiAgentUseAsFallback: boolean;

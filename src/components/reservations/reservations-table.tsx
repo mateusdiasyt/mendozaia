@@ -48,6 +48,9 @@ export function ReservationsTable({
             Contato
           </th>
           <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
+            Veículo
+          </th>
+          <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
             Status
           </th>
           <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
@@ -62,7 +65,7 @@ export function ReservationsTable({
         {reservations.length === 0 ? (
           <tr>
             <td
-              colSpan={6}
+              colSpan={7}
               className="px-6 py-16 text-center text-slate-500"
             >
               Nenhuma reserva encontrada.
@@ -87,12 +90,26 @@ export function ReservationsTable({
               </td>
               <td className="px-6 py-4">
                 <span className="font-medium text-slate-900">
-                  {r.contactName || "—"}
+                  {("customerName" in r ? (r.customerName as string | null) : r.contactName) || "—"}
                 </span>
                 {r.contactPhone && (
                   <span className="block text-sm text-slate-500">
                     {r.contactPhone}
                   </span>
+                )}
+              </td>
+              <td className="px-6 py-4 text-sm text-slate-700">
+                {("vehicleModel" in r && r.vehicleModel) ||
+                ("vehicleYear" in r && r.vehicleYear) ||
+                ("vehicleKm" in r && r.vehicleKm) ? (
+                  <div className="space-y-0.5">
+                    <div>{(r as ListReservation & { vehicleModel?: string | null }).vehicleModel ?? "—"}</div>
+                    <div className="text-xs text-slate-500">
+                      Ano: {(r as ListReservation & { vehicleYear?: number | null }).vehicleYear ?? "—"} · Km: {(r as ListReservation & { vehicleKm?: number | null }).vehicleKm ?? "—"}
+                    </div>
+                  </div>
+                ) : (
+                  "—"
                 )}
               </td>
               <td className="px-6 py-4">

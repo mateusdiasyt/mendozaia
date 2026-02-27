@@ -4,7 +4,7 @@
  */
 
 import { db } from "@/lib/db";
-import { conversations, organizations, messages } from "@/lib/db/schema";
+import { conversations, organizations, messages, contacts } from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
@@ -269,6 +269,45 @@ function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, av
     : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
 }
 
+function extractCustomerName(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
+
+  const explicit = trimmed.match(/\b(?:meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú' ]{2,40})$/i);
+  if (explicit?.[1]) {
+    const name = explicit[1].replace(/\s+/g, " ").trim();
+    return name.length >= 2 ? name : null;
+  }
+
+  if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length <= 3) {
+    const normalized = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (["sim", "ok", "quero", "confirmo", "amanha", "hoje", "ola", "oi"].includes(normalized)) {
+      return null;
+    }
+    return trimmed.replace(/\s+/g, " ").trim();
+  }
+
+  return null;
+}
+
+function buildMissingReservationProfileReply(
+  missingName: boolean,
+  missingVehicle: ("modelo" | "ano" | "km")[]
+): string {
+  const parts: string[] = [];
+  if (missingName) parts.push("*nome*");
+  if (missingVehicle.includes("modelo")) parts.push("*modelo*");
+  if (missingVehicle.includes("ano")) parts.push("*ano*");
+  if (missingVehicle.includes("km")) parts.push("*quilometragem*");
+
+  if (parts.length === 0) {
+    return "Perfeito. Pode me confirmar a reserva?";
+  }
+  return `Antes de confirmar, me informe ${parts.join(", ")} do veículo.`;
+}
+
 function looksLikeReservationConfirmation(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -347,6 +386,12 @@ export async function loadConversationContext(
     .where(eq(organizations.id, params.organizationId))
     .limit(1);
 
+  const [contact] = await db
+    .select({ name: contacts.name })
+    .from(contacts)
+    .where(eq(contacts.id, params.contactId))
+    .limit(1);
+
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
   const systemPrompt = (aiAgent.systemPrompt as string) ?? "";
@@ -407,6 +452,7 @@ export async function loadConversationContext(
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
     vehicleSlots: shouldExtractVehicleSlots ? vehicleSlots : undefined,
     usesVehicleSlots,
+    contactName: contact?.name ?? null,
     pendingReservation:
       pendingReservation?.dateStr && pendingReservation?.timeStr
         ? {
@@ -613,6 +659,18 @@ export async function processInboundMessage(
     .limit(1);
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
+  let contactName = ctx.contactName ?? null;
+
+  const inferredName = extractCustomerName(ctx.messageContent);
+  if (!contactName && inferredName) {
+    await db
+      .update(contacts)
+      .set({ name: inferredName, updatedAt: new Date() })
+      .where(eq(contacts.id, ctx.contactId));
+    contactName = inferredName;
+  }
+  const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
+  const missingNameProfile = !contactName;
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
@@ -633,6 +691,38 @@ export async function processInboundMessage(
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation && looksLikeReservationConfirmation(ctx.messageContent)) {
     const pending = ctx.pendingReservation;
+    const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+    const missingName = !contactName;
+
+    if (missingName || missingVehicle.length > 0) {
+      await options.sendMessage(
+        ctx.conversationId,
+        buildMissingReservationProfileReply(missingName, missingVehicle)
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_confirm_blocked_missing_profile",
+        decision: "tool_then_ai",
+        reason: "Confirmação recebida sem nome/dados do veículo completos",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_CONFIRM_BLOCKED_MISSING_PROFILE",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          missingName,
+          missingVehicle,
+          vehicleSlots: ctx.vehicleSlots ?? null,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando nome e/ou dados do veículo antes da confirmação",
+        silence: false,
+      };
+    }
+
     const recheck = await checkAvailabilityForOrg(
       ctx.organizationId,
       pending.dateStr,
@@ -669,10 +759,19 @@ export async function processInboundMessage(
     }
 
     const startAt = parseStartAt(pending.dateStr, pending.timeStr);
+    const reservationNotes = JSON.stringify({
+      customerName: contactName,
+      vehicle: {
+        modelo: ctx.vehicleSlots?.modelo ?? null,
+        ano: ctx.vehicleSlots?.ano ?? null,
+        km: ctx.vehicleSlots?.km ?? null,
+      },
+    });
     const created = await createReservationForOrg(ctx.organizationId, {
       startAt,
       durationMinutes: pending.durationMinutes,
       contactId: ctx.contactId,
+      notes: reservationNotes,
       source: "ai",
     });
     await savePendingReservation(ctx.conversationId, conversationMetadata, null);
@@ -718,6 +817,23 @@ export async function processInboundMessage(
     const parsed = parsedCurrentMessage ?? parsedFromHistory;
 
     if (parsed) {
+      if (missingNameProfile) {
+        await savePendingReservation(ctx.conversationId, conversationMetadata, {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          durationMinutes: 60,
+        });
+        await options.sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(true, [])
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Solicitando nome antes de confirmar reserva",
+          silence: false,
+        };
+      }
       const availability = await checkAvailabilityForOrg(
         ctx.organizationId,
         parsed.dateStr,
@@ -795,6 +911,23 @@ export async function processInboundMessage(
   if (ctx.reservationsEnabled && !ctx.usesVehicleSlots) {
     const parsed = extractReservationDateTime(ctx.messageContent);
     if (parsed) {
+      if (missingNameProfile || missingVehicleProfile.length > 0) {
+        await savePendingReservation(ctx.conversationId, conversationMetadata, {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          durationMinutes: 60,
+        });
+        await options.sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(missingNameProfile, missingVehicleProfile)
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Solicitando nome/dados do veículo antes de confirmar reserva",
+          silence: false,
+        };
+      }
       const availability = await checkAvailabilityForOrg(
         ctx.organizationId,
         parsed.dateStr,
@@ -915,6 +1048,23 @@ export async function processInboundMessage(
       (await findLatestInboundReservationDateTime(ctx.conversationId));
 
     if (parsed) {
+      if (missingNameProfile || missing.length > 0) {
+        await savePendingReservation(ctx.conversationId, conversationMetadata, {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          durationMinutes: 60,
+        });
+        await options.sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(missingNameProfile, missing)
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fail-safe: solicitando perfil antes de confirmar reserva",
+          silence: false,
+        };
+      }
       const availability = await checkAvailabilityForOrg(
         ctx.organizationId,
         parsed.dateStr,
