@@ -441,6 +441,14 @@ function shouldAskOilQualification(text: string): boolean {
   return isOilExchangeIntent(text) && !extractOilSpec(text);
 }
 
+function looksLikeUnknownOilMessage(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return (
+    /\b(nao sei|não sei|nao lembro|não lembro|nao faco ideia|não faco ideia)\b/.test(t) &&
+    /\b(oleo|lubrificante|viscosidade)\b/.test(t)
+  );
+}
+
 function isGenericBudgetRequest(text: string): boolean {
   const t = normalizeForSearch(text);
   const asksBudget = /\b(orcamento|preco|valor|quanto)\b/.test(t);
@@ -1749,6 +1757,68 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
+    if (looksLikeUnknownOilMessage(ctx.messageContent)) {
+      const slots = ctx.vehicleSlots ?? {};
+      const hasModelAndYear = !!(slots.modelo && slots.ano);
+      if (hasModelAndYear) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Perfeito, sem problema. Vou encaminhar para um mecânico técnico continuar seu atendimento e confirmar a especificação correta para o seu veículo."
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Cliente não sabe especificação do óleo; encaminhado para mecânico técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "catalog_handoff_technical_oil_unknown",
+          decision: "human_only",
+          reason: "Cliente sem informação do óleo; handoff técnico por 24h",
+          traceId: params.traceId,
+          stage: "orchestrator.catalog",
+          decisionCode: "CATALOG_HANDOFF_TECHNICAL_24H",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            hasModelAndYear,
+            handoffSuccess: handoff.success,
+            vehicleSlots: slots,
+            messageContent: ctx.messageContent,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Encaminhado para mecânico técnico e IA pausada por 24h",
+          silence: false,
+        };
+      }
+
+      await options.sendMessage(
+        ctx.conversationId,
+        "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo."
+      );
+      if (intakeStage !== "awaiting_issue") {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      }
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente não sabe óleo; solicitando modelo e ano para handoff",
+        silence: false,
+      };
+    }
+
     if (shouldAskOilQualification(ctx.messageContent)) {
       const oilQualificationReply =
         "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
