@@ -1143,6 +1143,42 @@ export async function processInboundMessage(
         silence: false,
       };
     }
+
+    // Continuidade da coleta: se há reserva pendente ou a mensagem parece ser
+    // dado de veículo (ex: "onix"), não pode cair em silêncio.
+    if (
+      missing.length > 0 &&
+      (ctx.pendingReservation || looksLikeVehicleInfoMessage(ctx.messageContent))
+    ) {
+      await options.sendMessage(
+        ctx.conversationId,
+        buildMissingVehicleInfoReply(missing)
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_collect_missing_vehicle_info_progress",
+        decision: "tool_then_ai",
+        reason: "Continuidade da coleta de dados do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_COLLECT_MISSING_VEHICLE_INFO_PROGRESS",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          missingSlots: missing,
+          vehicleSlots: slots,
+          hasPendingReservation: !!ctx.pendingReservation,
+          pendingReservation: ctx.pendingReservation ?? null,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando continuidade dos dados do veículo",
+        silence: false,
+      };
+    }
   }
 
   // Fail-safe de reservas:
