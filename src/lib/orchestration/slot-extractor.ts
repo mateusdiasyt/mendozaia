@@ -25,6 +25,24 @@ const INVALID_MODELO_TERMS = new Set([
   "dia",
 ]);
 
+const INVALID_MODELO_PHRASES = [
+  "gostaria",
+  "quero",
+  "preciso",
+  "orcamento",
+  "orçamento",
+  "troca",
+  "trocar",
+  "oleo",
+  "óleo",
+  "servico",
+  "serviço",
+  "agendar",
+  "agendamento",
+  "meu carro",
+  "do meu carro",
+];
+
 function normalizeModel(value: string): string {
   return value
     .toLowerCase()
@@ -37,7 +55,9 @@ export function isValidVehicleModel(value: string | undefined): boolean {
   if (!value?.trim()) return false;
   const normalized = normalizeModel(value);
   if (normalized.length <= 3) return false;
+  if (normalized.split(/\s+/).filter(Boolean).length > 4) return false;
   if (INVALID_MODELO_TERMS.has(normalized)) return false;
+  if (INVALID_MODELO_PHRASES.some((term) => normalized.includes(term))) return false;
   if (/^\d+$/.test(normalized)) return false;
   if (/\b\d{1,2}\s*w\s*\d{2}\b/i.test(normalized)) return false;
   if (/\b(km|mil|quilometragem|amanh[ãa]|hoje|dia|as|horario)\b/i.test(value)) {
@@ -98,9 +118,18 @@ function extractModelo(text: string): string | undefined {
   }
 
   if (!candidate && hasVehicleHint) {
-    const isModelo = trimmed.match(/\b(?:é\s+um?\s+)?([a-záàâãéêíóôõúç0-9\s]{2,40}?)(?:\s+com\s+|\s+-\s+|$)/i);
-    if (isModelo && !/^\d+$/.test(isModelo[1].trim())) {
-      candidate = isModelo[1].trim();
+    const explicitModelo = trimmed.match(
+      /\bmodelo(?:\s+do\s+ve[ií]culo)?\s*[:\-]?\s*([a-záàâãéêíóôõúç0-9\s-]{2,40})/i
+    );
+    if (explicitModelo && !/^\d+$/.test(explicitModelo[1].trim())) {
+      candidate = explicitModelo[1].trim();
+    } else {
+      const explicitVehicleIs = trimmed.match(
+        /\b(?:carro|ve[ií]culo)\s*(?:é|eh)\s*(?:um|uma)?\s*([a-záàâãéêíóôõúç0-9\s-]{2,40})/i
+      );
+      if (explicitVehicleIs && !/^\d+$/.test(explicitVehicleIs[1].trim())) {
+        candidate = explicitVehicleIs[1].trim();
+      }
     }
   }
 
