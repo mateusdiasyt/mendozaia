@@ -742,7 +742,11 @@ type ReservationCollectionStage =
   | "collect_datetime"
   | "confirm_reservation"
   | "completed";
-type IntakeStage = "awaiting_need" | "awaiting_issue" | "awaiting_reservation_profile";
+type IntakeStage =
+  | "awaiting_name"
+  | "awaiting_need"
+  | "awaiting_issue"
+  | "awaiting_reservation_profile";
 
 function inferCollectionStage(
   missingName: boolean,
@@ -823,6 +827,7 @@ function getIntakeStage(metadata: Record<string, unknown>): IntakeStage | null {
   const intakeFlow = (metadata.intakeFlow as Record<string, unknown> | undefined) ?? {};
   const stage = intakeFlow.stage;
   if (
+    stage === "awaiting_name" ||
     stage === "awaiting_need" ||
     stage === "awaiting_issue" ||
     stage === "awaiting_reservation_profile"
@@ -1311,11 +1316,14 @@ export async function processInboundMessage(
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
-  const allowSingleWordName = isPendingWithoutName || isReservationProfileCollection;
+  const isAwaitingNameStage = intakeStage === "awaiting_name";
+  const allowSingleWordName =
+    isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(ctx.messageContent);
   const wantsNameUpdate = !!contactName && explicitNameIntro;
   const canCaptureNameNow =
-    (!contactName && (explicitNameIntro || isCollectProfileStage)) || wantsNameUpdate;
+    (!contactName && (explicitNameIntro || isCollectProfileStage || isAwaitingNameStage)) ||
+    wantsNameUpdate;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(ctx.messageContent, {
@@ -1373,6 +1381,34 @@ export async function processInboundMessage(
       durationMs: Date.now() - startedAt,
     });
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
+  if (isAwaitingNameStage && justCapturedName && contactName) {
+    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+    await options.sendMessage(
+      ctx.conversationId,
+      `Prazer, *${contactName}*! Qual seria sua dúvida?`
+    );
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "intake_name_captured",
+      decision: "tool_then_ai",
+      reason: "Nome capturado no onboarding de identificação",
+      traceId: params.traceId,
+      stage: "orchestrator.profile",
+      decisionCode: "INTAKE_NAME_CAPTURED",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        contactName,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Nome confirmado e onboarding continuado",
+      silence: false,
+    };
   }
 
   if (
@@ -1464,7 +1500,9 @@ export async function processInboundMessage(
     };
   }
 
-  if (looksLikeAskKnownName(ctx.messageContent) || looksLikeAskKnownVehicle(ctx.messageContent)) {
+  const asksKnownName = looksLikeAskKnownName(ctx.messageContent);
+  const asksKnownVehicle = looksLikeAskKnownVehicle(ctx.messageContent);
+  if (asksKnownName || asksKnownVehicle) {
     const knownName = contactName?.trim() || null;
     const knownVehicle = ctx.vehicleSlots ?? {};
     const hasKnownVehicle = !!(knownVehicle.modelo || knownVehicle.ano || knownVehicle.km);
@@ -1477,7 +1515,10 @@ export async function processInboundMessage(
       .join(" - ");
 
     let reply = "Ainda não tenho tudo salvo aqui.";
-    if (knownName && hasKnownVehicle) {
+    if (asksKnownName && !knownName) {
+      reply = "Desculpa, ainda não sei seu nome. Qual seria o seu nome?";
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+    } else if (knownName && hasKnownVehicle) {
       reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*. Continua com esses dados?`;
     } else if (knownName) {
       reply = `Tenho seu nome salvo como *${knownName}*. Pode me confirmar modelo, ano e km do veículo para eu atualizar?`;
