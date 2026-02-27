@@ -143,7 +143,20 @@ export function extractSlotsFromMessages(
   for (const m of messages) {
     if (m.direction !== "inbound" || !m.content?.trim()) continue;
     const extracted = extractVehicleSlotsFromText(m.content);
-    slots = mergeVehicleSlots(slots, extracted);
+    const incoming: Partial<VehicleSlots> = { ...extracted };
+
+    // Evita "trocar" modelo já identificado por uma palavra solta (ex.: nome do cliente).
+    // A troca continua permitida quando há contexto explícito de veículo.
+    if (slots.modelo && incoming.modelo && !incoming.ano && !incoming.km) {
+      const trimmed = m.content.trim();
+      const isSingleWord = /^[a-zA-ZÀ-ÿ]{2,30}$/.test(trimmed);
+      const hasVehicleHint = /\b(modelo|ve[ií]culo|carro)\b/i.test(trimmed);
+      if (isSingleWord && !hasVehicleHint) {
+        delete incoming.modelo;
+      }
+    }
+
+    slots = mergeVehicleSlots(slots, incoming);
   }
   return slots;
 }

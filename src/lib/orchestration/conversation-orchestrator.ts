@@ -737,10 +737,17 @@ export async function processInboundMessage(
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   let contactName = ctx.contactName ?? null;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
-  const inferredName = extractCustomerName(ctx.messageContent, {
+  let inferredName = extractCustomerName(ctx.messageContent, {
     allowSingleWord: isPendingWithoutName,
     blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
   });
+  // Fallback: se houver conflito com modelo extraído, tenta novamente sem bloqueio.
+  // Isso evita loop em casos como "Mateus" ser confundido com modelo.
+  if (!inferredName && !contactName) {
+    inferredName = extractCustomerName(ctx.messageContent, {
+      allowSingleWord: isPendingWithoutName,
+    });
+  }
   if (!contactName && inferredName) {
     await db
       .update(contacts)
