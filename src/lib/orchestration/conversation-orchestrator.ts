@@ -720,6 +720,104 @@ export async function processInboundMessage(
     }
   }
 
+  // Fail-safe de reservas:
+  // se houver intenção clara de agendamento (data/hora), nunca deixa cair em silêncio
+  // por causa de fallback desativado.
+  if (ctx.reservationsEnabled && containsDateOrTimeHint(ctx.messageContent)) {
+    const slots = ctx.vehicleSlots ?? {};
+    const missing = getMissingSlots(slots);
+
+    if (ctx.usesVehicleSlots && missing.length > 0) {
+      const reply = buildMissingVehicleInfoReply(missing);
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_fail_safe_missing_vehicle_info",
+        decision: "tool_then_ai",
+        reason: "Fail-safe: intenção de reserva com dados de veículo incompletos",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_FAIL_SAFE_MISSING_VEHICLE_INFO",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          missingSlots: missing,
+          vehicleSlots: slots,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fail-safe de reservas: solicitando dados faltantes do veículo",
+        silence: false,
+      };
+    }
+
+    const parsed =
+      extractReservationDateTime(ctx.messageContent) ??
+      (await findLatestInboundReservationDateTime(ctx.conversationId));
+
+    if (parsed) {
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        parsed.dateStr,
+        parsed.timeStr,
+        60
+      );
+      const reply = buildAvailabilityReply(parsed, availability.available);
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_fail_safe_auto_check",
+        decision: "tool_then_ai",
+        reason: "Fail-safe: disponibilidade consultada automaticamente",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_FAIL_SAFE_AUTO_CHECK",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          dateStr: parsed.dateStr,
+          timeStr: parsed.timeStr,
+          available: availability.available,
+          usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fail-safe de reservas: disponibilidade consultada",
+        silence: false,
+      };
+    }
+
+    await options.sendMessage(
+      ctx.conversationId,
+      "Entendi que você quer agendar. Pode me confirmar o *dia* e *horário* no formato, por exemplo: *28/02 às 14:00*?"
+    );
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "reservation_fail_safe_request_normalized_datetime",
+      decision: "tool_then_ai",
+      reason: "Fail-safe: não foi possível normalizar data/hora",
+      traceId: params.traceId,
+      stage: "orchestrator.reservations",
+      decisionCode: "RESERVATION_FAIL_SAFE_REQUEST_NORMALIZED_DATETIME",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Fail-safe de reservas: solicitando data/hora em formato claro",
+      silence: false,
+    };
+  }
+
   const result = decideNextAction(ctx);
 
   await logOrchestration({
