@@ -74,6 +74,8 @@ export async function createReservationForOrg(
     startAt: Date;
     durationMinutes?: number;
     contactId?: string;
+    serviceName?: string;
+    productName?: string;
     notes?: string;
     source?: "manual" | "ai";
   }
@@ -87,6 +89,8 @@ export async function createReservationForOrg(
       durationMinutes: input.durationMinutes ?? 60,
       status: "confirmed",
       source: input.source ?? "manual",
+      serviceName: input.serviceName ?? null,
+      productName: input.productName ?? null,
       notes: input.notes ?? null,
       updatedAt: new Date(),
     })

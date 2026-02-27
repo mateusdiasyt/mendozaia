@@ -39,6 +39,7 @@ export function isValidVehicleModel(value: string | undefined): boolean {
   if (normalized.length <= 3) return false;
   if (INVALID_MODELO_TERMS.has(normalized)) return false;
   if (/^\d+$/.test(normalized)) return false;
+  if (/\b\d{1,2}\s*w\s*\d{2}\b/i.test(normalized)) return false;
   if (/\b(km|mil|quilometragem|amanh[ãa]|hoje|dia|as|horario)\b/i.test(value)) {
     return false;
   }
@@ -69,6 +70,7 @@ function extractKm(text: string): number | undefined {
   const plainMatch = text.match(/\b(\d{4,6})\b/);
   if (plainMatch) {
     const n = parseInt(plainMatch[1], 10);
+    if (n >= 1980 && n <= 2035) return undefined;
     if (n >= 1000 && n <= 999999) return n;
   }
   return undefined;
@@ -104,6 +106,8 @@ function extractModelo(text: string): string | undefined {
 
   if (candidate) {
     candidate = candidate
+      .replace(/\b\d{1,2}\s*w\s*\d{2}\b/gi, " ")
+      .replace(/\b(?:e|é)?\s*um[a]?\s+/gi, " ")
       .replace(/\s*(?:,|\.|;)\s*$/, "")
       .replace(/\s+/g, " ")
       .trim();

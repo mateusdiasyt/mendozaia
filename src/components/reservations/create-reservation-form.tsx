@@ -49,6 +49,8 @@ export function CreateReservationForm({
       10
     );
     const contactId = (formData.get("contactId") as string) || undefined;
+    const serviceName = (formData.get("serviceName") as string)?.trim() || undefined;
+    const productName = (formData.get("productName") as string)?.trim() || undefined;
     const notes = (formData.get("notes") as string) || undefined;
 
     if (!dateStr || !timeStr) {
@@ -64,6 +66,8 @@ export function CreateReservationForm({
       startAt,
       durationMinutes: duration,
       contactId: contactId || undefined,
+      serviceName,
+      productName,
       notes: notes || undefined,
       source: "manual",
     });
@@ -202,6 +206,36 @@ export function CreateReservationForm({
             </option>
           ))}
         </select>
+      </div>
+
+      <div>
+        <label
+          htmlFor="serviceName"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Serviço
+        </label>
+        <input
+          id="serviceName"
+          name="serviceName"
+          className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          placeholder="Ex.: Troca de óleo"
+        />
+      </div>
+
+      <div>
+        <label
+          htmlFor="productName"
+          className="block text-sm font-medium text-slate-700"
+        >
+          Produto
+        </label>
+        <input
+          id="productName"
+          name="productName"
+          className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          placeholder="Ex.: Óleo 5W30"
+        />
       </div>
 
       <div>

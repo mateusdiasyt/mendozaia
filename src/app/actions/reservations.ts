@@ -14,6 +14,8 @@ export async function createReservation(input: {
   startAt: Date;
   durationMinutes?: number;
   contactId?: string;
+  serviceName?: string;
+  productName?: string;
   notes?: string;
   source?: "manual" | "ai";
 }) {
@@ -59,6 +61,8 @@ export async function listReservations(filters?: {
       durationMinutes: reservations.durationMinutes,
       status: reservations.status,
       source: reservations.source,
+      serviceName: reservations.serviceName,
+      productName: reservations.productName,
       notes: reservations.notes,
       contactName: contacts.name,
       contactPhone: contacts.phone,
@@ -88,17 +92,23 @@ export async function listReservations(filters?: {
     let vehicleModel: string | null = null;
     let vehicleYear: number | null = null;
     let vehicleKm: number | null = null;
+    let serviceNameFromNotes: string | null = null;
+    let productNameFromNotes: string | null = null;
 
     if (r.notes) {
       try {
         const parsed = JSON.parse(r.notes) as {
           customerName?: string;
           vehicle?: { modelo?: string; ano?: number; km?: number };
+          serviceName?: string;
+          productName?: string;
         };
         customerNameFromNotes = parsed.customerName ?? null;
         vehicleModel = parsed.vehicle?.modelo ?? null;
         vehicleYear = parsed.vehicle?.ano ?? null;
         vehicleKm = parsed.vehicle?.km ?? null;
+        serviceNameFromNotes = parsed.serviceName ?? null;
+        productNameFromNotes = parsed.productName ?? null;
       } catch {
         // notas antigas em texto livre
       }
@@ -110,6 +120,8 @@ export async function listReservations(filters?: {
       vehicleModel,
       vehicleYear,
       vehicleKm,
+      serviceName: r.serviceName ?? serviceNameFromNotes,
+      productName: r.productName ?? productNameFromNotes,
     };
   });
 
@@ -164,6 +176,8 @@ export async function createReservationFromAI(
     timeStr: string;
     contactId: string;
     durationMinutes?: number;
+    serviceName?: string;
+    productName?: string;
     notes?: string;
   }
 ) {
@@ -187,6 +201,8 @@ export async function createReservationFromAI(
     startAt,
     durationMinutes: input.durationMinutes ?? 60,
     contactId: input.contactId,
+    serviceName: input.serviceName,
+    productName: input.productName,
     notes: input.notes,
     source: "ai",
   });

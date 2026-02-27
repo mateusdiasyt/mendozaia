@@ -344,6 +344,8 @@ async function buildCatalogReply(
   reply: string;
   productMatches: number;
   serviceMatches: number;
+  selectedProductName: string | null;
+  selectedServiceName: string | null;
 } | null> {
   if (!options?.skipIntentCheck && !looksLikeCatalogIntent(messageContent)) return null;
 
@@ -417,6 +419,8 @@ async function buildCatalogReply(
     reply: lines.join("\n"),
     productMatches: productMatches.length,
     serviceMatches: serviceMatches.length,
+    selectedProductName: productMatches[0]?.name ?? null,
+    selectedServiceName: serviceMatches[0]?.name ?? null,
   };
 }
 
@@ -681,6 +685,42 @@ async function persistIntakeStage(
     nextMetadata.intakeFlow = { stage, updatedAt: new Date().toISOString() };
   } else {
     delete nextMetadata.intakeFlow;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getReservationContext(metadata: Record<string, unknown>): {
+  serviceName: string | null;
+  productName: string | null;
+} {
+  const ctx = (metadata.reservationContext as Record<string, unknown> | undefined) ?? {};
+  const serviceName = typeof ctx.serviceName === "string" ? ctx.serviceName : null;
+  const productName = typeof ctx.productName === "string" ? ctx.productName : null;
+  return { serviceName, productName };
+}
+
+async function persistReservationContext(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  context: { serviceName?: string | null; productName?: string | null } | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (context && (context.serviceName || context.productName)) {
+    nextMetadata.reservationContext = {
+      serviceName: context.serviceName ?? null,
+      productName: context.productName ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.reservationContext;
   }
 
   await db
@@ -1045,6 +1085,7 @@ export async function processInboundMessage(
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   const intakeStage = getIntakeStage(conversationMetadata);
+  const reservationContext = getReservationContext(conversationMetadata);
   let contactName = ctx.contactName ?? null;
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
@@ -1061,6 +1102,7 @@ export async function processInboundMessage(
       allowSingleWord: allowSingleWordName,
     });
   }
+  const justCapturedName = !contactName && !!inferredName;
   if (!contactName && inferredName) {
     await db
       .update(contacts)
@@ -1251,6 +1293,10 @@ export async function processInboundMessage(
     });
     if (catalog) {
       await options.sendMessage(ctx.conversationId, catalog.reply);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: catalog.selectedServiceName,
+        productName: catalog.selectedProductName,
+      });
       if (intakeStage) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
       }
@@ -1561,15 +1607,20 @@ export async function processInboundMessage(
         ano: ctx.vehicleSlots?.ano ?? null,
         km: ctx.vehicleSlots?.km ?? null,
       },
+      serviceName: reservationContext.serviceName,
+      productName: reservationContext.productName,
     });
     const created = await createReservationForOrg(ctx.organizationId, {
       startAt,
       durationMinutes: pending.durationMinutes,
       contactId: ctx.contactId,
+      serviceName: reservationContext.serviceName ?? undefined,
+      productName: reservationContext.productName ?? undefined,
       notes: reservationNotes,
       source: "ai",
     });
     await savePendingReservation(ctx.conversationId, conversationMetadata, null);
+    await persistReservationContext(ctx.conversationId, conversationMetadata, null);
 
     if (created?.success) {
       const friendlyDate = formatDateForPtBr(pending.dateStr);
@@ -1617,7 +1668,12 @@ export async function processInboundMessage(
     );
     const parsedFromHistory =
       !parsedCurrentMessage &&
-      (looksLikeVehicleInfoMessage(ctx.messageContent) || hasVehicleInfoInCurrentMessage)
+      (
+        looksLikeVehicleInfoMessage(ctx.messageContent) ||
+        hasVehicleInfoInCurrentMessage ||
+        justCapturedName ||
+        intakeStage === "awaiting_reservation_profile"
+      )
         ? await findLatestInboundReservationDateTime(ctx.conversationId)
         : null;
     const parsed = parsedCurrentMessage ?? parsedFromHistory;

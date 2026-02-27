@@ -252,6 +252,8 @@ export const reservations = pgTable("reservations", {
   durationMinutes: integer("duration_minutes").default(60).notNull(),
   status: text("status").default("confirmed").notNull(), // pending, confirmed, cancelled
   source: text("source").default("manual").notNull(), // manual, ai
+  serviceName: text("service_name"),
+  productName: text("product_name"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

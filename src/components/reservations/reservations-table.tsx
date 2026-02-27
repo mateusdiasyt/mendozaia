@@ -6,6 +6,8 @@ type ReservationRow = ListReservation & {
   vehicleModel?: string | null;
   vehicleYear?: number | null;
   vehicleKm?: number | null;
+  serviceName?: string | null;
+  productName?: string | null;
 };
 
 function formatDate(d: Date | string) {
@@ -58,6 +60,9 @@ export function ReservationsTable({
             Veículo
           </th>
           <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
+            Serviço / Produto
+          </th>
+          <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
             Status
           </th>
           <th className="px-6 py-4 text-left text-sm font-medium text-slate-600">
@@ -72,7 +77,7 @@ export function ReservationsTable({
         {reservations.length === 0 ? (
           <tr>
             <td
-              colSpan={7}
+              colSpan={8}
               className="px-6 py-16 text-center text-slate-500"
             >
               Nenhuma reserva encontrada.
@@ -84,6 +89,7 @@ export function ReservationsTable({
             const displayName = row.customerName ?? row.contactName ?? "—";
             const hasVehicleInfo =
               !!row.vehicleModel || !!row.vehicleYear || !!row.vehicleKm;
+            const hasCommercialInfo = !!row.serviceName || !!row.productName;
             return (
             <tr
               key={r.id}
@@ -116,6 +122,18 @@ export function ReservationsTable({
                     <div>{row.vehicleModel ?? "—"}</div>
                     <div className="text-xs text-slate-500">
                       Ano: {row.vehicleYear ?? "—"} · Km: {row.vehicleKm ?? "—"}
+                    </div>
+                  </div>
+                ) : (
+                  "—"
+                )}
+              </td>
+              <td className="px-6 py-4 text-sm text-slate-700">
+                {hasCommercialInfo ? (
+                  <div className="space-y-0.5">
+                    <div>{row.serviceName ?? "—"}</div>
+                    <div className="text-xs text-slate-500">
+                      Produto: {row.productName ?? "—"}
                     </div>
                   </div>
                 ) : (
