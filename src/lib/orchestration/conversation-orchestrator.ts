@@ -1621,6 +1621,72 @@ export async function processInboundMessage(
         ctx.vehicleSlots?.modelo
       )
     ) {
+      const correctedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
+      const mergedCorrectedSlots = mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        correctedFromMessage
+      );
+      const hasModelAndYearAfterCorrection = !!(
+        mergedCorrectedSlots.modelo && mergedCorrectedSlots.ano
+      );
+
+      if (hasModelAndYearAfterCorrection) {
+        const nextMetadata = {
+          ...conversationMetadata,
+          vehicleSlots: mergedCorrectedSlots,
+        };
+        await db
+          .update(conversations)
+          .set({
+            conversationStateMetadata: nextMetadata,
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+
+        if (mergedCorrectedSlots.modelo) {
+          await saveContactMemory(
+            ctx.contactId,
+            "vehicle_model",
+            mergedCorrectedSlots.modelo
+          );
+        }
+        if (mergedCorrectedSlots.ano) {
+          await saveContactMemory(
+            ctx.contactId,
+            "vehicle_year",
+            String(mergedCorrectedSlots.ano)
+          );
+        }
+        if (mergedCorrectedSlots.km) {
+          await saveContactMemory(
+            ctx.contactId,
+            "vehicle_km",
+            String(mergedCorrectedSlots.km)
+          );
+        }
+
+        const vehicleLabel = [
+          mergedCorrectedSlots.modelo ?? null,
+          mergedCorrectedSlots.ano ? String(mergedCorrectedSlots.ano) : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        await options.sendMessage(
+          ctx.conversationId,
+          `Perfeito, atualizei para *${vehicleLabel}*.\nSe conseguir, me passe também o *km* para deixar o orçamento mais preciso (se não souber, tudo bem).\nVocê sabe o tipo do óleo?`
+        );
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingUnknownOilConfirmation: true,
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Veículo corrigido na mesma mensagem; segue validação de óleo e km opcional",
+          silence: false,
+        };
+      }
+
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
       await options.sendMessage(
         ctx.conversationId,
