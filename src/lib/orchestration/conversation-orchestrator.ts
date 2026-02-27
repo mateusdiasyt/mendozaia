@@ -13,6 +13,7 @@ import { generateAIReply } from "@/lib/ai-agent";
 import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
 import {
   extractSlotsFromMessages,
+  extractVehicleSlotsFromText,
   mergeVehicleSlots,
   hasAllVehicleSlots,
   getMissingSlots,
@@ -932,8 +933,15 @@ export async function processInboundMessage(
   // Se já temos dados do veículo, guiamos o próximo passo mesmo com useAsFallback=false.
   if (ctx.reservationsEnabled && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
     const parsedCurrentMessage = extractReservationDateTime(ctx.messageContent);
+    const vehicleSlotsFromCurrent = extractVehicleSlotsFromText(ctx.messageContent);
+    const hasVehicleInfoInCurrentMessage = Boolean(
+      vehicleSlotsFromCurrent.modelo ||
+        vehicleSlotsFromCurrent.ano ||
+        vehicleSlotsFromCurrent.km
+    );
     const parsedFromHistory =
-      !parsedCurrentMessage && looksLikeVehicleInfoMessage(ctx.messageContent)
+      !parsedCurrentMessage &&
+      (looksLikeVehicleInfoMessage(ctx.messageContent) || hasVehicleInfoInCurrentMessage)
         ? await findLatestInboundReservationDateTime(ctx.conversationId)
         : null;
     const parsed = parsedCurrentMessage ?? parsedFromHistory;
@@ -1146,9 +1154,19 @@ export async function processInboundMessage(
 
     // Continuidade da coleta: se há reserva pendente ou a mensagem parece ser
     // dado de veículo (ex: "onix"), não pode cair em silêncio.
+    const vehicleSlotsFromCurrent = extractVehicleSlotsFromText(ctx.messageContent);
+    const hasVehicleInfoInCurrentMessage = Boolean(
+      vehicleSlotsFromCurrent.modelo ||
+        vehicleSlotsFromCurrent.ano ||
+        vehicleSlotsFromCurrent.km
+    );
     if (
       missing.length > 0 &&
-      (ctx.pendingReservation || looksLikeVehicleInfoMessage(ctx.messageContent))
+      (
+        ctx.pendingReservation ||
+        looksLikeVehicleInfoMessage(ctx.messageContent) ||
+        hasVehicleInfoInCurrentMessage
+      )
     ) {
       await options.sendMessage(
         ctx.conversationId,
