@@ -2203,7 +2203,7 @@ export async function processInboundMessage(
     ) {
       await options.sendMessage(
         ctx.conversationId,
-        "Entendi. Você sabe o tipo do óleo?"
+        "Entendi. Você sabe o tipo do óleo?\nSe conseguir, me passe também a *quilometragem (km)* do veículo, porque isso deixa o orçamento mais preciso. Se não souber, tudo bem que eu continuo o atendimento."
       );
       await persistOilFlowState(ctx.conversationId, conversationMetadata, {
         awaitingUnknownOilConfirmation: true,
