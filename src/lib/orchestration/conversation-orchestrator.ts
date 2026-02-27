@@ -1470,7 +1470,7 @@ export async function processInboundMessage(
   }
 
   if (oilFlowState.awaitingUnknownOilConfirmation) {
-    if (isSimpleAffirmative(ctx.messageContent)) {
+    if (isSimpleNegative(ctx.messageContent)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
@@ -1496,7 +1496,7 @@ export async function processInboundMessage(
         return {
           didReply: true,
           decision: "human_only",
-          reason: "Cliente confirmou óleo desconhecido; handoff técnico 24h",
+          reason: "Cliente confirmou que não sabe o óleo; handoff técnico 24h",
           silence: false,
         };
       }
@@ -1507,12 +1507,12 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Óleo desconhecido confirmado; solicitando modelo e ano",
+        reason: "Cliente não sabe óleo; solicitando modelo e ano para handoff",
         silence: false,
       };
     }
 
-    if (isSimpleNegative(ctx.messageContent)) {
+    if (isSimpleAffirmative(ctx.messageContent)) {
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
       await options.sendMessage(
         ctx.conversationId,
@@ -1883,7 +1883,7 @@ export async function processInboundMessage(
     ) {
       await options.sendMessage(
         ctx.conversationId,
-        "Entendi. Você não sabe o tipo do óleo, certo?"
+        "Entendi. Você sabe o tipo do óleo?"
       );
       await persistOilFlowState(ctx.conversationId, conversationMetadata, {
         awaitingUnknownOilConfirmation: true,
