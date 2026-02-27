@@ -909,6 +909,10 @@ type VehicleConfirmationState = {
   vehicleSignature: string;
 };
 
+type OilFlowState = {
+  awaitingUnknownOilConfirmation: boolean;
+};
+
 function getVehicleConfirmationState(
   metadata: Record<string, unknown>
 ): VehicleConfirmationState {
@@ -934,6 +938,37 @@ async function persistVehicleConfirmationState(
     };
   } else {
     delete nextMetadata.vehicleConfirmation;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getOilFlowState(metadata: Record<string, unknown>): OilFlowState {
+  const flow = (metadata.oilFlow as Record<string, unknown> | undefined) ?? {};
+  return {
+    awaitingUnknownOilConfirmation: flow.awaitingUnknownOilConfirmation === true,
+  };
+}
+
+async function persistOilFlowState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  nextState: OilFlowState | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (nextState) {
+    nextMetadata.oilFlow = {
+      ...nextState,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.oilFlow;
   }
   await db
     .update(conversations)
@@ -1318,6 +1353,7 @@ export async function processInboundMessage(
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
   const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
+  const oilFlowState = getOilFlowState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   let contactName = ctx.contactName ?? null;
@@ -1417,6 +1453,64 @@ export async function processInboundMessage(
       reason: "Nome confirmado e onboarding continuado",
       silence: false,
     };
+  }
+
+  if (oilFlowState.awaitingUnknownOilConfirmation) {
+    if (isSimpleAffirmative(ctx.messageContent)) {
+      const slots = ctx.vehicleSlots ?? {};
+      const hasModelAndYear = !!(slots.modelo && slots.ano);
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+      if (hasModelAndYear) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Perfeito, sem problema. Vou encaminhar para um mecânico técnico continuar seu atendimento e confirmar a especificação correta para o seu veículo."
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Cliente confirmou que não sabe o óleo; encaminhado para mecânico técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Cliente confirmou óleo desconhecido; handoff técnico 24h",
+          silence: false,
+        };
+      }
+      await options.sendMessage(
+        ctx.conversationId,
+        "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Óleo desconhecido confirmado; solicitando modelo e ano",
+        silence: false,
+      };
+    }
+
+    if (isSimpleNegative(ctx.messageContent)) {
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito! Então me informe o tipo do óleo (ex.: *5W30* ou *10W40*) para eu seguir com o valor certinho."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente informou que sabe o óleo; solicitando especificação",
+        silence: false,
+      };
+    }
   }
 
   if (
@@ -1761,6 +1855,33 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
+    const issueVehicleSlots = extractVehicleSlotsFromText(ctx.messageContent);
+    const hasModelOrYearInIssueMessage = !!(issueVehicleSlots.modelo || issueVehicleSlots.ano);
+    const serviceLooksLikeOil =
+      normalizeForSearch(reservationContext.serviceName ?? "").includes("oleo") ||
+      normalizeForSearch(ctx.messageContent).includes("oleo");
+    const hasOilSpecInMessage = !!extractOilSpec(ctx.messageContent);
+    if (
+      intakeStage === "awaiting_issue" &&
+      serviceLooksLikeOil &&
+      hasModelOrYearInIssueMessage &&
+      !hasOilSpecInMessage
+    ) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Entendi. Você não sabe o tipo do óleo, certo?"
+      );
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingUnknownOilConfirmation: true,
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Confirmação de óleo desconhecido antes do handoff",
+        silence: false,
+      };
+    }
+
     if (looksLikeUnknownOilMessage(ctx.messageContent)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
