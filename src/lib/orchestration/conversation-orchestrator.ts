@@ -155,6 +155,34 @@ function isSimpleNegative(text: string): boolean {
   return /\b(nao|negativo|errado|nao sei)\b/.test(t);
 }
 
+function looksLikeVehicleCorrectionDuringOilFlow(
+  text: string,
+  knownModel?: string
+): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!/\b(nao|negativo|errado)\b/.test(t)) return false;
+  if (/\b(oleo|lubrificante|viscosidade|nao sei)\b/.test(t)) return false;
+
+  const knownModelNormalized = (knownModel ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return (
+    /\b(carro|veiculo|modelo)\b/.test(t) ||
+    /\bnao\s+(e|eh|seria)\b/.test(t) ||
+    (!!knownModelNormalized && t.includes(knownModelNormalized))
+  );
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -1579,6 +1607,25 @@ export async function processInboundMessage(
   }
 
   if (oilFlowState.awaitingUnknownOilConfirmation) {
+    if (
+      looksLikeVehicleCorrectionDuringOilFlow(
+        ctx.messageContent,
+        ctx.vehicleSlots?.modelo
+      )
+    ) {
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito, vamos atualizar os dados do veículo.\nMe informe o *modelo*, *ano* e *km* do carro atual."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente corrigiu o veículo durante fluxo de óleo",
+        silence: false,
+      };
+    }
+
     if (isSimpleNegative(ctx.messageContent)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
