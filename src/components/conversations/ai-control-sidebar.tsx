@@ -7,8 +7,14 @@ import {
   ChevronDown,
   Loader2,
   RefreshCw,
+  Trash2,
 } from "lucide-react";
-import { setConversationAIDisabled, setConversationAIEnabled } from "@/app/actions/messages";
+import {
+  setConversationAIDisabled,
+  setConversationAIEnabled,
+  resetConversationForTesting,
+} from "@/app/actions/messages";
+import { useRouter } from "next/navigation";
 import { AI_DISABLE_DURATIONS } from "@/lib/conversation-ai";
 
 interface AIControlSidebarProps {
@@ -20,6 +26,7 @@ export function AIControlSidebar({
   conversationId,
   aiDisabledUntil,
 }: AIControlSidebarProps) {
+  const router = useRouter();
   const [until, setUntil] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -57,6 +64,24 @@ export function AIControlSidebar({
       setUntil(result.aiDisabledUntil ? new Date(result.aiDisabledUntil) : null);
     } catch {
       // erro silencioso ou toast
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetConversation() {
+    const confirmed = window.confirm(
+      "Isso vai apagar contato, conversa e mensagens deste número para testes. Deseja continuar?"
+    );
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      await resetConversationForTesting(conversationId);
+      router.push("/dashboard/conversas");
+      router.refresh();
+    } catch {
+      //
     } finally {
       setLoading(false);
     }
@@ -165,6 +190,16 @@ export function AIControlSidebar({
             </div>
           )}
         </div>
+
+        <button
+          type="button"
+          onClick={handleResetConversation}
+          disabled={loading}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+        >
+          <Trash2 className="h-4 w-4" />
+          Resetar conversa (teste)
+        </button>
 
         {/* Info */}
         <p className="mt-auto text-xs text-[#667781]">

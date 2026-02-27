@@ -281,9 +281,25 @@ function extractCustomerName(text: string): string | null {
     return name.length >= 2 ? name : null;
   }
 
-  if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length <= 3) {
+  if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length >= 2 && trimmed.split(/\s+/).length <= 3) {
     const normalized = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    if (["sim", "ok", "quero", "confirmo", "amanha", "hoje", "ola", "oi"].includes(normalized)) {
+    if (
+      [
+        "sim",
+        "ok",
+        "quero",
+        "confirmo",
+        "amanha",
+        "hoje",
+        "ola",
+        "oi",
+        "onix",
+        "gol",
+        "hb20",
+        "civic",
+        "corolla",
+      ].includes(normalized)
+    ) {
       return null;
     }
     return trimmed.replace(/\s+/g, " ").trim();
@@ -1103,9 +1119,12 @@ export async function processInboundMessage(
       };
     }
 
+    const parsedFromCurrent = extractReservationDateTime(ctx.messageContent);
     const parsed =
-      extractReservationDateTime(ctx.messageContent) ??
-      (await findLatestInboundReservationDateTime(ctx.conversationId));
+      parsedFromCurrent ??
+      (!containsDateOrTimeHint(ctx.messageContent)
+        ? await findLatestInboundReservationDateTime(ctx.conversationId)
+        : null);
 
     if (parsed) {
       if (missingNameProfile || missing.length > 0) {

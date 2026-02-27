@@ -170,3 +170,38 @@ export async function sendMessage(conversationId: string, text: string) {
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
 }
+
+export async function resetConversationForTesting(conversationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  // Apaga o contato para forçar recriação limpa no próximo inbound.
+  // Com FK cascade, conversa/mensagens relacionadas também são removidas.
+  await db
+    .delete(contacts)
+    .where(
+      and(
+        eq(contacts.id, conv.contactId),
+        eq(contacts.organizationId, org.id)
+      )
+    );
+
+  revalidatePath("/dashboard/conversas");
+  return { success: true };
+}
