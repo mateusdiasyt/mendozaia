@@ -12,6 +12,7 @@ import {
 import {
   setConversationAIDisabled,
   setConversationAIEnabled,
+  setConversationCarInShop,
   resetConversationForTesting,
 } from "@/app/actions/messages";
 import { useRouter } from "next/navigation";
@@ -20,17 +21,27 @@ import { AI_DISABLE_DURATIONS } from "@/lib/conversation-ai";
 interface AIControlSidebarProps {
   conversationId: string;
   aiDisabledUntil: Date | string | null;
+  vehicleModel?: string | null;
+  vehicleYear?: string | null;
+  vehicleKm?: string | null;
+  carInShop?: boolean;
 }
 
 export function AIControlSidebar({
   conversationId,
   aiDisabledUntil,
+  vehicleModel,
+  vehicleYear,
+  vehicleKm,
+  carInShop = false,
 }: AIControlSidebarProps) {
   const router = useRouter();
   const [until, setUntil] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
+  const [updatingWorkshop, setUpdatingWorkshop] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [carInWorkshop, setCarInWorkshop] = useState(carInShop);
 
   useEffect(() => {
     setMounted(true);
@@ -39,6 +50,10 @@ export function AIControlSidebar({
   useEffect(() => {
     setUntil(aiDisabledUntil ? new Date(aiDisabledUntil) : null);
   }, [aiDisabledUntil]);
+
+  useEffect(() => {
+    setCarInWorkshop(carInShop);
+  }, [carInShop]);
 
   const isDisabled = mounted && until && until > new Date();
   const isForever =
@@ -99,6 +114,23 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleSetCarInShop(nextValue: boolean) {
+    setUpdatingWorkshop(true);
+    try {
+      await setConversationCarInShop(conversationId, nextValue);
+      setCarInWorkshop(nextValue);
+      if (nextValue) {
+        setUntil(new Date(Date.now() + 87600 * 60 * 60 * 1000));
+      } else {
+        setUntil(null);
+      }
+    } catch {
+      //
+    } finally {
+      setUpdatingWorkshop(false);
+    }
+  }
+
   return (
     <aside className="flex w-72 shrink-0 flex-col border-l border-[#e9edef] bg-white">
       <div className="border-b border-[#e9edef] px-4 py-3">
@@ -109,6 +141,58 @@ export function AIControlSidebar({
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
+        <div className="rounded-lg border border-[#e9edef] bg-[#f8f9fa] p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
+            Veículo do contato
+          </p>
+          <div className="mt-2 space-y-1 text-sm text-[#111b21]">
+            <p>
+              Modelo: <span className="font-medium">{vehicleModel || "Não informado"}</span>
+            </p>
+            <p>
+              Ano: <span className="font-medium">{vehicleYear || "Não informado"}</span>
+            </p>
+            <p>
+              KM: <span className="font-medium">{vehicleKm || "Não informado"}</span>
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[#e9edef] bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
+            Carro na mecânica
+          </p>
+          <p className="mt-1 text-xs text-[#667781]">
+            Quando marcado como Sim, a IA fica desativada para atendimento humano.
+          </p>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={updatingWorkshop}
+              onClick={() => handleSetCarInShop(true)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                carInWorkshop
+                  ? "border-emerald-600 bg-emerald-50 text-emerald-700"
+                  : "border-[#e9edef] bg-white text-[#111b21] hover:bg-[#f5f6f6]"
+              }`}
+            >
+              Sim
+            </button>
+            <button
+              type="button"
+              disabled={updatingWorkshop}
+              onClick={() => handleSetCarInShop(false)}
+              className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+                !carInWorkshop
+                  ? "border-[#00a884] bg-emerald-50 text-[#007a63]"
+                  : "border-[#e9edef] bg-white text-[#111b21] hover:bg-[#f5f6f6]"
+              }`}
+            >
+              Não
+            </button>
+          </div>
+        </div>
+
         {/* Status */}
         <div
           className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${

@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import {
   conversations,
   contacts,
+  contactMemories,
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ChatView } from "./chat-view";
 import { AIControlSidebar } from "@/components/conversations/ai-control-sidebar";
@@ -32,6 +33,7 @@ export default async function ConversaPage({
       sessionName: whatsappSessions.name,
       sessionId: whatsappSessions.sessionId,
       aiDisabledUntil: conversations.aiDisabledUntil,
+      conversationStateMetadata: conversations.conversationStateMetadata,
     })
     .from(conversations)
     .innerJoin(contacts, eq(conversations.contactId, contacts.id))
@@ -51,6 +53,26 @@ export default async function ConversaPage({
     .from(messages)
     .where(eq(messages.conversationId, id))
     .orderBy(asc(messages.createdAt));
+
+  const memories = await db
+    .select({ key: contactMemories.key, value: contactMemories.value })
+    .from(contactMemories)
+    .where(
+      and(
+        eq(contactMemories.contactId, conv.contactId),
+        inArray(contactMemories.key, ["vehicle_model", "vehicle_year", "vehicle_km"])
+      )
+    );
+
+  const memoryByKey = Object.fromEntries(memories.map((m) => [m.key, m.value]));
+  const vehicleModel = memoryByKey.vehicle_model ?? null;
+  const vehicleYear = memoryByKey.vehicle_year ?? null;
+  const vehicleKm = memoryByKey.vehicle_km ?? null;
+  const workshopFlow =
+    (conv.conversationStateMetadata as Record<string, unknown> | undefined)?.workshopFlow as
+      | Record<string, unknown>
+      | undefined;
+  const carInShop = workshopFlow?.carInShop === true;
 
   await db
     .update(conversations)
@@ -131,6 +153,10 @@ export default async function ConversaPage({
         <AIControlSidebar
           conversationId={id}
           aiDisabledUntil={conv.aiDisabledUntil}
+          vehicleModel={vehicleModel}
+          vehicleYear={vehicleYear}
+          vehicleKm={vehicleKm}
+          carInShop={carInShop}
         />
       </div>
     </>

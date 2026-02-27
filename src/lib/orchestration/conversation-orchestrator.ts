@@ -102,6 +102,18 @@ function looksLikeAskKnownVehicle(text: string): boolean {
   return /\b(sabe|lembra|entendeu|tem)\b.*\b(carro|veiculo|modelo)\b/.test(t);
 }
 
+function looksLikeVehicleStatusInquiry(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(situacao|status|andamento|atualizacao|atualização)\b.*\b(carro|veiculo)\b/.test(t) ||
+    /\b(carro|veiculo)\b.*\b(pronto|ficou pronto|ja esta pronto|ja ta pronto)\b/.test(t) ||
+    /\b(como|qual)\b.*\b(meu carro|veiculo)\b/.test(t)
+  );
+}
+
 function buildVehicleSignature(slots: VehicleSlots | undefined): string {
   if (!slots) return "";
   const modelo = (slots.modelo ?? "")
@@ -929,6 +941,10 @@ type OilFlowState = {
   awaitingUnknownOilConfirmation: boolean;
 };
 
+type WorkshopState = {
+  carInShop: boolean;
+};
+
 function getVehicleConfirmationState(
   metadata: Record<string, unknown>
 ): VehicleConfirmationState {
@@ -985,6 +1001,44 @@ async function persistOilFlowState(
     };
   } else {
     delete nextMetadata.oilFlow;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getWorkshopState(metadata: Record<string, unknown>): WorkshopState {
+  const flow = (metadata.workshopFlow as Record<string, unknown> | undefined) ?? {};
+  return {
+    carInShop: flow.carInShop === true,
+  };
+}
+
+async function persistWorkshopState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  nextState: WorkshopState | null
+): Promise<void> {
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
+  if (nextState) {
+    nextMetadata.workshopFlow = {
+      ...nextState,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.workshopFlow;
   }
   await db
     .update(conversations)
@@ -1370,6 +1424,7 @@ export async function processInboundMessage(
   const reservationContext = getReservationContext(conversationMetadata);
   const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
   const oilFlowState = getOilFlowState(conversationMetadata);
+  const workshopState = getWorkshopState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   let contactName = ctx.contactName ?? null;
@@ -1614,6 +1669,59 @@ export async function processInboundMessage(
       didReply: false,
       decision: "human_only",
       reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      silence: true,
+    };
+  }
+
+  if (looksLikeVehicleStatusInquiry(ctx.messageContent) && !workshopState.carInShop) {
+    await persistWorkshopState(ctx.conversationId, conversationMetadata, {
+      carInShop: true,
+    });
+    await options.sendMessage(
+      ctx.conversationId,
+      "Perfeito, vou direcionar você para um mecânico técnico verificar a situação do seu carro."
+    );
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      "Cliente solicitou status do carro; encaminhado para mecânico técnico"
+    );
+    if (handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: "Status de carro solicitado; handoff técnico com pausa de IA",
+      silence: false,
+    };
+  }
+
+  if (workshopState.carInShop) {
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "workshop_mode_silence",
+      decision: "human_only",
+      reason: "Conversa marcada com carro na mecânica; IA permanece silenciada",
+      traceId: params.traceId,
+      stage: "orchestrator.decision",
+      decisionCode: "WORKSHOP_MODE_SILENCE",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: false,
+      decision: "human_only",
+      reason: "Carro marcado na mecânica; aguardando atendimento humano",
       silence: true,
     };
   }

@@ -82,6 +82,56 @@ export async function setConversationAIEnabled(conversationId: string) {
   return { success: true };
 }
 
+export async function setConversationCarInShop(
+  conversationId: string,
+  carInShop: boolean
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const currentMetadata =
+    (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
+  const workshopFlow =
+    (currentMetadata.workshopFlow as Record<string, unknown> | undefined) ?? {};
+
+  const nextMetadata: Record<string, unknown> = {
+    ...currentMetadata,
+    workshopFlow: {
+      ...workshopFlow,
+      carInShop,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata: nextMetadata,
+      aiDisabledUntil: carInShop ? new Date(Date.now() + 87600 * 60 * 60 * 1000) : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  return { success: true, carInShop };
+}
+
 export async function sendMessage(conversationId: string, text: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Não autorizado");
