@@ -1,8 +1,12 @@
 import {
+  createProductCategory,
   createProduct,
+  listProductCategories,
   listProducts,
   toggleProductActive,
   updateProductCategory,
+  updateProductCategoryDefinition,
+  updateProductStockStatus,
 } from "@/app/actions/products";
 
 function formatCurrencyFromCents(cents: number): string {
@@ -14,21 +18,91 @@ function formatCurrencyFromCents(cents: number): string {
 
 export default async function ProdutosPage() {
   const { products } = await listProducts();
-  const categories = [
-    { value: "oleo", label: "Óleo" },
-    { value: "filtro", label: "Filtro" },
-    { value: "peca", label: "Peça" },
-    { value: "acessorio", label: "Acessório" },
-    { value: "outros", label: "Outros" },
-  ] as const;
+  const { categories } = await listProductCategories();
 
   return (
     <div className="p-8">
       <div className="mb-8">
         <h1 className="text-2xl font-semibold text-slate-900">Produtos</h1>
         <p className="mt-1 text-slate-500">
-          Cadastre produtos para consulta automática de preço e estoque pela IA.
+          Cadastre produtos para consulta automática de preço e disponibilidade pela IA.
         </p>
+      </div>
+
+      <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-base font-medium text-slate-900">Categorias de produtos</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Configure categorias e palavras-chave para a IA entender melhor os itens.
+        </p>
+        <form
+          action={async (formData) => {
+            "use server";
+            await createProductCategory(formData);
+          }}
+          className="mt-4 grid gap-3 md:grid-cols-3"
+        >
+          <input
+            name="name"
+            required
+            placeholder="Nome da categoria (ex: Fluido)"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
+          />
+          <input
+            name="aliases"
+            placeholder="Palavras-chave (ex: fluido, aditivo)"
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm md:col-span-2"
+          />
+          <div className="md:col-span-3">
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Adicionar categoria
+            </button>
+          </div>
+        </form>
+
+        <div className="mt-4 space-y-2">
+          {categories.map((category) => (
+            <form
+              key={category.id}
+              action={async (formData) => {
+                "use server";
+                await updateProductCategoryDefinition(formData);
+              }}
+              className="grid gap-2 rounded-xl border border-slate-200 p-3 md:grid-cols-12"
+            >
+              <input type="hidden" name="id" value={category.id} />
+              <div className="md:col-span-3">
+                <input
+                  name="name"
+                  defaultValue={category.name}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <div className="md:col-span-6">
+                <input
+                  name="aliases"
+                  defaultValue={category.aliases ?? ""}
+                  placeholder="Palavras-chave separadas por vírgula"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-xs text-slate-700 md:col-span-2">
+                <input type="checkbox" name="isActive" defaultChecked={category.isActive} />
+                Ativa
+              </label>
+              <div className="md:col-span-1">
+                <button
+                  type="submit"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Salvar
+                </button>
+              </div>
+            </form>
+          ))}
+        </div>
       </div>
 
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -53,14 +127,14 @@ export default async function ProdutosPage() {
           />
           <select
             name="category"
-            defaultValue="outros"
+            defaultValue={categories.find((c) => c.key === "outros")?.key ?? ""}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           >
-            <option value="oleo">Óleo</option>
-            <option value="filtro">Filtro</option>
-            <option value="peca">Peça</option>
-            <option value="acessorio">Acessório</option>
-            <option value="outros">Outros</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.key}>
+                {category.name}
+              </option>
+            ))}
           </select>
           <input
             name="price"
@@ -68,14 +142,14 @@ export default async function ProdutosPage() {
             placeholder="Preço (ex: 79,90)"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
-          <input
-            name="stockQuantity"
-            type="number"
-            min={0}
-            defaultValue={0}
-            placeholder="Estoque"
+          <select
+            name="isInStock"
+            defaultValue="yes"
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
-          />
+          >
+            <option value="yes">Disponível: Sim</option>
+            <option value="no">Disponível: Não</option>
+          </select>
           <input
             name="description"
             placeholder="Descrição (opcional)"
@@ -103,7 +177,7 @@ export default async function ProdutosPage() {
               <th className="px-4 py-3">Produto</th>
               <th className="px-4 py-3">Categoria</th>
               <th className="px-4 py-3">Preço</th>
-              <th className="px-4 py-3">Estoque</th>
+              <th className="px-4 py-3">Disponível</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Ações</th>
             </tr>
@@ -135,8 +209,8 @@ export default async function ProdutosPage() {
                       className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
                     >
                       {categories.map((category) => (
-                        <option key={category.value} value={category.value}>
-                          {category.label}
+                        <option key={category.id} value={category.key}>
+                          {category.name}
                         </option>
                       ))}
                     </select>
@@ -151,7 +225,34 @@ export default async function ProdutosPage() {
                 <td className="px-4 py-3 text-slate-700">
                   {formatCurrencyFromCents(item.priceCents)}
                 </td>
-                <td className="px-4 py-3 text-slate-700">{item.stockQuantity}</td>
+                <td className="px-4 py-3 text-slate-700">
+                  <form
+                    action={async (formData) => {
+                      "use server";
+                      const id = String(formData.get("id") ?? "");
+                      const inStock = String(formData.get("isInStock") ?? "yes") === "yes";
+                      if (!id) return;
+                      await updateProductStockStatus(id, inStock);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <select
+                      name="isInStock"
+                      defaultValue={item.isInStock ? "yes" : "no"}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                    >
+                      <option value="yes">Sim</option>
+                      <option value="no">Não</option>
+                    </select>
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Salvar
+                    </button>
+                  </form>
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${

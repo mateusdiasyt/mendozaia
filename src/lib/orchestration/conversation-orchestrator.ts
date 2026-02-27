@@ -4,7 +4,15 @@
  */
 
 import { db } from "@/lib/db";
-import { conversations, organizations, messages, contacts, products, services } from "@/lib/db/schema";
+import {
+  conversations,
+  organizations,
+  messages,
+  contacts,
+  productCategories,
+  products,
+  services,
+} from "@/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
@@ -487,7 +495,7 @@ async function buildCatalogReply(
   if (!options?.skipIntentCheck && !looksLikeCatalogIntent(messageContent)) return null;
 
   const tokens = extractSearchTokens(messageContent);
-  const [allProducts, allServices] = await Promise.all([
+  const [allProducts, allServices, allCategories] = await Promise.all([
     db
       .select()
       .from(products)
@@ -496,7 +504,14 @@ async function buildCatalogReply(
       .select()
       .from(services)
       .where(eq(services.organizationId, organizationId)),
+    db
+      .select()
+      .from(productCategories)
+      .where(eq(productCategories.organizationId, organizationId)),
   ]);
+  const categoryByKey = new Map(
+    allCategories.map((c) => [c.key, { name: c.name, aliases: c.aliases ?? "" }])
+  );
 
   const oilSpec = extractOilSpec(messageContent);
 
@@ -504,7 +519,12 @@ async function buildCatalogReply(
     .filter((p) => p.isActive)
     .map((p) => ({
       item: p,
-      score: scoreMatch(`${p.name} ${p.model ?? ""} ${p.description ?? ""}`, tokens),
+      score: scoreMatch(
+        `${p.name} ${p.model ?? ""} ${p.description ?? ""} ${p.category ?? ""} ${
+          categoryByKey.get(p.category ?? "")?.name ?? ""
+        } ${categoryByKey.get(p.category ?? "")?.aliases ?? ""}`,
+        tokens
+      ),
     }))
     .filter((x) => x.score > 0)
     .filter((x) => {
@@ -536,8 +556,7 @@ async function buildCatalogReply(
   if (productMatches.length > 0) {
     lines.push("*Produtos encontrados:*");
     for (const p of productMatches) {
-      const stockText =
-        p.stockQuantity > 0 ? `em estoque (${p.stockQuantity})` : "sem estoque no momento";
+      const stockText = p.isInStock ? "disponível" : "indisponível no momento";
       const modelText = p.model ? ` - ${p.model}` : "";
       lines.push(`- ${p.name}${modelText}: ${formatCurrencyFromCents(p.priceCents)} (${stockText})`);
     }

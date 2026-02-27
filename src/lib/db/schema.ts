@@ -271,11 +271,29 @@ export const products = pgTable("products", {
   model: text("model"),
   description: text("description"),
   priceCents: integer("price_cents").notNull(),
+  isInStock: boolean("is_in_stock").default(true).notNull(),
   stockQuantity: integer("stock_quantity").default(0).notNull(),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+export const productCategories = pgTable(
+  "product_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    aliases: text("aliases"),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("product_categories_org_key_idx").on(t.organizationId, t.key)]
+);
 
 export const services = pgTable("services", {
   id: uuid("id").primaryKey().defaultRandom(),
