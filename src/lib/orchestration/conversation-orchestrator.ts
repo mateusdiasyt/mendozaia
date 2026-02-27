@@ -63,8 +63,25 @@ function containsDateOrTimeHint(text: string): boolean {
 }
 
 function looksLikeGreeting(text: string): boolean {
-  const t = text.toLowerCase().trim();
-  return /^(oi|ol[áa]|bom dia|boa tarde|boa noite|e ai|e aí|opa|hey)\b/.test(t);
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    t === "oi" ||
+    t === "ola" ||
+    t.startsWith("oi ") ||
+    t.startsWith("ola ") ||
+    t.startsWith("bom dia") ||
+    t.startsWith("boa tarde") ||
+    t.startsWith("boa noite") ||
+    t.startsWith("e ai") ||
+    t.startsWith("opa") ||
+    t.startsWith("hey")
+  );
 }
 
 function pad2(n: number): string {
