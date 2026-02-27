@@ -5,15 +5,18 @@
 const MAX_RESPONSE_LENGTH = 4000;
 const MIN_RELEVANT_LENGTH = 2;
 
-/** Remove trechos suspeitos (alucinação, vazamento de prompt). */
+/** Remove trechos suspeitos (alucinação, vazamento de prompt, frases robóticas). */
 function sanitizeContent(text: string): string {
   let out = text;
   out = out.replace(/\[MEMÓRIA:[^\]]*\]/gi, "").trim();
   out = out.replace(/\[INSTRUÇÃO[^\]]*\]/gi, "").trim();
+  out = out.replace(/\[DADOS EXTRAÍDOS[^\]]*\]/gi, "").trim();
   out = out.replace(/As an AI assistant/gi, "").trim();
   out = out.replace(/I am an AI/gi, "").trim();
   out = out.replace(/sou um assistente de IA/gi, "").trim();
   out = out.replace(/sou uma IA/gi, "").trim();
+  out = out.replace(/sou um chatbot/gi, "").trim();
+  out = out.replace(/sou um bot/gi, "").trim();
   out = out.replace(/\n{4,}/g, "\n\n\n");
   return out.trim();
 }

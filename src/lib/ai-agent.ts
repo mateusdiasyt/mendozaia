@@ -14,7 +14,7 @@ import {
 import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { DEFAULT_SYSTEM_PROMPT, RESERVATIONS_SYSTEM_ADDON } from "./ai-agent-constants";
+import { DEFAULT_SYSTEM_PROMPT, RESERVATIONS_SYSTEM_ADDON, NATURAL_BEHAVIOR_INSTRUCTIONS } from "./ai-agent-constants";
 import {
   getContactMemories,
   saveContactMemory,
@@ -186,9 +186,13 @@ Use apenas uma linha por informação. Não invente informações.`;
     ? `${systemPrompt}
 
 ${memoriesBlock}
-${memoryInstruction}`
+${memoryInstruction}
+
+${NATURAL_BEHAVIOR_INSTRUCTIONS}`
     : `${systemPrompt}
-${memoryInstruction}`;
+${memoryInstruction}
+
+${NATURAL_BEHAVIOR_INSTRUCTIONS}`;
 
   if (useReservationTools) {
     basePrompt += `\n${RESERVATIONS_SYSTEM_ADDON}`;
