@@ -15,6 +15,7 @@ import {
   extractSlotsFromMessages,
   mergeVehicleSlots,
   hasAllVehicleSlots,
+  getMissingSlots,
   type VehicleSlots,
 } from "./slot-extractor";
 import type {
@@ -232,6 +233,32 @@ function formatDateForPtBr(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
   if (!y || !m || !d) return dateStr;
   return `${d}/${m}/${y}`;
+}
+
+function buildMissingVehicleInfoReply(missing: ("modelo" | "ano" | "km")[]): string {
+  if (missing.length === 0) {
+    return "Perfeito. Para seguir com o agendamento, me diga a data e o horário que prefere.";
+  }
+
+  if (missing.length === 1) {
+    const only = missing[0];
+    if (only === "km") {
+      return "Perfeito. Para consultar o agendamento, só falta a *quilometragem* do veículo.";
+    }
+    if (only === "ano") {
+      return "Perfeito. Para consultar o agendamento, só falta o *ano* do veículo.";
+    }
+    return "Perfeito. Para consultar o agendamento, só falta o *modelo* do veículo.";
+  }
+
+  if (missing.length === 2) {
+    const labels = missing.map((m) =>
+      m === "km" ? "quilometragem" : m
+    );
+    return `Perfeito. Para consultar o agendamento, preciso de *${labels[0]}* e *${labels[1]}* do veículo.`;
+  }
+
+  return "Para eu consultar a disponibilidade e já te ajudar com a reserva, me informe *modelo, ano e quilometragem* do veículo.";
 }
 
 function enforceReservationReply(ctx: OrchestrationContext, aiReply: string): string {
@@ -574,6 +601,37 @@ export async function processInboundMessage(
         didReply: true,
         decision: "tool_then_ai",
         reason: "Solicitou data/horário para continuar reserva",
+        silence: false,
+      };
+    }
+  }
+
+  // Fluxo determinístico para oficinas: mesmo sem fallback da IA, o sistema continua
+  // guiando o cliente no agendamento (evita "silêncio" com useAsFallback=false).
+  if (ctx.reservationsEnabled && ctx.usesVehicleSlots) {
+    const hasDateOrTime = containsDateOrTimeHint(ctx.messageContent);
+    const slots = ctx.vehicleSlots ?? {};
+    const missing = getMissingSlots(slots);
+
+    if (hasDateOrTime && missing.length > 0) {
+      const reply = buildMissingVehicleInfoReply(missing);
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_collect_missing_vehicle_info",
+        decision: "tool_then_ai",
+        reason: "Cliente informou data/horário, mas faltam dados do veículo",
+        metadata: {
+          missingSlots: missing,
+          vehicleSlots: slots,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando dados faltantes do veículo para reservar",
         silence: false,
       };
     }

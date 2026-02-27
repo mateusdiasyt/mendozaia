@@ -9,6 +9,22 @@ export interface VehicleSlots {
   km?: number;
 }
 
+const INVALID_MODELO_TERMS = new Set([
+  "oi",
+  "ola",
+  "olá",
+  "bom dia",
+  "boa tarde",
+  "boa noite",
+  "amanha",
+  "amanhã",
+  "hoje",
+  "agora",
+  "as",
+  "às",
+  "dia",
+]);
+
 /** Extrai ano de veículo (1980-2035). */
 function extractYear(text: string): number | undefined {
   const match = text.match(/\b(19[89]\d|20[0-3]\d)\b/);
@@ -65,7 +81,12 @@ function extractModelo(text: string): string | undefined {
       .replace(/\s*(?:,|\.|;)\s*$/, "")
       .replace(/\s+/g, " ")
       .trim();
-    const invalid = /\b(km|mil|quilometragem)\b/i.test(candidate) || /^\d+$/.test(candidate);
+    const normalized = candidate.toLowerCase();
+    const invalid =
+      /\b(km|mil|quilometragem|amanh[ãa]|hoje|dia|às?|hor[áa]rio)\b/i.test(candidate) ||
+      /^\d+$/.test(candidate) ||
+      INVALID_MODELO_TERMS.has(normalized) ||
+      normalized.length <= 3;
     if (!invalid && candidate.length >= 2 && candidate.length <= 50) return candidate;
   }
   return undefined;
