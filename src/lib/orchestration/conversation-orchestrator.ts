@@ -252,7 +252,9 @@ function looksLikeCatalogIntent(text: string): boolean {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  return /\b(valor|preco|orcamento|quanto|produto|peca|oleo|filtro|servico|troca)\b/.test(t);
+  return /\b(valor|preco|orcamento|quanto|produto|peca|oleo|filtro|servico|troca|revisao)\b/.test(
+    t
+  );
 }
 
 function formatCurrencyFromCents(cents: number): string {
@@ -310,13 +312,14 @@ function scoreMatch(haystack: string, tokens: string[]): number {
 
 async function buildCatalogReply(
   organizationId: string,
-  messageContent: string
+  messageContent: string,
+  options?: { skipIntentCheck?: boolean }
 ): Promise<{
   reply: string;
   productMatches: number;
   serviceMatches: number;
 } | null> {
-  if (!looksLikeCatalogIntent(messageContent)) return null;
+  if (!options?.skipIntentCheck && !looksLikeCatalogIntent(messageContent)) return null;
 
   const tokens = extractSearchTokens(messageContent);
   const [allProducts, allServices] = await Promise.all([
@@ -544,6 +547,7 @@ type ReservationCollectionStage =
   | "collect_datetime"
   | "confirm_reservation"
   | "completed";
+type IntakeStage = "awaiting_need" | "awaiting_issue" | "awaiting_reservation_profile";
 
 function inferCollectionStage(
   missingName: boolean,
@@ -615,6 +619,41 @@ async function persistReservationFlowMetadata(
     .update(conversations)
     .set({
       conversationStateMetadata: nextMetadata,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getIntakeStage(metadata: Record<string, unknown>): IntakeStage | null {
+  const intakeFlow = (metadata.intakeFlow as Record<string, unknown> | undefined) ?? {};
+  const stage = intakeFlow.stage;
+  if (
+    stage === "awaiting_need" ||
+    stage === "awaiting_issue" ||
+    stage === "awaiting_reservation_profile"
+  ) {
+    return stage;
+  }
+  return null;
+}
+
+async function persistIntakeStage(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  stage: IntakeStage | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (stage) {
+    nextMetadata.intakeFlow = { stage, updatedAt: new Date().toISOString() };
+  } else {
+    delete nextMetadata.intakeFlow;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -971,6 +1010,7 @@ export async function processInboundMessage(
     .limit(1);
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
+  const intakeStage = getIntakeStage(conversationMetadata);
   let contactName = ctx.contactName ?? null;
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
@@ -1046,8 +1086,7 @@ export async function processInboundMessage(
     };
   }
 
-  // Triagem inicial: antes de partir para reserva, entende se a demanda é
-  // orçamento de produto/serviço ou agendamento.
+  // Abordagem inicial neutra: entende a dúvida antes de mencionar opções.
   if (
     ctx.reservationsEnabled &&
     ctx.usesVehicleSlots &&
@@ -1055,18 +1094,18 @@ export async function processInboundMessage(
     !ctx.pendingReservation &&
     !looksLikeReservationIntent(ctx.messageContent)
   ) {
-    const triageReply =
-      "Olá! Me conta rapidinho: você quer *orçamento de produto/serviço* ou *agendar um horário*?";
+    const triageReply = "Olá, tudo bem? Qual sua dúvida?";
     await options.sendMessage(ctx.conversationId, triageReply);
+    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
-      event: "reservation_entry_triage",
+      event: "intake_greeting",
       decision: "tool_then_ai",
-      reason: "Saudação recebida; iniciando triagem antes da reserva",
+      reason: "Saudação recebida; iniciando descoberta da necessidade",
       traceId: params.traceId,
       stage: "orchestrator.reservations",
-      decisionCode: "RESERVATION_ENTRY_TRIAGE",
+      decisionCode: "INTAKE_GREETING",
       durationMs: Date.now() - startedAt,
       metadata: {
         messageContent: ctx.messageContent,
@@ -1075,7 +1114,37 @@ export async function processInboundMessage(
     return {
       didReply: true,
       decision: "tool_then_ai",
-      reason: "Triagem inicial enviada",
+      reason: "Pergunta inicial enviada",
+      silence: false,
+    };
+  }
+
+  if (
+    intakeStage === "awaiting_need" &&
+    !looksLikeReservationIntent(ctx.messageContent) &&
+    looksLikeCatalogIntent(ctx.messageContent)
+  ) {
+    const followUp = "Certo. Qual seria o seu problema?";
+    await options.sendMessage(ctx.conversationId, followUp);
+    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "intake_ask_issue",
+      decision: "tool_then_ai",
+      reason: "Cliente sinalizou orçamento; pedindo problema específico",
+      traceId: params.traceId,
+      stage: "orchestrator.catalog",
+      decisionCode: "INTAKE_ASK_ISSUE",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Solicitando detalhamento da necessidade",
       silence: false,
     };
   }
@@ -1087,9 +1156,14 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
-    const catalog = await buildCatalogReply(ctx.organizationId, ctx.messageContent);
+    const catalog = await buildCatalogReply(ctx.organizationId, ctx.messageContent, {
+      skipIntentCheck: intakeStage === "awaiting_issue",
+    });
     if (catalog) {
       await options.sendMessage(ctx.conversationId, catalog.reply);
+      if (intakeStage) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
+      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -1113,6 +1187,37 @@ export async function processInboundMessage(
         silence: false,
       };
     }
+
+    if (intakeStage === "awaiting_issue") {
+      const fallbackReservation =
+        "Entendi. Nesse caso, posso te ajudar com o agendamento para avaliarmos melhor. Me informe seu nome e os dados do veículo (modelo, ano e km).";
+      await options.sendMessage(ctx.conversationId, fallbackReservation);
+      await persistIntakeStage(
+        ctx.conversationId,
+        conversationMetadata,
+        "awaiting_reservation_profile"
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "intake_fallback_to_reservation",
+        decision: "tool_then_ai",
+        reason: "Sem match no catálogo após detalhamento; migrando para reserva",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "INTAKE_FALLBACK_TO_RESERVATION",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Sem match no catálogo; iniciando coleta para agendamento",
+        silence: false,
+      };
+    }
   }
 
   // Fluxo robusto de coleta de perfil para reservas em oficinas:
@@ -1128,7 +1233,8 @@ export async function processInboundMessage(
     const hasReservationSignal =
       looksLikeReservationIntent(ctx.messageContent) ||
       !!ctx.pendingReservation ||
-      hasVehicleInfoInCurrentMessage;
+      hasVehicleInfoInCurrentMessage ||
+      intakeStage === "awaiting_reservation_profile";
 
     if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
       const parsedForPending =
@@ -1190,6 +1296,15 @@ export async function processInboundMessage(
         reason: "Solicitando perfil obrigatório antes de reservar",
         silence: false,
       };
+    }
+
+    if (
+      hasReservationSignal &&
+      intakeStage === "awaiting_reservation_profile" &&
+      !missingNameProfile &&
+      missingVehicleProfile.length === 0
+    ) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
     }
   }
 
