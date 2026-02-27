@@ -9,10 +9,8 @@ import {
   messages,
   conversations,
   contactTags,
-  organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { generateAIReply, DEFAULT_SYSTEM_PROMPT } from "@/lib/ai-agent";
 import { handoffToHuman } from "@/lib/orchestration";
 import type {
   AutomationContext,
@@ -109,36 +107,11 @@ async function executeAction(
     }
   }
 
-  if (actionType === ACTION_TYPES.AI_REPLY && context.messageContent && executor?.sendMessage) {
-    // Respeita pausa manual ou por resposta humana
-    if (context.aiDisabledUntil && context.aiDisabledUntil > new Date()) {
-      return didSendReply;
-    }
-    const [org] = await db
-      .select({ settings: organizations.settings })
-      .from(organizations)
-      .where(eq(organizations.id, context.organizationId))
-      .limit(1);
-
-    const aiAgent = (org?.settings as { aiAgent?: { systemPrompt?: string; model?: string; apiKey?: string | null } })?.aiAgent;
-    const systemPrompt = aiAgent?.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    const model = aiAgent?.model || "gemini-2.0-flash";
-    const apiKey = aiAgent?.apiKey || undefined;
-
-    try {
-      const reply = await generateAIReply(
-        context.conversationId,
-        context.contactId,
-        context.messageContent,
-        systemPrompt,
-        model,
-        apiKey
-      );
-      await executor.sendMessage(context.conversationId, reply);
-      didSendReply = true;
-    } catch (err) {
-      console.error("[automation] AI reply failed:", err);
-    }
+  if (actionType === ACTION_TYPES.AI_REPLY) {
+    // Importante: a IA responde somente via orquestrador para evitar
+    // respostas duplicadas e para garantir slot-filling/checagem determinística.
+    // Aqui não enviamos resposta; o fallback da IA será decidido no orquestrador.
+    return didSendReply;
   }
 
   if (actionType === ACTION_TYPES.ADD_TAG && actionPayload) {

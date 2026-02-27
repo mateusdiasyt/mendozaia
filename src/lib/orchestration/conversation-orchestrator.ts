@@ -200,6 +200,34 @@ function extractReservationDateTime(
   };
 }
 
+function looksLikeVehicleInfoMessage(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\b(modelo|ano|km|quilometragem|ve[ií]culo)\b/.test(t) ||
+    /\b\d{4}\b/.test(t) ||
+    /\b\d{1,3}\s*mil\s*km\b/.test(t)
+  );
+}
+
+async function findLatestInboundReservationDateTime(
+  conversationId: string
+): Promise<{ dateStr: string; timeStr: string } | null> {
+  const recent = await db
+    .select({ direction: messages.direction, content: messages.content })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(20);
+
+  for (const row of recent) {
+    if (row.direction !== "inbound" || !row.content?.trim()) continue;
+    const parsed = extractReservationDateTime(row.content);
+    if (parsed) return parsed;
+  }
+
+  return null;
+}
+
 function formatDateForPtBr(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
   if (!y || !m || !d) return dateStr;
@@ -479,10 +507,20 @@ export async function processInboundMessage(
     return { didReply: options.automationDidReply, decision: "silence", reason: "Contexto não encontrado", silence: true };
   }
 
+  // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
+  if (options.automationDidReply) {
+    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
   // Fluxo determinístico de reservas: não depende do fallback da IA.
   // Se já temos dados do veículo, guiamos o próximo passo mesmo com useAsFallback=false.
   if (ctx.reservationsEnabled && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
-    const parsed = extractReservationDateTime(ctx.messageContent);
+    const parsedCurrentMessage = extractReservationDateTime(ctx.messageContent);
+    const parsedFromHistory =
+      !parsedCurrentMessage && looksLikeVehicleInfoMessage(ctx.messageContent)
+        ? await findLatestInboundReservationDateTime(ctx.conversationId)
+        : null;
+    const parsed = parsedCurrentMessage ?? parsedFromHistory;
 
     if (parsed) {
       const availability = await checkAvailabilityForOrg(
@@ -507,6 +545,7 @@ export async function processInboundMessage(
           dateStr: parsed.dateStr,
           timeStr: parsed.timeStr,
           available: availability.available,
+          source: parsedCurrentMessage ? "current_message" : "history_message",
         },
       });
       return {
@@ -556,10 +595,6 @@ export async function processInboundMessage(
       messageContent: ctx.messageContent,
     },
   });
-
-  if (options.automationDidReply) {
-    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
-  }
 
   if (!result.shouldCallAI) {
     return {
