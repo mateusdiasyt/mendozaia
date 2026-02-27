@@ -291,7 +291,23 @@ function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, av
     : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
 }
 
-function extractCustomerName(text: string): string | null {
+function normalizePlainText(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractCustomerName(
+  text: string,
+  options?: {
+    allowSingleWord?: boolean;
+    blockedValues?: string[];
+  }
+): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
   const lower = trimmed.toLowerCase();
@@ -303,8 +319,10 @@ function extractCustomerName(text: string): string | null {
     return name.length >= 2 ? name : null;
   }
 
-  if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length >= 2 && trimmed.split(/\s+/).length <= 3) {
-    const normalized = lower.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length <= 3) {
+    const normalized = normalizePlainText(trimmed);
+    const wordsCount = normalized.split(" ").filter(Boolean).length;
+    if (wordsCount === 1 && !options?.allowSingleWord) return null;
     if (
       [
         "sim",
@@ -322,6 +340,9 @@ function extractCustomerName(text: string): string | null {
         "corolla",
       ].includes(normalized)
     ) {
+      return null;
+    }
+    if ((options?.blockedValues ?? []).map(normalizePlainText).includes(normalized)) {
       return null;
     }
     return trimmed.replace(/\s+/g, " ").trim();
@@ -701,8 +722,11 @@ export async function processInboundMessage(
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   let contactName = ctx.contactName ?? null;
-
-  const inferredName = extractCustomerName(ctx.messageContent);
+  const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
+  const inferredName = extractCustomerName(ctx.messageContent, {
+    allowSingleWord: isPendingWithoutName,
+    blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
+  });
   if (!contactName && inferredName) {
     await db
       .update(contacts)
