@@ -1,4 +1,4 @@
-import { eq, gte, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { getCurrentMembership } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { orchestrationLogs } from "@/lib/db/schema";
@@ -34,6 +34,28 @@ function summarize(rows: LogRow[]) {
   };
 }
 
+function formatStageLabel(stage: string): string {
+  if (stage === "orchestrator.profile") return "Perfil";
+  if (stage === "orchestrator.catalog") return "Catálogo";
+  if (stage === "orchestrator.reservations") return "Reservas";
+  if (stage === "orchestrator.decision") return "Decisão";
+  if (stage === "automation.engine") return "Automação";
+  if (stage === "webhook.inbound") return "Webhook";
+  return stage;
+}
+
+function formatCodeLabel(code: string): string {
+  return code
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function percent(value: number, total: number): number {
+  if (!total) return 0;
+  return Math.round((value / total) * 100);
+}
+
 export default async function AdminFluxoPage() {
   const membership = await getCurrentMembership();
   if (!membership) return null;
@@ -60,6 +82,9 @@ export default async function AdminFluxoPage() {
     }));
 
   const summary = summarize(last24h);
+  const totalEvents = last24h.length;
+  const uniqueStages = new Set(last24h.map((r) => r.stage).filter(Boolean)).size;
+  const uniqueCodes = new Set(last24h.map((r) => r.decisionCode).filter(Boolean)).size;
 
   return (
     <div className="p-8">
@@ -70,29 +95,61 @@ export default async function AdminFluxoPage() {
         </p>
       </div>
 
+      <div className="mb-8 grid gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Eventos (24h)</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{totalEvents}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Etapas ativas</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{uniqueStages}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs uppercase tracking-wide text-slate-500">Decisões distintas</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{uniqueCodes}</p>
+        </div>
+      </div>
+
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-base font-medium text-slate-900">Fluxo Atual (resumo)</h2>
-        <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-slate-700">
-          <li>Saudação inicial e identificação de nome</li>
-          <li>Descoberta da dúvida (orçamento x agendamento)</li>
-          <li>Qualificação de óleo/veículo e busca em produtos/serviços</li>
-          <li>Confirmação de veículo salvo quando aplicável</li>
-          <li>Handoff técnico e pausa de IA quando necessário</li>
-          <li>Coleta de dados para reserva e confirmação final</li>
-        </ol>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {[
+            "1. Identificação de nome",
+            "2. Triagem de intenção",
+            "3. Qualificação do problema",
+            "4. Consulta em catálogo",
+            "5. Reserva ou handoff técnico",
+            "6. Confirmação final",
+          ].map((step) => (
+            <div
+              key={step}
+              className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-700"
+            >
+              {step}
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-sm font-medium text-slate-900">Top stages (24h)</h3>
-          <ul className="mt-3 space-y-2 text-sm text-slate-700">
+          <ul className="mt-3 space-y-3 text-sm text-slate-700">
             {summary.stages.length === 0 ? (
               <li>Nenhum dado nas últimas 24h.</li>
             ) : (
               summary.stages.map(([key, count]) => (
-                <li key={key} className="flex items-center justify-between">
-                  <span className="font-mono text-xs">{key}</span>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{count}</span>
+                <li key={key}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-700">{formatStageLabel(key)}</span>
+                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{count}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-indigo-500"
+                      style={{ width: `${percent(count, totalEvents)}%` }}
+                    />
+                  </div>
                 </li>
               ))
             )}
@@ -101,14 +158,22 @@ export default async function AdminFluxoPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-sm font-medium text-slate-900">Top decision codes (24h)</h3>
-          <ul className="mt-3 space-y-2 text-sm text-slate-700">
+          <ul className="mt-3 space-y-3 text-sm text-slate-700">
             {summary.codes.length === 0 ? (
               <li>Nenhum dado nas últimas 24h.</li>
             ) : (
               summary.codes.map(([key, count]) => (
-                <li key={key} className="flex items-center justify-between">
-                  <span className="font-mono text-xs">{key}</span>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{count}</span>
+                <li key={key}>
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-700">{formatCodeLabel(key)}</span>
+                    <span className="rounded bg-slate-100 px-2 py-0.5 text-xs">{count}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-slate-100">
+                    <div
+                      className="h-2 rounded-full bg-emerald-500"
+                      style={{ width: `${percent(count, totalEvents)}%` }}
+                    />
+                  </div>
                 </li>
               ))
             )}
