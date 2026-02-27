@@ -1214,6 +1214,7 @@ export async function loadConversationContext(
     aiAgentEnabled: aiAgent.enabled !== false,
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
     vehicleSlots: shouldExtractVehicleSlots ? vehicleSlots : undefined,
+    knownOilSpec: memories.vehicle_oil_spec ?? null,
     usesVehicleSlots,
     contactName: contact?.name ?? null,
     pendingReservation:
@@ -1456,6 +1457,11 @@ export async function processInboundMessage(
     });
   }
   const justCapturedName = !contactName && !!inferredName;
+  const detectedOilSpec = extractOilSpec(ctx.messageContent);
+  if (detectedOilSpec) {
+    await saveContactMemory(ctx.contactId, "vehicle_oil_spec", detectedOilSpec);
+  }
+  const knownOilSpec = detectedOilSpec ?? ctx.knownOilSpec ?? null;
   if (!contactName && inferredName) {
     await db
       .update(contacts)
@@ -1483,6 +1489,10 @@ export async function processInboundMessage(
   const likelySingleWordName = isLikelySingleWordHumanName(ctx.messageContent);
   const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
   const currentVehicleSignature = buildVehicleSignature(ctx.vehicleSlots ?? {});
+  const hasKnownModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+  const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
+    .filter(Boolean)
+    .join(" ");
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
@@ -1944,13 +1954,21 @@ export async function processInboundMessage(
 
   if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(ctx.messageContent)) {
     if (shouldAskOilQualification(ctx.messageContent)) {
-      const oilQualificationReply =
-        "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
+      const oilQualificationReply = hasKnownModelAndYear
+        ? knownOilSpec
+          ? `Perfeito! Tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
+          : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
+        : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
       });
+      if (hasKnownModelAndYear) {
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingUnknownOilConfirmation: true,
+        });
+      }
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -2100,13 +2118,21 @@ export async function processInboundMessage(
     }
 
     if (shouldAskOilQualification(ctx.messageContent)) {
-      const oilQualificationReply =
-        "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
+      const oilQualificationReply = hasKnownModelAndYear
+        ? knownOilSpec
+          ? `Pra te indicar o valor correto, tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
+          : "Pra te indicar o valor correto, você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
+        : "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
       await options.sendMessage(ctx.conversationId, oilQualificationReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
       });
+      if (hasKnownModelAndYear) {
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingUnknownOilConfirmation: true,
+        });
+      }
       if (intakeStage !== "awaiting_issue") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       }
@@ -2133,7 +2159,14 @@ export async function processInboundMessage(
     }
 
     const catalogQuery = buildCatalogQueryWithContext(ctx.messageContent, reservationContext);
-    const catalog = await buildCatalogReply(ctx.organizationId, catalogQuery, {
+    const shouldAppendKnownOilSpec =
+      !!knownOilSpec &&
+      normalizeForSearch(reservationContext.serviceName ?? "").includes("oleo") &&
+      !extractOilSpec(catalogQuery);
+    const enrichedCatalogQuery = shouldAppendKnownOilSpec
+      ? `${catalogQuery} ${knownOilSpec}`
+      : catalogQuery;
+    const catalog = await buildCatalogReply(ctx.organizationId, enrichedCatalogQuery, {
       skipIntentCheck: intakeStage === "awaiting_issue" || intakeStage === "awaiting_need",
     });
     if (catalog) {

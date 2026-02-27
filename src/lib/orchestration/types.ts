@@ -42,6 +42,8 @@ export interface OrchestrationContext {
   aiAgentUseAsFallback: boolean;
   /** Slots extraídos (modelo, ano, km) para fluxo de mecânica */
   vehicleSlots?: VehicleSlots;
+  /** Última especificação de óleo conhecida para o contato (ex.: 5W30) */
+  knownOilSpec?: string | null;
   /** Se o prompt parece ser de mecânica (coleta de veículo) */
   usesVehicleSlots?: boolean;
   /** Última sugestão de horário pendente de confirmação do cliente */
