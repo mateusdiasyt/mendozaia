@@ -102,6 +102,37 @@ function looksLikeAskKnownVehicle(text: string): boolean {
   return /\b(sabe|lembra|entendeu|tem)\b.*\b(carro|veiculo|modelo)\b/.test(t);
 }
 
+function buildVehicleSignature(slots: VehicleSlots | undefined): string {
+  if (!slots) return "";
+  const modelo = (slots.modelo ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const ano = slots.ano ? String(slots.ano) : "";
+  const km = slots.km ? String(slots.km) : "";
+  return `${modelo}|${ano}|${km}`;
+}
+
+function isSimpleAffirmative(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return /^(sim|isso|correto|perfeito|ok|blz|beleza|pode ser|confirmo)$/.test(t);
+}
+
+function isSimpleNegative(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+  return /^(nao|não|negativo|errado)$/.test(t);
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -859,6 +890,48 @@ async function persistReservationContext(
     .where(eq(conversations.id, conversationId));
 }
 
+type VehicleConfirmationState = {
+  pending: boolean;
+  confirmed: boolean;
+  vehicleSignature: string;
+};
+
+function getVehicleConfirmationState(
+  metadata: Record<string, unknown>
+): VehicleConfirmationState {
+  const flow = (metadata.vehicleConfirmation as Record<string, unknown> | undefined) ?? {};
+  return {
+    pending: flow.pending === true,
+    confirmed: flow.confirmed === true,
+    vehicleSignature:
+      typeof flow.vehicleSignature === "string" ? flow.vehicleSignature : "",
+  };
+}
+
+async function persistVehicleConfirmationState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  nextState: VehicleConfirmationState | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (nextState) {
+    nextMetadata.vehicleConfirmation = {
+      ...nextState,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.vehicleConfirmation;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
 function looksLikeReservationConfirmation(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -1231,6 +1304,7 @@ export async function processInboundMessage(
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
+  const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   let contactName = ctx.contactName ?? null;
@@ -1282,6 +1356,8 @@ export async function processInboundMessage(
   const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
   const missingNameProfile = !contactName;
   const likelySingleWordName = isLikelySingleWordHumanName(ctx.messageContent);
+  const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
+  const currentVehicleSignature = buildVehicleSignature(ctx.vehicleSlots ?? {});
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
@@ -1432,6 +1508,95 @@ export async function processInboundMessage(
       didReply: true,
       decision: "tool_then_ai",
       reason: "Retorno de dados salvos para cliente",
+      silence: false,
+    };
+  }
+
+  if (
+    vehicleConfirmation.pending &&
+    vehicleConfirmation.vehicleSignature &&
+    vehicleConfirmation.vehicleSignature === currentVehicleSignature &&
+    isSimpleAffirmative(ctx.messageContent)
+  ) {
+    await persistVehicleConfirmationState(ctx.conversationId, conversationMetadata, {
+      pending: false,
+      confirmed: true,
+      vehicleSignature: currentVehicleSignature,
+    });
+    await options.sendMessage(
+      ctx.conversationId,
+      "Perfeito, ótimo! Vamos seguir com esse veículo. Como posso te ajudar agora?"
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Veículo confirmado pelo cliente",
+      silence: false,
+    };
+  }
+
+  if (
+    vehicleConfirmation.pending &&
+    vehicleConfirmation.vehicleSignature &&
+    vehicleConfirmation.vehicleSignature === currentVehicleSignature &&
+    isSimpleNegative(ctx.messageContent)
+  ) {
+    await persistVehicleConfirmationState(ctx.conversationId, conversationMetadata, {
+      pending: false,
+      confirmed: false,
+      vehicleSignature: "",
+    });
+    await options.sendMessage(
+      ctx.conversationId,
+      "Sem problemas. Me atualize, por favor: *modelo, ano e km* do veículo atual."
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Cliente negou veículo salvo; pedindo atualização",
+      silence: false,
+    };
+  }
+
+  const shouldAskVehicleConfirmation =
+    ctx.reservationsEnabled &&
+    ctx.usesVehicleSlots &&
+    hasFullVehicleProfile &&
+    !ctx.pendingReservation &&
+    !containsDateOrTimeHint(ctx.messageContent) &&
+    !looksLikeAskKnownName(ctx.messageContent) &&
+    !looksLikeAskKnownVehicle(ctx.messageContent) &&
+    (looksLikeGreeting(ctx.messageContent) ||
+      looksLikeCatalogIntent(ctx.messageContent) ||
+      looksLikeReservationIntent(ctx.messageContent));
+
+  if (
+    shouldAskVehicleConfirmation &&
+    currentVehicleSignature &&
+    (vehicleConfirmation.vehicleSignature !== currentVehicleSignature ||
+      (!vehicleConfirmation.pending && !vehicleConfirmation.confirmed))
+  ) {
+    const vehicle = ctx.vehicleSlots ?? {};
+    const vehicleLabel = [
+      vehicle.modelo ? vehicle.modelo : null,
+      vehicle.ano ? String(vehicle.ano) : null,
+      vehicle.km ? `${vehicle.km} km` : null,
+    ]
+      .filter(Boolean)
+      .join(" - ");
+    await options.sendMessage(
+      ctx.conversationId,
+      `Antes de seguir, só confirmando: você continua com *${vehicleLabel}*?`
+    );
+    await persistVehicleConfirmationState(ctx.conversationId, conversationMetadata, {
+      pending: true,
+      confirmed: false,
+      vehicleSignature: currentVehicleSignature,
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Confirmação ativa de veículo salvo enviada",
       silence: false,
     };
   }
