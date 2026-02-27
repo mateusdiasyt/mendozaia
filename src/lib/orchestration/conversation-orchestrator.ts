@@ -877,6 +877,39 @@ export async function processInboundMessage(
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
   }
 
+  // Respeita pausa manual da IA/handoff humano antes de qualquer fluxo determinístico.
+  // Sem isso, o orquestrador poderia responder mesmo com IA desativada no contato.
+  const isHumanOnlyState =
+    ctx.conversationState === CONVERSATION_STATES.WAITING_HUMAN ||
+    ctx.conversationState === CONVERSATION_STATES.HUMAN_ACTIVE;
+  const isAiPaused = !!(ctx.aiDisabledUntil && ctx.aiDisabledUntil > new Date());
+  if (isHumanOnlyState || isAiPaused) {
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "decision",
+      stateBefore: ctx.conversationState,
+      decision: "human_only",
+      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      traceId: params.traceId,
+      stage: "orchestrator.decision",
+      decisionCode: "HUMAN_ONLY",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        reservationsEnabled: ctx.reservationsEnabled,
+        usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+        vehicleSlots: ctx.vehicleSlots ?? null,
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: false,
+      decision: "human_only",
+      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      silence: true,
+    };
+  }
+
   // Fluxo robusto de coleta de perfil para reservas em oficinas:
   // sempre que houver sinal de intenção de agendamento, coleta nome + dados do veículo
   // antes de avançar para confirmação de horário.
