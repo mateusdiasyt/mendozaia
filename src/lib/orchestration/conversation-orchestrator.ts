@@ -597,6 +597,10 @@ function isLikelySingleWordHumanName(text: string): boolean {
   return true;
 }
 
+function hasExplicitNameIntro(text: string): boolean {
+  return /\b(meu nome e|meu nome é|me chamo|sou o|sou a)\b/i.test(text.trim());
+}
+
 function extractCustomerName(
   text: string,
   options?: {
@@ -1191,18 +1195,25 @@ export async function processInboundMessage(
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
+  const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
+  const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   let contactName = ctx.contactName ?? null;
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
   const allowSingleWordName = isPendingWithoutName || isReservationProfileCollection;
-  let inferredName = extractCustomerName(ctx.messageContent, {
-    allowSingleWord: allowSingleWordName,
-    blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
-  });
+  const explicitNameIntro = hasExplicitNameIntro(ctx.messageContent);
+  const canCaptureNameNow = !contactName && (explicitNameIntro || isCollectProfileStage);
+  let inferredName: string | null = null;
+  if (canCaptureNameNow) {
+    inferredName = extractCustomerName(ctx.messageContent, {
+      allowSingleWord: allowSingleWordName,
+      blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
+    });
+  }
   // Fallback: se houver conflito com modelo extraído, tenta novamente sem bloqueio.
   // Isso evita loop em casos como "Mateus" ser confundido com modelo.
-  if (!inferredName && !contactName) {
+  if (!inferredName && !contactName && canCaptureNameNow) {
     inferredName = extractCustomerName(ctx.messageContent, {
       allowSingleWord: allowSingleWordName,
     });
@@ -1240,7 +1251,8 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     (ctx.pendingReservation || intakeStage === "awaiting_reservation_profile") &&
     (missingNameProfile || missingVehicleProfile.length > 0) &&
-    likelySingleWordName
+    likelySingleWordName &&
+    isCollectProfileStage
   ) {
     const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
     const promptState = getPromptRepeatState(conversationMetadata, promptKey);
