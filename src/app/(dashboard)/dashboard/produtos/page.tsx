@@ -21,7 +21,13 @@ export default async function ProdutosPage() {
 
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-base font-medium text-slate-900">Novo produto</h2>
-        <form action={createProduct} className="mt-4 grid gap-4 md:grid-cols-2">
+        <form
+          action={async (formData) => {
+            "use server";
+            await createProduct(formData);
+          }}
+          className="mt-4 grid gap-4 md:grid-cols-2"
+        >
           <input
             name="name"
             required
