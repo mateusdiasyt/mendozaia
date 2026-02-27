@@ -1,4 +1,9 @@
-import { createProduct, listProducts, toggleProductActive } from "@/app/actions/products";
+import {
+  createProduct,
+  listProducts,
+  toggleProductActive,
+  updateProductCategory,
+} from "@/app/actions/products";
 
 function formatCurrencyFromCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -9,6 +14,13 @@ function formatCurrencyFromCents(cents: number): string {
 
 export default async function ProdutosPage() {
   const { products } = await listProducts();
+  const categories = [
+    { value: "oleo", label: "Óleo" },
+    { value: "filtro", label: "Filtro" },
+    { value: "peca", label: "Peça" },
+    { value: "acessorio", label: "Acessório" },
+    { value: "outros", label: "Outros" },
+  ] as const;
 
   return (
     <div className="p-8">
@@ -106,7 +118,35 @@ export default async function ProdutosPage() {
                   ) : null}
                 </td>
                 <td className="px-4 py-3 text-slate-700">
-                  {(item.category || "outros").toUpperCase()}
+                  <form
+                    action={async (formData) => {
+                      "use server";
+                      const id = String(formData.get("id") ?? "");
+                      const category = String(formData.get("category") ?? "");
+                      if (!id || !category) return;
+                      await updateProductCategory(id, category);
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <select
+                      name="category"
+                      defaultValue={item.category || "outros"}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                    >
+                      {categories.map((category) => (
+                        <option key={category.value} value={category.value}>
+                          {category.label}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="submit"
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Salvar
+                    </button>
+                  </form>
                 </td>
                 <td className="px-4 py-3 text-slate-700">
                   {formatCurrencyFromCents(item.priceCents)}

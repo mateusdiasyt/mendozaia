@@ -73,3 +73,19 @@ export async function toggleProductActive(id: string, isActive: boolean) {
   revalidatePath("/dashboard/produtos");
   return { success: true };
 }
+
+export async function updateProductCategory(id: string, category: string) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const normalizedCategory = normalizeProductCategory(category) ?? "outros";
+
+  await db
+    .update(products)
+    .set({ category: normalizedCategory, updatedAt: new Date() })
+    .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+
+  revalidatePath("/dashboard/produtos");
+  revalidatePath("/dashboard/conversas");
+  return { success: true };
+}
