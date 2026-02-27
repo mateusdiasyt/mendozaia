@@ -850,7 +850,14 @@ async function persistIntakeStage(
   currentMetadata: Record<string, unknown>,
   stage: IntakeStage | null
 ): Promise<void> {
-  const nextMetadata = { ...currentMetadata };
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
   if (stage) {
     nextMetadata.intakeFlow = { stage, updatedAt: new Date().toISOString() };
   } else {
@@ -882,7 +889,14 @@ async function persistReservationContext(
   currentMetadata: Record<string, unknown>,
   context: { serviceName?: string | null; productName?: string | null } | null
 ): Promise<void> {
-  const nextMetadata = { ...currentMetadata };
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
   if (context && (context.serviceName || context.productName)) {
     nextMetadata.reservationContext = {
       serviceName: context.serviceName ?? null,
