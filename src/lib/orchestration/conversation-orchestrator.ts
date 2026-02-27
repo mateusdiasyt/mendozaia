@@ -333,6 +333,24 @@ function extractCustomerName(
     return name.length >= 2 ? name : null;
   }
 
+  // Ex.: "Mateus, onix 2019 com 80milkm" -> captura "Mateus"
+  const leadingSegment = trimmed.split(",")[0]?.trim();
+  if (
+    leadingSegment &&
+    leadingSegment !== trimmed &&
+    /^[a-zà-ú' ]{2,40}$/i.test(leadingSegment)
+  ) {
+    const normalizedLeading = normalizePlainText(leadingSegment);
+    if (
+      !["sim", "ok", "quero", "confirmo", "amanha", "hoje", "ola", "oi"].includes(
+        normalizedLeading
+      ) &&
+      !((options?.blockedValues ?? []).map(normalizePlainText).includes(normalizedLeading))
+    ) {
+      return leadingSegment.replace(/\s+/g, " ").trim();
+    }
+  }
+
   if (/^[a-zà-ú' ]{2,40}$/i.test(trimmed) && trimmed.split(/\s+/).length <= 3) {
     const normalized = normalizePlainText(trimmed);
     const wordsCount = normalized.split(" ").filter(Boolean).length;
@@ -736,16 +754,19 @@ export async function processInboundMessage(
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   let contactName = ctx.contactName ?? null;
+  const isReservationProfileCollection =
+    ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
+  const allowSingleWordName = isPendingWithoutName || isReservationProfileCollection;
   let inferredName = extractCustomerName(ctx.messageContent, {
-    allowSingleWord: isPendingWithoutName,
+    allowSingleWord: allowSingleWordName,
     blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
   });
   // Fallback: se houver conflito com modelo extraído, tenta novamente sem bloqueio.
   // Isso evita loop em casos como "Mateus" ser confundido com modelo.
   if (!inferredName && !contactName) {
     inferredName = extractCustomerName(ctx.messageContent, {
-      allowSingleWord: isPendingWithoutName,
+      allowSingleWord: allowSingleWordName,
     });
   }
   if (!contactName && inferredName) {
