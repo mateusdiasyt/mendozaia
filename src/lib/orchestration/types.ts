@@ -43,6 +43,12 @@ export interface OrchestrationContext {
   vehicleSlots?: VehicleSlots;
   /** Se o prompt parece ser de mecânica (coleta de veículo) */
   usesVehicleSlots?: boolean;
+  /** Última sugestão de horário pendente de confirmação do cliente */
+  pendingReservation?: {
+    dateStr: string;
+    timeStr: string;
+    durationMinutes: number;
+  };
 }
 
 export interface OrchestratorResult {

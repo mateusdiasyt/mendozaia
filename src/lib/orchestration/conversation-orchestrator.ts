@@ -10,7 +10,7 @@ import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
 import { generateAIReply } from "@/lib/ai-agent";
-import { checkAvailabilityForOrg } from "@/lib/reservations";
+import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
 import {
   extractSlotsFromMessages,
   mergeVehicleSlots,
@@ -269,6 +269,44 @@ function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, av
     : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
 }
 
+function looksLikeReservationConfirmation(text: string): boolean {
+  const t = text.toLowerCase();
+  return (
+    /\b(sim|confirmo|confirmar|pode confirmar|fechar|fechado|ok|pode ser|quero)\b/.test(t) &&
+    !/\b(não|nao|cancelar|desmarcar)\b/.test(t)
+  );
+}
+
+function parseStartAt(dateStr: string, timeStr: string): Date {
+  const year = parseInt(dateStr.slice(0, 4), 10);
+  const month = parseInt(dateStr.slice(5, 7), 10) - 1;
+  const day = parseInt(dateStr.slice(8, 10), 10);
+  const [hour, min] = timeStr.split(":").map(Number);
+  return new Date(year, month, day, hour, min ?? 0, 0);
+}
+
+async function savePendingReservation(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  payload: { dateStr: string; timeStr: string; durationMinutes: number } | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (payload) {
+    nextMetadata.pendingReservation = payload;
+  } else {
+    delete nextMetadata.pendingReservation;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
 function enforceReservationReply(ctx: OrchestrationContext, aiReply: string): string {
   if (!ctx.reservationsEnabled || !looksLikeFallbackReservationReply(aiReply)) {
     return aiReply;
@@ -320,6 +358,9 @@ export async function loadConversationContext(
 
   const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
   const existingSlots = metadata.vehicleSlots as VehicleSlots | undefined;
+  const pendingReservation = metadata.pendingReservation as
+    | { dateStr?: string; timeStr?: string; durationMinutes?: number }
+    | undefined;
 
   let vehicleSlots = existingSlots;
   if (shouldExtractVehicleSlots) {
@@ -366,6 +407,14 @@ export async function loadConversationContext(
     aiAgentUseAsFallback: aiAgent.useAsFallback !== false,
     vehicleSlots: shouldExtractVehicleSlots ? vehicleSlots : undefined,
     usesVehicleSlots,
+    pendingReservation:
+      pendingReservation?.dateStr && pendingReservation?.timeStr
+        ? {
+            dateStr: pendingReservation.dateStr,
+            timeStr: pendingReservation.timeStr,
+            durationMinutes: pendingReservation.durationMinutes ?? 60,
+          }
+        : undefined,
   };
 }
 
@@ -557,6 +606,14 @@ export async function processInboundMessage(
     return { didReply: options.automationDidReply, decision: "silence", reason: "Contexto não encontrado", silence: true };
   }
 
+  const [convMetaRow] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, ctx.conversationId))
+    .limit(1);
+  const conversationMetadata =
+    (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
+
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
     await logOrchestration({
@@ -571,6 +628,83 @@ export async function processInboundMessage(
       durationMs: Date.now() - startedAt,
     });
     return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
+  // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
+  if (ctx.reservationsEnabled && ctx.pendingReservation && looksLikeReservationConfirmation(ctx.messageContent)) {
+    const pending = ctx.pendingReservation;
+    const recheck = await checkAvailabilityForOrg(
+      ctx.organizationId,
+      pending.dateStr,
+      pending.timeStr,
+      pending.durationMinutes
+    );
+
+    if (!recheck.available) {
+      await savePendingReservation(ctx.conversationId, conversationMetadata, null);
+      await options.sendMessage(
+        ctx.conversationId,
+        "Esse horário acabou de ficar indisponível. Me diga outro dia e horário que eu consulto agora."
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_confirm_failed_unavailable",
+        decision: "tool_then_ai",
+        reason: "Confirmação recebida, mas horário ficou indisponível",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_CONFIRM_UNAVAILABLE",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          pendingReservation: pending,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Confirmação recebida com horário indisponível",
+        silence: false,
+      };
+    }
+
+    const startAt = parseStartAt(pending.dateStr, pending.timeStr);
+    const created = await createReservationForOrg(ctx.organizationId, {
+      startAt,
+      durationMinutes: pending.durationMinutes,
+      contactId: ctx.contactId,
+      source: "ai",
+    });
+    await savePendingReservation(ctx.conversationId, conversationMetadata, null);
+
+    if (created?.success) {
+      const friendlyDate = formatDateForPtBr(pending.dateStr);
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}.`
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_confirmed",
+        decision: "tool_then_ai",
+        reason: "Reserva criada após confirmação do cliente",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_CONFIRMED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          reservationId: created.reservation?.id ?? null,
+          pendingReservation: pending,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Reserva confirmada com sucesso",
+        silence: false,
+      };
+    }
   }
 
   // Fluxo determinístico de reservas: não depende do fallback da IA.
@@ -593,6 +727,17 @@ export async function processInboundMessage(
       const reply = buildAvailabilityReply(parsed, availability.available);
 
       await options.sendMessage(ctx.conversationId, reply);
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        availability.available
+          ? {
+              dateStr: parsed.dateStr,
+              timeStr: parsed.timeStr,
+              durationMinutes: 60,
+            }
+          : null
+      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -659,6 +804,17 @@ export async function processInboundMessage(
       const reply = buildAvailabilityReply(parsed, availability.available);
 
       await options.sendMessage(ctx.conversationId, reply);
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        availability.available
+          ? {
+              dateStr: parsed.dateStr,
+              timeStr: parsed.timeStr,
+              durationMinutes: 60,
+            }
+          : null
+      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -767,6 +923,17 @@ export async function processInboundMessage(
       );
       const reply = buildAvailabilityReply(parsed, availability.available);
       await options.sendMessage(ctx.conversationId, reply);
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        availability.available
+          ? {
+              dateStr: parsed.dateStr,
+              timeStr: parsed.timeStr,
+              durationMinutes: 60,
+            }
+          : null
+      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
