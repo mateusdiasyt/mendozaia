@@ -62,6 +62,11 @@ function containsDateOrTimeHint(text: string): boolean {
   );
 }
 
+function looksLikeGreeting(text: string): boolean {
+  const t = text.toLowerCase().trim();
+  return /^(oi|ol[áa]|bom dia|boa tarde|boa noite|e ai|e aí|opa|hey)\b/.test(t);
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
@@ -1210,6 +1215,41 @@ export async function processInboundMessage(
       didReply: true,
       decision: "tool_then_ai",
       reason: "Fail-safe de reservas: solicitando data/hora em formato claro",
+      silence: false,
+    };
+  }
+
+  // Fallback determinístico de entrada:
+  // com useAsFallback=false, mensagens iniciais (ex: "oi") não podem ficar sem resposta.
+  if (
+    ctx.reservationsEnabled &&
+    !ctx.aiAgentUseAsFallback &&
+    !containsDateOrTimeHint(ctx.messageContent) &&
+    looksLikeGreeting(ctx.messageContent)
+  ) {
+    await options.sendMessage(
+      ctx.conversationId,
+      "Olá! Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
+    );
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "reservation_entry_prompt",
+      decision: "tool_then_ai",
+      reason: "Saudação recebida com fallback IA desativado",
+      traceId: params.traceId,
+      stage: "orchestrator.reservations",
+      decisionCode: "RESERVATION_ENTRY_PROMPT",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        aiAgentUseAsFallback: ctx.aiAgentUseAsFallback,
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Resposta inicial determinística enviada",
       silence: false,
     };
   }
