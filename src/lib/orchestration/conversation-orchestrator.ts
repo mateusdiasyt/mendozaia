@@ -1650,23 +1650,31 @@ export async function processInboundMessage(
     !ctx.pendingReservation &&
     !looksLikeReservationIntent(ctx.messageContent)
   ) {
-    const triageReply = contactName?.trim()
-      ? `Olá, *${contactName.trim()}*! Tudo bem? Qual sua dúvida?`
-      : "Olá, tudo bem? Qual sua dúvida?";
+    const hasKnownName = !!contactName?.trim();
+    const triageReply = hasKnownName
+      ? `Olá, *${contactName!.trim()}*! Tudo bem? Qual sua dúvida?`
+      : "Olá, tudo bem? Qual é o seu nome?";
     await options.sendMessage(ctx.conversationId, triageReply);
-    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+    await persistIntakeStage(
+      ctx.conversationId,
+      conversationMetadata,
+      hasKnownName ? "awaiting_need" : "awaiting_name"
+    );
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
       event: "intake_greeting",
       decision: "tool_then_ai",
-      reason: "Saudação recebida; iniciando descoberta da necessidade",
+      reason: hasKnownName
+        ? "Saudação recebida; iniciando descoberta da necessidade"
+        : "Saudação recebida; iniciando identificação de nome",
       traceId: params.traceId,
       stage: "orchestrator.reservations",
       decisionCode: "INTAKE_GREETING",
       durationMs: Date.now() - startedAt,
       metadata: {
         messageContent: ctx.messageContent,
+        hasKnownName,
       },
     });
     return {
