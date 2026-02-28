@@ -491,6 +491,11 @@ function shouldAskOilQualification(text: string): boolean {
   return isOilExchangeIntent(text) && !extractOilSpec(text);
 }
 
+function isRevisionServiceIntent(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return /\b(revisao|checkup|check up)\b/.test(t);
+}
+
 function looksLikeUnknownOilMessage(text: string): boolean {
   const t = normalizeForSearch(text);
   return (
@@ -2114,6 +2119,57 @@ export async function processInboundMessage(
   }
 
   if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(ctx.messageContent)) {
+    if (isRevisionServiceIntent(ctx.messageContent)) {
+      const slots = ctx.vehicleSlots ?? {};
+      const hasModelAndYear = !!(slots.modelo && slots.ano);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Revisão",
+        productName: reservationContext.productName,
+      });
+      if (!hasModelAndYear) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Perfeito! Para revisão, me informe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km* para deixar o diagnóstico inicial mais preciso."
+        );
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Revisão identificada; solicitando dados do veículo",
+          silence: false,
+        };
+      }
+
+      await persistWorkshopState(ctx.conversationId, conversationMetadata, {
+        carInShop: true,
+        awaitingVehicleDetails: false,
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Cliente solicitou revisão; encaminhado para mecânico técnico"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Revisão com veículo identificado; handoff técnico 24h",
+        silence: false,
+      };
+    }
+
     if (shouldAskOilQualification(ctx.messageContent)) {
       const oilQualificationReply = hasKnownModelAndYear
         ? knownOilSpec
@@ -2189,6 +2245,57 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
+    if (intakeStage === "awaiting_issue" && isRevisionServiceIntent(ctx.messageContent)) {
+      const slots = ctx.vehicleSlots ?? {};
+      const hasModelAndYear = !!(slots.modelo && slots.ano);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Revisão",
+        productName: reservationContext.productName,
+      });
+
+      if (!hasModelAndYear) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Perfeito! Para revisão, me informe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km* para deixar o diagnóstico inicial mais preciso."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Revisão em triagem; solicitando veículo antes do handoff",
+          silence: false,
+        };
+      }
+
+      await persistWorkshopState(ctx.conversationId, conversationMetadata, {
+        carInShop: true,
+        awaitingVehicleDetails: false,
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Cliente confirmou revisão; encaminhado para mecânico técnico"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Revisão confirmada; handoff técnico e pausa IA 24h",
+        silence: false,
+      };
+    }
+
     const issueVehicleSlots = extractVehicleSlotsFromText(ctx.messageContent);
     const hasModelOrYearInIssueMessage = !!(issueVehicleSlots.modelo || issueVehicleSlots.ano);
     const serviceLooksLikeOil =
