@@ -818,6 +818,7 @@ type ReservationCollectionStage =
   | "completed";
 type IntakeStage =
   | "awaiting_name"
+  | "awaiting_vehicle"
   | "awaiting_need"
   | "awaiting_issue"
   | "awaiting_reservation_profile";
@@ -931,6 +932,7 @@ function getIntakeStage(metadata: Record<string, unknown>): IntakeStage | null {
   const stage = intakeFlow.stage;
   if (
     stage === "awaiting_name" ||
+    stage === "awaiting_vehicle" ||
     stage === "awaiting_need" ||
     stage === "awaiting_issue" ||
     stage === "awaiting_reservation_profile"
@@ -1569,6 +1571,7 @@ export async function processInboundMessage(
   const missingNameProfile = !contactName;
   const likelySingleWordName = isLikelySingleWordHumanName(ctx.messageContent);
   const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
+  const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
   const currentVehicleSignature = buildVehicleSignature(ctx.vehicleSlots ?? {});
   const hasKnownModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
@@ -1592,11 +1595,19 @@ export async function processInboundMessage(
   }
 
   if (isAwaitingNameStage && justCapturedName && contactName) {
-    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
-    await options.sendMessage(
-      ctx.conversationId,
-      `Prazer, *${contactName}*! Qual seria sua dúvida?`
-    );
+    if (hasModelAndYearProfile) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+      await options.sendMessage(
+        ctx.conversationId,
+        `Prazer, *${contactName}*! Qual seria sua dúvida?`
+      );
+    } else {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+      await options.sendMessage(
+        ctx.conversationId,
+        `Prazer, *${contactName}*! Para seguir, me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km* para deixar o orçamento mais preciso.`
+      );
+    }
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
@@ -1615,6 +1626,42 @@ export async function processInboundMessage(
       didReply: true,
       decision: "tool_then_ai",
       reason: "Nome confirmado e onboarding continuado",
+      silence: false,
+    };
+  }
+
+  if (intakeStage === "awaiting_vehicle") {
+    if (hasModelAndYearProfile) {
+      const vehicleLabel = [
+        ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
+        ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const kmHint = ctx.vehicleSlots?.km
+        ? ""
+        : "\nSe souber, me passe também o *km* para deixar o orçamento mais preciso.";
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\nAgora me diga: qual é a sua dúvida?`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Veículo identificado; avançando para descoberta da dúvida",
+        silence: false,
+      };
+    }
+
+    await options.sendMessage(
+      ctx.conversationId,
+      "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso."
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Aguardando dados mínimos do veículo (modelo e ano)",
       silence: false,
     };
   }
@@ -2084,14 +2131,21 @@ export async function processInboundMessage(
     !looksLikeReservationIntent(ctx.messageContent)
   ) {
     const hasKnownName = !!contactName?.trim();
-    const triageReply = hasKnownName
-      ? `Olá, *${contactName!.trim()}*! Tudo bem? Qual sua dúvida?`
-      : "Olá, tudo bem? Qual é o seu nome?";
+    const hasKnownVehicleForIntake = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+    const triageReply = !hasKnownName
+      ? "Olá, tudo bem? Qual é o seu nome?"
+      : !hasKnownVehicleForIntake
+        ? `Olá, *${contactName!.trim()}*! Para eu te atender melhor, me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km*.`
+        : `Olá, *${contactName!.trim()}*! Tudo bem? Qual sua dúvida?`;
     await options.sendMessage(ctx.conversationId, triageReply);
     await persistIntakeStage(
       ctx.conversationId,
       conversationMetadata,
-      hasKnownName ? "awaiting_need" : "awaiting_name"
+      !hasKnownName
+        ? "awaiting_name"
+        : !hasKnownVehicleForIntake
+          ? "awaiting_vehicle"
+          : "awaiting_need"
     );
     await logOrchestration({
       conversationId: ctx.conversationId,
