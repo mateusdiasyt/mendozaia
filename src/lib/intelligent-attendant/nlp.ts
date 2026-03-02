@@ -44,6 +44,18 @@ function extractName(text: string): string | undefined {
   const shortName = trimmed.match(/^[A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){0,1}$/);
   if (shortName?.[0]) return shortName[0].trim();
 
+  // Ex.: "Mateus, onix 2022, 80 mil km"
+  const firstChunk = trimmed
+    .split(/[,.]/)[0]
+    ?.replace(/\b(meu nome e|me chamo|sou)\b/gi, "")
+    .trim();
+  if (
+    firstChunk &&
+    /^[A-Za-zÀ-ÿ]{2,}(?:\s+[A-Za-zÀ-ÿ]{2,}){0,1}$/.test(firstChunk)
+  ) {
+    return firstChunk;
+  }
+
   return undefined;
 }
 
@@ -53,6 +65,7 @@ function extractVehicleYear(text: string): string | undefined {
 }
 
 function extractVehicleModel(text: string): string | undefined {
+  const normalized = normalizeText(text);
   const year = extractVehicleYear(text);
   if (year) {
     const beforeYear = text.match(new RegExp(`([A-Za-zÀ-ÿ0-9\\-\\s]{2,40})\\s+${year}\\b`, "i"));
@@ -66,6 +79,27 @@ function extractVehicleModel(text: string): string | undefined {
       }
     }
   }
+
+  // Ex.: "2022 onix"
+  const afterYear = normalized.match(/\b(19[89]\d|20[0-3]\d)\s+([a-z0-9\- ]{2,30})\b/i);
+  if (afterYear?.[2]) {
+    const candidate = afterYear[2]
+      .replace(/\b(carro|veiculo|veículo|ano|km|mil)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (candidate.length >= 2) return candidate;
+  }
+
+  // Ex.: "onix ano 2022"
+  const beforeAno = normalized.match(/\b([a-z0-9\- ]{2,30})\s+ano\s+(19[89]\d|20[0-3]\d)\b/i);
+  if (beforeAno?.[1]) {
+    const candidate = beforeAno[1]
+      .replace(/\b(carro|veiculo|veículo|meu|minha)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (candidate.length >= 2) return candidate;
+  }
+
   const explicitModel = text.match(
     /\b(?:modelo|carro|veiculo|veículo)\s*(?:e|eh|é|:)?\s*([A-Za-zÀ-ÿ0-9\- ]{2,40})/i
   );
@@ -83,6 +117,9 @@ function extractMileage(text: string): string | undefined {
 
   const withKm = normalized.match(/(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:km|quilometragem)\b/);
   if (withKm?.[1]) return `${withKm[1].replace(/[.,]/g, "")} km`;
+
+  const withK = normalized.match(/\b(\d{2,3})(?:\s*)k\b/);
+  if (withK?.[1]) return `${withK[1]}000 km`;
 
   const plain = normalized.match(/\b(\d{4,6})\b/);
   if (plain?.[1]) return `${plain[1]} km`;
@@ -111,6 +148,13 @@ function extractServiceType(text: string): string | undefined {
   const normalized = normalizeText(text);
   const found = SERVICE_KEYWORDS.find((k) => normalized.includes(k.key));
   return found?.label;
+}
+
+function extractDesiredPeriod(text: string): "manha" | "tarde" | undefined {
+  const normalized = normalizeText(text);
+  if (/\b(manha|manhã|de manha|de manhã)\b/.test(normalized)) return "manha";
+  if (/\b(tarde|de tarde)\b/.test(normalized)) return "tarde";
+  return undefined;
 }
 
 export function detectIntent(text: string): Intent | null {
@@ -143,6 +187,7 @@ export function extractEntities(text: string): ExtractedEntities {
   const veiculo_modelo = extractVehicleModel(text);
   const quilometragem = extractMileage(text);
   const data_desejada = extractDesiredDate(text);
+  const periodo_desejado = extractDesiredPeriod(text);
   const tipo_servico = extractServiceType(text);
 
   return {
@@ -151,6 +196,7 @@ export function extractEntities(text: string): ExtractedEntities {
     ...(veiculo_ano ? { veiculo_ano } : {}),
     ...(quilometragem ? { quilometragem } : {}),
     ...(data_desejada ? { data_desejada } : {}),
+    ...(periodo_desejado ? { periodo_desejado } : {}),
     ...(tipo_servico ? { tipo_servico } : {}),
   };
 }

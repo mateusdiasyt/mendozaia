@@ -67,6 +67,11 @@ interface WebhookPayload {
 }
 
 const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
+const INBOUND_DEBOUNCE_MS = 1500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function parsePresenceUpdate(body: WebhookPayload): {
   sessionId: string;
@@ -408,14 +413,14 @@ export async function POST(request: NextRequest) {
     const traceId = crypto.randomUUID();
 
     // Salvar mensagem recebida (texto e mídia)
-    await db.insert(messages).values({
+    const [inboundMessage] = await db.insert(messages).values({
       conversationId: conversation.id,
       direction: "inbound",
       contentType,
       content: messageText || null,
       mediaUrl,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    });
+    }).returning({ id: messages.id, createdAt: messages.createdAt });
 
     await logOrchestration({
       conversationId: conversation.id,
@@ -575,12 +580,39 @@ export async function POST(request: NextRequest) {
     }
 
     const useIntelligentAttendant =
-      process.env.USE_INTELLIGENT_ATTENDANT === "true";
+      process.env.USE_INTELLIGENT_ATTENDANT !== "false";
     if (
       useIntelligentAttendant &&
       contentType === "text" &&
       !!messageText?.trim()
     ) {
+      await sleep(INBOUND_DEBOUNCE_MS);
+      const [latestInbound] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversation.id),
+            eq(messages.direction, "inbound")
+          )
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+
+      if (latestInbound?.id && inboundMessage?.id && latestInbound.id !== inboundMessage.id) {
+        await logOrchestration({
+          conversationId: conversation.id,
+          organizationId: session.organizationId,
+          event: "intelligent_attendant_debounced",
+          decision: "tool_then_ai",
+          reason: "Mensagem inbound mais nova detectada; aguardando composição",
+          traceId,
+          stage: "webhook.intelligent_attendant",
+          decisionCode: "INTELLIGENT_ATTENDANT_DEBOUNCED",
+        });
+        return NextResponse.json({ ok: true, mode: "debounced" });
+      }
+
       const store = {
         getByPhone: async (_phone: string): Promise<ConversationState | null> => {
           const [row] = await db

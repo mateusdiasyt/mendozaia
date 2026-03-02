@@ -20,6 +20,7 @@ function createInitialState(phone: string, now: Date): ConversationState {
     veiculo_ano: null,
     quilometragem: null,
     data_desejada: null,
+    periodo_desejado: null,
     tipo_servico: null,
     etapa: "aguardando_intencao",
     lastInteractionAt: now.toISOString(),
@@ -126,6 +127,7 @@ function updateStateWithEntities(state: ConversationState, stitchedMessage: stri
   if (nlp.entities.veiculo_ano) state.veiculo_ano = nlp.entities.veiculo_ano;
   if (nlp.entities.quilometragem) state.quilometragem = nlp.entities.quilometragem;
   if (nlp.entities.data_desejada) state.data_desejada = nlp.entities.data_desejada;
+  if (nlp.entities.periodo_desejado) state.periodo_desejado = nlp.entities.periodo_desejado;
   if (nlp.entities.tipo_servico) state.tipo_servico = nlp.entities.tipo_servico;
 }
 
@@ -182,12 +184,18 @@ export async function handleIncomingMessage(
     if (state.etapa === "coletando_dados") {
       reply = buildMissingPrompt(state);
     } else if (state.etapa === "aguardando_confirmacao") {
-      if (nlp.isAffirmative) {
+      if (state.data_desejada && !state.periodo_desejado) {
+        reply = `Perfeito, ${state.nome ?? "obrigado"} 👍 Vou verificar disponibilidade para ${state.data_desejada}. Qual período prefere: manhã ou tarde?`;
+      } else if (state.data_desejada && state.periodo_desejado && !nlp.isAffirmative) {
+        reply = `Perfeito 👍 Tenho ${state.veiculo_modelo} ${state.veiculo_ano}${state.quilometragem ? ` com ${state.quilometragem}` : ""} para ${state.data_desejada} no período da ${state.periodo_desejado === "manha" ? "manhã" : "tarde"}. Posso confirmar?`;
+      } else if (nlp.isAffirmative) {
         if (deps.availabilityChecker && state.data_desejada) {
           action = "check_availability";
           const result = await deps.availabilityChecker({
             phone,
-            dateText: state.data_desejada,
+            dateText: state.periodo_desejado
+              ? `${state.data_desejada} ${state.periodo_desejado}`
+              : state.data_desejada,
             serviceType: state.tipo_servico,
           });
           if (result.available) {

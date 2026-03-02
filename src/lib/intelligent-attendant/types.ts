@@ -21,6 +21,7 @@ export interface ConversationState {
   veiculo_ano: string | null;
   quilometragem: string | null;
   data_desejada: string | null;
+  periodo_desejado: "manha" | "tarde" | null;
   tipo_servico: string | null;
   etapa: ConversationStep;
   lastInteractionAt: string;
@@ -40,6 +41,7 @@ export interface ExtractedEntities {
   veiculo_ano?: string;
   quilometragem?: string;
   data_desejada?: string;
+  periodo_desejado?: "manha" | "tarde";
   tipo_servico?: string;
 }
 
