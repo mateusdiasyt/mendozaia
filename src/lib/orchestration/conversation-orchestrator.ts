@@ -2629,13 +2629,10 @@ export async function processInboundMessage(
     } else if (intakeStage === "awaiting_issue") {
       continuationPrompt = "Perfeito. Pode me explicar qual é a situação/dúvida do veículo?";
     }
-
-    if (continuationPrompt) {
-      chunks.push("");
-      chunks.push(continuationPrompt);
-    }
-
     await options.sendMessage(ctx.conversationId, chunks.join("\n"));
+    if (continuationPrompt) {
+      await options.sendMessage(ctx.conversationId, continuationPrompt);
+    }
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
