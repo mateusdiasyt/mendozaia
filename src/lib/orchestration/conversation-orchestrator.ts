@@ -2570,6 +2570,24 @@ export async function processInboundMessage(
       }
     }
 
+    const hasModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+    let continuationPrompt: string | null = null;
+    if (intakeStage === "awaiting_name" || (!contactName && !intakeStage)) {
+      continuationPrompt = "Para continuarmos, qual é o seu nome?";
+    } else if (intakeStage === "awaiting_vehicle" || (!hasModelAndYear && intakeStage === "awaiting_need")) {
+      continuationPrompt =
+        "Perfeito. Agora me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km*.";
+    } else if (intakeStage === "awaiting_need") {
+      continuationPrompt = "Perfeito. Agora me diga: qual é a sua dúvida principal?";
+    } else if (intakeStage === "awaiting_issue") {
+      continuationPrompt = "Perfeito. Pode me explicar qual é a situação/dúvida do veículo?";
+    }
+
+    if (continuationPrompt) {
+      chunks.push("");
+      chunks.push(continuationPrompt);
+    }
+
     await options.sendMessage(ctx.conversationId, chunks.join("\n"));
     await logOrchestration({
       conversationId: ctx.conversationId,
