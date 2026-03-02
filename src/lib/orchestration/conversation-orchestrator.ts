@@ -265,6 +265,31 @@ async function shouldSuppressRepeatedNamePrompt(
   return isRecent && asksName;
 }
 
+async function wasRecentNamePrompt(conversationId: string): Promise<boolean> {
+  const [lastOutbound] = await db
+    .select({
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (!lastOutbound?.content) return false;
+  const isRecent = Date.now() - lastOutbound.createdAt.getTime() <= 5 * 60 * 1000;
+  if (!isRecent) return false;
+  return (
+    /qual\s+(?:e|é)\s+o\s+seu\s+nome\??/i.test(lastOutbound.content) ||
+    /qual\s+seria\s+o\s+seu\s+nome\??/i.test(lastOutbound.content)
+  );
+}
+
 function looksLikeVehicleCorrectionDuringOilFlow(
   text: string,
   knownModel?: string
@@ -1674,6 +1699,11 @@ export async function processInboundMessage(
   const workshopState = getWorkshopState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
+  const isImplicitAwaitingName =
+    intakeStage !== "awaiting_name" &&
+    (await wasRecentNamePrompt(ctx.conversationId));
+  const isAwaitingNameStage =
+    intakeStage === "awaiting_name" || isImplicitAwaitingName;
   let contactName = ctx.contactName ?? null;
   const missingVehicleProfileAtEntry = getMissingSlots(ctx.vehicleSlots ?? {});
   const missingNameProfileAtEntry = !contactName;
@@ -1758,7 +1788,6 @@ export async function processInboundMessage(
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
-  const isAwaitingNameStage = intakeStage === "awaiting_name";
   const allowSingleWordName =
     isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
