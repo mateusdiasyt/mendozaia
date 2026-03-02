@@ -17,6 +17,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { processInboundMessage } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
+import { handleIncomingMessage } from "@/lib/intelligent-attendant";
+import type { ConversationState } from "@/lib/intelligent-attendant";
 
 // Formato esperado da Evolution API (texto e mídia)
 interface MessageContent {
@@ -570,6 +572,82 @@ export async function POST(request: NextRequest) {
       });
 
       return NextResponse.json({ ok: true });
+    }
+
+    const useIntelligentAttendant =
+      process.env.USE_INTELLIGENT_ATTENDANT === "true";
+    if (
+      useIntelligentAttendant &&
+      contentType === "text" &&
+      !!messageText?.trim()
+    ) {
+      const store = {
+        getByPhone: async (_phone: string): Promise<ConversationState | null> => {
+          const [row] = await db
+            .select({
+              conversationStateMetadata: conversations.conversationStateMetadata,
+            })
+            .from(conversations)
+            .where(eq(conversations.id, conversation.id))
+            .limit(1);
+          const metadata =
+            (row?.conversationStateMetadata as Record<string, unknown> | undefined) ??
+            {};
+          return (metadata.intelligentAttendantState as ConversationState | undefined) ?? null;
+        },
+        save: async (state: ConversationState): Promise<void> => {
+          const [row] = await db
+            .select({
+              conversationStateMetadata: conversations.conversationStateMetadata,
+            })
+            .from(conversations)
+            .where(eq(conversations.id, conversation.id))
+            .limit(1);
+          const metadata =
+            (row?.conversationStateMetadata as Record<string, unknown> | undefined) ??
+            {};
+          await db
+            .update(conversations)
+            .set({
+              conversationStateMetadata: {
+                ...metadata,
+                intelligentAttendantState: state,
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, conversation.id));
+        },
+      };
+
+      const intelligentResult = await handleIncomingMessage(
+        phone,
+        messageText,
+        { store }
+      );
+      if (intelligentResult.reply?.trim()) {
+        await executor.sendMessage(conversation.id, intelligentResult.reply);
+      }
+
+      await logOrchestration({
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        event: "intelligent_attendant_processed",
+        decision: "tool_then_ai",
+        reason: "Fluxo inteligente processado via feature flag",
+        traceId,
+        stage: "webhook.intelligent_attendant",
+        decisionCode: "INTELLIGENT_ATTENDANT_PROCESSED",
+        metadata: {
+          action: intelligentResult.action,
+          step: intelligentResult.state.etapa,
+          intent: intelligentResult.state.intent,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        mode: "intelligent_attendant",
+      });
     }
 
     const automationStartedAt = Date.now();

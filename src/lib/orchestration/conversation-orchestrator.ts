@@ -13,7 +13,7 @@ import {
   products,
   services,
 } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
