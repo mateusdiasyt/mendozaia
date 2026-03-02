@@ -135,6 +135,8 @@ function buildVehicleSignature(slots: VehicleSlots | undefined): string {
   return `${modelo}|${ano}|${km}`;
 }
 
+const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
+
 function isSimpleAffirmative(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1263,7 +1265,11 @@ export async function loadConversationContext(
       await db
         .update(conversations)
         .set({
-          conversationStateMetadata: { ...metadata, vehicleSlots },
+          conversationStateMetadata: {
+            ...metadata,
+            vehicleSlots,
+            vehicleSlotsUpdatedAt: new Date().toISOString(),
+          },
           updatedAt: new Date(),
         })
         .where(eq(conversations.id, params.conversationId));
@@ -1577,6 +1583,23 @@ export async function processInboundMessage(
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
     .filter(Boolean)
     .join(" ");
+  const vehicleSlotsFromCurrentMessage = extractVehicleSlotsFromText(ctx.messageContent);
+  const hasVehicleInfoInCurrentMessage = Boolean(
+    vehicleSlotsFromCurrentMessage.modelo ||
+      vehicleSlotsFromCurrentMessage.ano ||
+      vehicleSlotsFromCurrentMessage.km
+  );
+  const rawVehicleSlotsUpdatedAt =
+    typeof conversationMetadata.vehicleSlotsUpdatedAt === "string"
+      ? conversationMetadata.vehicleSlotsUpdatedAt
+      : null;
+  const parsedVehicleSlotsUpdatedAt = rawVehicleSlotsUpdatedAt
+    ? new Date(rawVehicleSlotsUpdatedAt)
+    : null;
+  const hasRecentVehicleUpdate =
+    !!parsedVehicleSlotsUpdatedAt &&
+    !Number.isNaN(parsedVehicleSlotsUpdatedAt.getTime()) &&
+    Date.now() - parsedVehicleSlotsUpdatedAt.getTime() < VEHICLE_CONFIRMATION_STALE_MS;
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
@@ -1686,6 +1709,7 @@ export async function processInboundMessage(
         const nextMetadata = {
           ...conversationMetadata,
           vehicleSlots: mergedCorrectedSlots,
+          vehicleSlotsUpdatedAt: new Date().toISOString(),
         };
         await db
           .update(conversations)
@@ -2084,6 +2108,8 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     hasFullVehicleProfile &&
     !ctx.pendingReservation &&
+    !hasVehicleInfoInCurrentMessage &&
+    !hasRecentVehicleUpdate &&
     !containsDateOrTimeHint(ctx.messageContent) &&
     !looksLikeAskKnownName(ctx.messageContent) &&
     !looksLikeAskKnownVehicle(ctx.messageContent) &&
