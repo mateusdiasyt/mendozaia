@@ -34,6 +34,10 @@ export function ReservationScheduleForm({
     [...new Set(initialConfig.blockedDates)].sort()
   );
   const [pendingBlockedDate, setPendingBlockedDate] = useState("");
+  const [monthCursor, setMonthCursor] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -61,6 +65,44 @@ export function ReservationScheduleForm({
     if (!year || !month || !day) return date;
     return `${day}/${month}/${year}`;
   }
+
+  function toIsoDate(year: number, monthIndex: number, day: number): string {
+    return `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  }
+
+  function buildMonthCells(baseDate: Date): Array<{ iso: string | null; day: number | null }> {
+    const year = baseDate.getFullYear();
+    const monthIndex = baseDate.getMonth();
+    const firstWeekday = new Date(year, monthIndex, 1).getDay();
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const cells: Array<{ iso: string | null; day: number | null }> = [];
+
+    for (let i = 0; i < firstWeekday; i++) {
+      cells.push({ iso: null, day: null });
+    }
+    for (let day = 1; day <= daysInMonth; day++) {
+      cells.push({ iso: toIsoDate(year, monthIndex, day), day });
+    }
+    while (cells.length % 7 !== 0) {
+      cells.push({ iso: null, day: null });
+    }
+    return cells;
+  }
+
+  function toggleBlockedDate(date: string) {
+    setBlockedDates((prev) =>
+      prev.includes(date)
+        ? prev.filter((d) => d !== date)
+        : [...new Set([...prev, date])].sort()
+    );
+  }
+
+  const blockedDateSet = new Set(blockedDates);
+  const monthCells = buildMonthCells(monthCursor);
+  const monthTitle = monthCursor.toLocaleDateString("pt-BR", {
+    month: "long",
+    year: "numeric",
+  });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -208,6 +250,76 @@ export function ReservationScheduleForm({
               Limpar todas
             </button>
           )}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() =>
+                setMonthCursor(
+                  (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+                )
+              }
+              className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              {"<"}
+            </button>
+            <p className="text-sm font-semibold capitalize text-slate-800">
+              {monthTitle}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                setMonthCursor(
+                  (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+                )
+              }
+              className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              {">"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-500">
+            {WEEKDAYS.map((weekday) => (
+              <div key={`weekday-${weekday.value}`} className="py-1">
+                {weekday.label}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-1 grid grid-cols-7 gap-1">
+            {monthCells.map((cell, idx) => {
+              if (!cell.iso || !cell.day) {
+                return (
+                  <div
+                    key={`empty-${idx}`}
+                    className="h-9 rounded-md bg-slate-50"
+                  />
+                );
+              }
+              const isBlocked = blockedDateSet.has(cell.iso);
+              return (
+                <button
+                  key={cell.iso}
+                  type="button"
+                  onClick={() => toggleBlockedDate(cell.iso!)}
+                  className={`h-9 rounded-md border text-sm transition ${
+                    isBlocked
+                      ? "border-red-300 bg-red-100 font-semibold text-red-700 hover:bg-red-200"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                  title={isBlocked ? "Clique para desbloquear" : "Clique para bloquear"}
+                >
+                  {cell.day}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Clique no dia para bloquear ou desbloquear rapidamente.
+          </p>
         </div>
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
