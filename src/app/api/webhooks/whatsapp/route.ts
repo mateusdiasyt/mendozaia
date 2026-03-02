@@ -469,25 +469,22 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-        const [lastOutbound] = await db
+        const [lastMessage] = await db
           .select({
+            direction: messages.direction,
             content: messages.content,
             createdAt: messages.createdAt,
           })
           .from(messages)
-          .where(
-            and(
-              eq(messages.conversationId, convId),
-              eq(messages.direction, "outbound")
-            )
-          )
+          .where(eq(messages.conversationId, convId))
           .orderBy(desc(messages.createdAt))
           .limit(1);
 
         const isDuplicateReply =
-          !!lastOutbound?.content &&
-          lastOutbound.content === message &&
-          Date.now() - lastOutbound.createdAt.getTime() <= DUPLICATE_REPLY_WINDOW_MS;
+          lastMessage?.direction === "outbound" &&
+          !!lastMessage?.content &&
+          lastMessage.content === message &&
+          Date.now() - lastMessage.createdAt.getTime() <= DUPLICATE_REPLY_WINDOW_MS;
         if (isDuplicateReply) {
           return;
         }
