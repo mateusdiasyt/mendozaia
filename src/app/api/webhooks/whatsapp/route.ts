@@ -13,7 +13,7 @@ import {
   contactTags,
   organizations,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { processInboundMessage } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
@@ -63,6 +63,8 @@ interface WebhookPayload {
     instance?: { state?: string };
   };
 }
+
+const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
 
 function parsePresenceUpdate(body: WebhookPayload): {
   sessionId: string;
@@ -464,6 +466,29 @@ export async function POST(request: NextRequest) {
         const apiKey = process.env.EVOLUTION_API_KEY;
         if (!apiUrl) {
           console.error("[webhook] WHATSAPP_API_URL não configurada");
+          return;
+        }
+
+        const [lastOutbound] = await db
+          .select({
+            content: messages.content,
+            createdAt: messages.createdAt,
+          })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.conversationId, convId),
+              eq(messages.direction, "outbound")
+            )
+          )
+          .orderBy(desc(messages.createdAt))
+          .limit(1);
+
+        const isDuplicateReply =
+          !!lastOutbound?.content &&
+          lastOutbound.content === message &&
+          Date.now() - lastOutbound.createdAt.getTime() <= DUPLICATE_REPLY_WINDOW_MS;
+        if (isDuplicateReply) {
           return;
         }
 
