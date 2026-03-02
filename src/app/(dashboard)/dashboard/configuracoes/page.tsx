@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { AiAgentForm } from "./ai-agent-form";
 import { ReservationsToggle } from "@/components/configuracoes/reservations-toggle";
+import { ReservationScheduleForm } from "@/components/configuracoes/reservation-schedule-form";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -11,6 +12,28 @@ export default async function ConfiguracoesPage() {
   const settings = (org.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
+  const reservationSchedule =
+    (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
+  const businessHours =
+    (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+  const scheduleStart =
+    (reservationSchedule.start as string | undefined) ||
+    (businessHours.start as string | undefined) ||
+    "09:00";
+  const scheduleEnd =
+    (reservationSchedule.end as string | undefined) ||
+    (businessHours.end as string | undefined) ||
+    "17:00";
+  const scheduleTimezone =
+    (reservationSchedule.timezone as string | undefined) ||
+    (businessHours.timezone as string | undefined) ||
+    "America/Sao_Paulo";
+  const scheduleWorkingDays = Array.isArray(reservationSchedule.workingDays)
+    ? (reservationSchedule.workingDays as number[])
+    : [1, 2, 3, 4, 5];
+  const scheduleBlockedDates = Array.isArray(reservationSchedule.blockedDates)
+    ? (reservationSchedule.blockedDates as string[])
+    : [];
 
   return (
     <div className="p-8">
@@ -52,6 +75,18 @@ export default async function ConfiguracoesPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <ReservationsToggle initialEnabled={reservationsEnabled} />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <ReservationScheduleForm
+            initialConfig={{
+              start: scheduleStart,
+              end: scheduleEnd,
+              timezone: scheduleTimezone,
+              workingDays: scheduleWorkingDays,
+              blockedDates: scheduleBlockedDates,
+            }}
+          />
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

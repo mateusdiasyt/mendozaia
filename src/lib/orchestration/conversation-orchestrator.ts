@@ -482,10 +482,27 @@ function detectReservationPeriod(text: string): "morning" | "afternoon" | null {
   return null;
 }
 
-function isReservationTimeAllowed(timeStr: string): boolean {
+function timeToMinutes(timeStr: string): number {
+  const [hour, minute] = timeStr.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return -1;
+  return hour * 60 + minute;
+}
+
+function isReservationTimeAllowed(
+  timeStr: string,
+  schedule?: { start: string; end: string }
+): boolean {
   const [hour, minute] = timeStr.split(":").map(Number);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
-  if (hour < 9 || hour > 16) return false;
+  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
+  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
+  if (startMinutes < 0 || endMinutes < 0 || endMinutes <= startMinutes) {
+    return false;
+  }
+  const appointmentStart = hour * 60 + minute;
+  const appointmentEnd = appointmentStart + 60;
+  if (appointmentStart < startMinutes) return false;
+  if (appointmentEnd > endMinutes) return false;
   if (minute < 0 || minute > 59) return false;
   return true;
 }
@@ -538,9 +555,20 @@ async function findAvailableSlotsForPeriod(
   organizationId: string,
   dateStr: string,
   period: "morning" | "afternoon",
-  now: Date
+  now: Date,
+  schedule?: { start: string; end: string }
 ): Promise<string[]> {
-  const candidateHours = period === "morning" ? [9, 10, 11, 12] : [13, 14, 15, 16];
+  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
+  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
+  if (startMinutes < 0 || endMinutes <= startMinutes) return [];
+
+  const candidateMinutes: number[] = [];
+  for (let mins = startMinutes; mins + 60 <= endMinutes; mins += 60) {
+    const hour = Math.floor(mins / 60);
+    if (period === "morning" && hour > 12) continue;
+    if (period === "afternoon" && hour < 13) continue;
+    candidateMinutes.push(mins);
+  }
   const [year, month, day] = dateStr.split("-").map(Number);
   const sameDay =
     now.getFullYear() === year &&
@@ -548,9 +576,14 @@ async function findAvailableSlotsForPeriod(
     now.getDate() === day;
 
   const available: string[] = [];
-  for (const hour of candidateHours) {
-    if (sameDay && hour <= now.getHours()) continue;
-    const timeStr = toTimeStr(hour, 0);
+  for (const mins of candidateMinutes) {
+    const hour = Math.floor(mins / 60);
+    const minute = mins % 60;
+    if (sameDay) {
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      if (mins <= currentMinutes) continue;
+    }
+    const timeStr = toTimeStr(hour, minute);
     const availability = await checkAvailabilityForOrg(
       organizationId,
       dateStr,
@@ -562,6 +595,19 @@ async function findAvailableSlotsForPeriod(
     }
   }
   return available;
+}
+
+function isDateAllowedForReservation(
+  dateStr: string,
+  schedule?: { workingDays?: number[]; blockedDates?: string[] }
+): boolean {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const dt = new Date(year, month - 1, day, 0, 0, 0);
+  if (Number.isNaN(dt.getTime())) return false;
+  const blocked = new Set((schedule?.blockedDates ?? []).map((d) => d.trim()));
+  if (blocked.has(dateStr)) return false;
+  const workingDays = schedule?.workingDays ?? [1, 2, 3, 4, 5];
+  return workingDays.includes(dt.getDay());
 }
 
 function looksLikeVehicleInfoMessage(text: string): boolean {
@@ -1468,6 +1514,30 @@ export async function loadConversationContext(
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
   const systemPrompt = (aiAgent.systemPrompt as string) ?? "";
   const reservationsEnabled = !!(settings.reservationsEnabled as boolean);
+  const reservationScheduleSettings =
+    (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
+  const businessHoursSettings =
+    (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+  const reservationSchedule = {
+    start:
+      (reservationScheduleSettings.start as string | undefined) ||
+      (businessHoursSettings.start as string | undefined) ||
+      "09:00",
+    end:
+      (reservationScheduleSettings.end as string | undefined) ||
+      (businessHoursSettings.end as string | undefined) ||
+      "17:00",
+    timezone:
+      (reservationScheduleSettings.timezone as string | undefined) ||
+      (businessHoursSettings.timezone as string | undefined) ||
+      "America/Sao_Paulo",
+    workingDays: Array.isArray(reservationScheduleSettings.workingDays)
+      ? (reservationScheduleSettings.workingDays as number[])
+      : [1, 2, 3, 4, 5],
+    blockedDates: Array.isArray(reservationScheduleSettings.blockedDates)
+      ? (reservationScheduleSettings.blockedDates as string[])
+      : [],
+  };
   const usesVehicleSlots =
     /modelo|ano|quilometragem|veículo/i.test(systemPrompt) &&
     /agendamento|agendar|mecânica/i.test(systemPrompt);
@@ -1553,6 +1623,7 @@ export async function loadConversationContext(
             durationMinutes: pendingReservation.durationMinutes ?? 60,
           }
         : undefined,
+    reservationSchedule,
   };
 }
 
@@ -3113,6 +3184,11 @@ export async function processInboundMessage(
 
   if (ctx.reservationsEnabled && ctx.usesVehicleSlots && !ctx.pendingReservation) {
     const nowRef = new Date();
+    const reservationWindow = {
+      start: ctx.reservationSchedule?.start ?? "09:00",
+      end: ctx.reservationSchedule?.end ?? "17:00",
+    };
+    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
     const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
     const missingName = !contactName;
     const periodSelection = getReservationPeriodSelection(conversationMetadata);
@@ -3126,6 +3202,18 @@ export async function processInboundMessage(
       !missingName &&
       missingVehicle.length === 0
     ) {
+      if (!isDateAllowedForReservation(parsedDateOnly.dateStr, ctx.reservationSchedule)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data informada fora dos dias disponíveis",
+          silence: false,
+        };
+      }
       await persistReservationPeriodSelection(
         ctx.conversationId,
         conversationMetadata,
@@ -3134,7 +3222,7 @@ export async function processInboundMessage(
       const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
       await options.sendMessage(
         ctx.conversationId,
-        `Perfeito, para *${friendlyDate}*. Você prefere *manhã* ou *tarde*? Atendemos das *09:00 às 17:00*.`
+        `Perfeito, para *${friendlyDate}*. Você prefere *manhã* ou *tarde*? Atendemos das *${reservationWindowLabel}*.`
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_datetime",
@@ -3173,13 +3261,14 @@ export async function processInboundMessage(
         ctx.organizationId,
         periodSelection.dateStr,
         informedPeriod,
-        nowRef
+        nowRef,
+        reservationWindow
       );
       const friendlyDate = formatDateForPtBr(periodSelection.dateStr);
       if (slots.length === 0) {
         await options.sendMessage(
           ctx.conversationId,
-          `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não encontrei horários livres entre 09:00 e 17:00. Quer tentar o outro período?`
+          `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não encontrei horários livres dentro da nossa agenda (${reservationWindowLabel}). Quer tentar o outro período?`
         );
       } else {
         await options.sendMessage(
@@ -3224,10 +3313,10 @@ export async function processInboundMessage(
       missingVehicle.length === 0
     ) {
       const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
-      if (!isReservationTimeAllowed(timeStr)) {
+      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
         await options.sendMessage(
           ctx.conversationId,
-          "Consigo reservar apenas entre *09:00 e 17:00*. Me diga um horário dentro desse intervalo, por favor."
+          `Consigo reservar apenas entre *${reservationWindowLabel}*. Me diga um horário dentro desse intervalo, por favor.`
         );
         return {
           didReply: true,

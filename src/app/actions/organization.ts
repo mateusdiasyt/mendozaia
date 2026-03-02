@@ -14,6 +14,14 @@ export interface AiAgentConfig {
   apiKey?: string;
 }
 
+export interface ReservationScheduleConfig {
+  start: string;
+  end: string;
+  timezone?: string;
+  workingDays?: number[];
+  blockedDates?: string[];
+}
+
 export async function updateAiAgentConfig(config: AiAgentConfig) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
@@ -63,6 +71,62 @@ export async function updateReservationsEnabled(enabled: boolean) {
     .update(organizations)
     .set({
       settings: { ...settings, reservationsEnabled: enabled },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  return { success: true };
+}
+
+export async function updateReservationScheduleConfig(
+  config: ReservationScheduleConfig
+) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const safeWorkingDays = Array.isArray(config.workingDays)
+    ? config.workingDays.filter(
+        (d): d is number =>
+          typeof d === "number" &&
+          Number.isInteger(d) &&
+          d >= 0 &&
+          d <= 6
+      )
+    : [1, 2, 3, 4, 5];
+  const safeBlockedDates = Array.isArray(config.blockedDates)
+    ? config.blockedDates
+        .filter((d): d is string => typeof d === "string")
+        .map((d) => d.trim())
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    : [];
+
+  const reservationSchedule: ReservationScheduleConfig = {
+    start: config.start,
+    end: config.end,
+    timezone: config.timezone || "America/Sao_Paulo",
+    workingDays: safeWorkingDays,
+    blockedDates: safeBlockedDates,
+  };
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        reservationSchedule,
+        businessHours: {
+          start: reservationSchedule.start,
+          end: reservationSchedule.end,
+          timezone: reservationSchedule.timezone,
+        },
+      },
       updatedAt: new Date(),
     })
     .where(eq(organizations.id, org.id));

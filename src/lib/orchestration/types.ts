@@ -52,6 +52,13 @@ export interface OrchestrationContext {
     timeStr: string;
     durationMinutes: number;
   };
+  reservationSchedule?: {
+    start: string;
+    end: string;
+    timezone?: string;
+    workingDays?: number[];
+    blockedDates?: string[];
+  };
 }
 
 export interface OrchestratorResult {

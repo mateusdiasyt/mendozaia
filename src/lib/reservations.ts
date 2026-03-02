@@ -10,6 +10,24 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, gte, lt, or } from "drizzle-orm";
 
+function toMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return -1;
+  return h * 60 + m;
+}
+
+function isValidDateForSchedule(
+  dateStr: string,
+  workingDays: number[],
+  blockedDates: string[]
+): boolean {
+  if (blockedDates.includes(dateStr)) return false;
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const dt = new Date(year, month - 1, day, 0, 0, 0);
+  if (Number.isNaN(dt.getTime())) return false;
+  return workingDays.includes(dt.getDay());
+}
+
 export async function checkAvailabilityForOrg(
   organizationId: string,
   dateStr: string,
@@ -22,9 +40,26 @@ export async function checkAvailabilityForOrg(
     .where(eq(organizations.id, organizationId))
     .limit(1);
 
-  const settings = (org?.settings as { reservationsEnabled?: boolean }) ?? {};
-  if (!settings.reservationsEnabled) {
+  const settings = (org?.settings as Record<string, unknown>) ?? {};
+  const schedule =
+    (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
+  const businessHours =
+    (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+  if (!(settings.reservationsEnabled as boolean)) {
     return { available: false, message: "Sistema de reservas não está ativado" };
+  }
+
+  const start = (schedule.start as string | undefined) || (businessHours.start as string | undefined) || "09:00";
+  const end = (schedule.end as string | undefined) || (businessHours.end as string | undefined) || "17:00";
+  const workingDays = Array.isArray(schedule.workingDays)
+    ? (schedule.workingDays as number[])
+    : [1, 2, 3, 4, 5];
+  const blockedDates = Array.isArray(schedule.blockedDates)
+    ? (schedule.blockedDates as string[])
+    : [];
+
+  if (!isValidDateForSchedule(dateStr, workingDays, blockedDates)) {
+    return { available: false, message: "Não atendemos nessa data." };
   }
 
   const year = parseInt(dateStr.slice(0, 4), 10);
@@ -34,6 +69,22 @@ export async function checkAvailabilityForOrg(
 
   const startAt = new Date(year, month, day, hour, min ?? 0, 0);
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
+
+  const openMinutes = toMinutes(start);
+  const closeMinutes = toMinutes(end);
+  const startMinutes = hour * 60 + (min ?? 0);
+  if (
+    openMinutes < 0 ||
+    closeMinutes < 0 ||
+    closeMinutes <= openMinutes ||
+    startMinutes < openMinutes ||
+    startMinutes + durationMinutes > closeMinutes
+  ) {
+    return {
+      available: false,
+      message: `Atendimento disponível apenas entre ${start} e ${end}.`,
+    };
+  }
 
   const dayStart = new Date(year, month, day, 0, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
