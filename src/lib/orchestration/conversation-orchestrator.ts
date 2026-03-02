@@ -136,6 +136,9 @@ function buildVehicleSignature(slots: VehicleSlots | undefined): string {
 }
 
 const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
+const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
+const INTENT_STITCH_MAX_MESSAGES = 3;
+const INTENT_STITCH_MAX_CHARS = 280;
 
 function isSimpleAffirmative(text: string): boolean {
   const t = text
@@ -155,6 +158,48 @@ function isSimpleNegative(text: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   return /\b(nao|negativo|errado|nao sei)\b/.test(t);
+}
+
+async function buildIntentProbeText(
+  conversationId: string,
+  currentMessage: string
+): Promise<string> {
+  const fallback = currentMessage.trim();
+  if (!fallback) return currentMessage;
+
+  const recent = await db
+    .select({
+      direction: messages.direction,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(8);
+
+  const inbound = recent.filter(
+    (m): m is { direction: string; content: string; createdAt: Date } =>
+      m.direction === "inbound" && !!m.content?.trim() && !!m.createdAt
+  );
+  if (inbound.length <= 1) return fallback;
+
+  const newestTs = inbound[0].createdAt.getTime();
+  const stitched = inbound
+    .filter((m, idx) => {
+      if (idx >= INTENT_STITCH_MAX_MESSAGES) return false;
+      return newestTs - m.createdAt.getTime() <= INTENT_STITCH_WINDOW_MS;
+    })
+    .reverse()
+    .map((m) => m.content.trim())
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!stitched) return fallback;
+  return stitched.length > INTENT_STITCH_MAX_CHARS
+    ? stitched.slice(-INTENT_STITCH_MAX_CHARS)
+    : stitched;
 }
 
 function looksLikeVehicleCorrectionDuringOilFlow(
@@ -1512,6 +1557,10 @@ export async function processInboundMessage(
     .limit(1);
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
+  const intentProbeText = await buildIntentProbeText(
+    ctx.conversationId,
+    ctx.messageContent
+  );
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
   const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
@@ -1526,14 +1575,14 @@ export async function processInboundMessage(
   const isAwaitingNameStage = intakeStage === "awaiting_name";
   const allowSingleWordName =
     isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
-  const explicitNameIntro = hasExplicitNameIntro(ctx.messageContent);
+  const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
   const wantsNameUpdate = !!contactName && explicitNameIntro;
   const canCaptureNameNow =
     (!contactName && (explicitNameIntro || isCollectProfileStage || isAwaitingNameStage)) ||
     wantsNameUpdate;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
-    inferredName = extractCustomerName(ctx.messageContent, {
+    inferredName = extractCustomerName(intentProbeText, {
       allowSingleWord: allowSingleWordName,
       blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
     });
@@ -1541,12 +1590,12 @@ export async function processInboundMessage(
   // Fallback: se houver conflito com modelo extraído, tenta novamente sem bloqueio.
   // Isso evita loop em casos como "Mateus" ser confundido com modelo.
   if (!inferredName && !contactName && canCaptureNameNow) {
-    inferredName = extractCustomerName(ctx.messageContent, {
+    inferredName = extractCustomerName(intentProbeText, {
       allowSingleWord: allowSingleWordName,
     });
   }
   const justCapturedName = !contactName && !!inferredName;
-  const detectedOilSpec = extractOilSpec(ctx.messageContent);
+  const detectedOilSpec = extractOilSpec(intentProbeText);
   if (detectedOilSpec) {
     await saveContactMemory(ctx.contactId, "vehicle_oil_spec", detectedOilSpec);
   }
@@ -1575,7 +1624,7 @@ export async function processInboundMessage(
   }
   const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
   const missingNameProfile = !contactName;
-  const likelySingleWordName = isLikelySingleWordHumanName(ctx.messageContent);
+  const likelySingleWordName = isLikelySingleWordHumanName(intentProbeText);
   const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
   const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
   const currentVehicleSignature = buildVehicleSignature(ctx.vehicleSlots ?? {});
@@ -1583,7 +1632,7 @@ export async function processInboundMessage(
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
     .filter(Boolean)
     .join(" ");
-  const vehicleSlotsFromCurrentMessage = extractVehicleSlotsFromText(ctx.messageContent);
+  const vehicleSlotsFromCurrentMessage = extractVehicleSlotsFromText(intentProbeText);
   const hasVehicleInfoInCurrentMessage = Boolean(
     vehicleSlotsFromCurrentMessage.modelo ||
       vehicleSlotsFromCurrentMessage.ano ||
@@ -2110,12 +2159,12 @@ export async function processInboundMessage(
     !ctx.pendingReservation &&
     !hasVehicleInfoInCurrentMessage &&
     !hasRecentVehicleUpdate &&
-    !containsDateOrTimeHint(ctx.messageContent) &&
-    !looksLikeAskKnownName(ctx.messageContent) &&
-    !looksLikeAskKnownVehicle(ctx.messageContent) &&
-    (looksLikeGreeting(ctx.messageContent) ||
-      looksLikeCatalogIntent(ctx.messageContent) ||
-      looksLikeReservationIntent(ctx.messageContent));
+    !containsDateOrTimeHint(intentProbeText) &&
+    !looksLikeAskKnownName(intentProbeText) &&
+    !looksLikeAskKnownVehicle(intentProbeText) &&
+    (looksLikeGreeting(intentProbeText) ||
+      looksLikeCatalogIntent(intentProbeText) ||
+      looksLikeReservationIntent(intentProbeText));
 
   if (
     shouldAskVehicleConfirmation &&
@@ -2152,9 +2201,9 @@ export async function processInboundMessage(
   if (
     ctx.reservationsEnabled &&
     ctx.usesVehicleSlots &&
-    looksLikeGreeting(ctx.messageContent) &&
+    looksLikeGreeting(intentProbeText) &&
     !ctx.pendingReservation &&
-    !looksLikeReservationIntent(ctx.messageContent)
+    !looksLikeReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
     const hasKnownVehicleForIntake = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
@@ -2198,8 +2247,8 @@ export async function processInboundMessage(
     };
   }
 
-  if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(ctx.messageContent)) {
-    if (isRevisionServiceIntent(ctx.messageContent)) {
+  if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(intentProbeText)) {
+    if (isRevisionServiceIntent(intentProbeText)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
@@ -2250,7 +2299,7 @@ export async function processInboundMessage(
       };
     }
 
-    if (shouldAskOilQualification(ctx.messageContent)) {
+    if (shouldAskOilQualification(intentProbeText)) {
       const oilQualificationReply = hasKnownModelAndYear
         ? knownOilSpec
           ? `Perfeito! Tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
@@ -2292,7 +2341,7 @@ export async function processInboundMessage(
     // Guard-rail: enquanto estiver aguardando a necessidade do cliente, não pode
     // avançar para reserva só porque recebeu dados adicionais do veículo (ex: km).
     // Sem uma intenção concreta, reforça a pergunta de descoberta.
-    if (!looksLikeCatalogIntent(ctx.messageContent)) {
+    if (!looksLikeCatalogIntent(intentProbeText)) {
       const followUpNeed =
         "Perfeito, agora que tenho os dados necessários, qual seria a sua dúvida?";
       await options.sendMessage(ctx.conversationId, followUpNeed);
@@ -2319,7 +2368,7 @@ export async function processInboundMessage(
       };
     }
 
-    if (!isGenericBudgetRequest(ctx.messageContent)) {
+    if (!isGenericBudgetRequest(intentProbeText)) {
       // Cliente já descreveu o problema; deixa a busca do catálogo seguir.
     } else {
     const followUp = "Certo. Qual seria o seu problema?";
@@ -2351,11 +2400,11 @@ export async function processInboundMessage(
   // Consulta determinística de catálogo (produtos/serviços) para perguntas de preço.
   // Só entra quando não há intenção clara de reservar horário.
   if (
-    !looksLikeReservationIntent(ctx.messageContent) &&
-    !containsDateOrTimeHint(ctx.messageContent) &&
+    !looksLikeReservationIntent(intentProbeText) &&
+    !containsDateOrTimeHint(intentProbeText) &&
     !looksLikeReservationConfirmation(ctx.messageContent)
   ) {
-    if (intakeStage === "awaiting_issue" && isRevisionServiceIntent(ctx.messageContent)) {
+    if (intakeStage === "awaiting_issue" && isRevisionServiceIntent(intentProbeText)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
