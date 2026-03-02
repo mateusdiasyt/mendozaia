@@ -143,6 +143,13 @@ export async function processMessageReceivedRules(
   context: AutomationContext,
   executor?: ActionExecutor
 ): Promise<{ didReply: boolean }> {
+  const isAiPaused = !!(
+    context.aiDisabledUntil && context.aiDisabledUntil > new Date()
+  );
+  if (isAiPaused) {
+    return { didReply: false };
+  }
+
   const rules = await db
     .select()
     .from(automationRules)
@@ -214,6 +221,11 @@ export async function processNoReplyTimeoutRules(
       .where(eq(conversations.organizationId, organizationId));
 
     for (const conv of convs) {
+      const isAiPaused = !!(
+        conv.aiDisabledUntil && conv.aiDisabledUntil > new Date()
+      );
+      if (isAiPaused) continue;
+
       const lastMsg = await db
         .select()
         .from(messages)

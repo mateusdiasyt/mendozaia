@@ -520,6 +520,36 @@ export async function POST(request: NextRequest) {
       aiDisabledUntil: conversation.aiDisabledUntil ?? null,
     };
 
+    const isAiPaused = !!(
+      conversation.aiDisabledUntil && conversation.aiDisabledUntil > new Date()
+    );
+    const isHumanOnlyState =
+      conversation.conversationState === "waiting_human" ||
+      conversation.conversationState === "human_active";
+
+    if (isAiPaused || isHumanOnlyState) {
+      await logOrchestration({
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        event: "webhook_automation_skipped",
+        decision: "human_only",
+        reason: isAiPaused
+          ? "IA pausada no contato; webhook não executa automação/orquestrador"
+          : "Conversa em estado humano; webhook não executa automação/orquestrador",
+        traceId,
+        stage: "webhook.guard",
+        decisionCode: "WEBHOOK_SKIP_AUTOMATION_ORCHESTRATOR",
+        metadata: {
+          aiDisabledUntil: conversation.aiDisabledUntil
+            ? conversation.aiDisabledUntil.toISOString()
+            : null,
+          conversationState: conversation.conversationState ?? null,
+        },
+      });
+
+      return NextResponse.json({ ok: true });
+    }
+
     const automationStartedAt = Date.now();
     const { didReply } = await processMessageReceivedRules(context, executor);
     await logOrchestration({
