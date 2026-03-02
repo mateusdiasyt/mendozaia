@@ -22,6 +22,8 @@ export default async function ConversasLayout({
       lastMessageAt: conversations.lastMessageAt,
       lastMessagePreview: conversations.lastMessagePreview,
       unreadCount: conversations.unreadCount,
+      conversationState: conversations.conversationState,
+      isPriority: conversations.isPriority,
       contactName: contacts.name,
       contactPhone: contacts.phone,
       sessionName: whatsappSessions.name,
@@ -38,9 +40,17 @@ export default async function ConversasLayout({
     )
     .orderBy(desc(conversations.lastMessageAt));
 
+  const listWithStatus = list.map((item) => ({
+    ...item,
+    isWaitingHuman:
+      item.conversationState === "waiting_human" ||
+      item.conversationState === "human_active" ||
+      item.isPriority === true,
+  }));
+
   return (
     <div className="flex min-h-0 w-full flex-1 shrink-0">
-      <ConversationList list={list} />
+      <ConversationList list={listWithStatus} />
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-[#efeae2]">
         {children}
       </div>

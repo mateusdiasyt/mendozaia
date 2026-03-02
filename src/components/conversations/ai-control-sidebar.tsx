@@ -13,6 +13,7 @@ import {
   setConversationAIDisabled,
   setConversationAIEnabled,
   setConversationCarInShop,
+  setConversationHumanWaiting,
   setConversationVehicleOil,
   resetConversationForTesting,
 } from "@/app/actions/messages";
@@ -28,6 +29,7 @@ interface AIControlSidebarProps {
   vehicleOilSpec?: string | null;
   oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
+  waitingHuman?: boolean;
 }
 
 export function AIControlSidebar({
@@ -39,14 +41,17 @@ export function AIControlSidebar({
   vehicleOilSpec,
   oilProducts = [],
   carInShop = false,
+  waitingHuman = false,
 }: AIControlSidebarProps) {
   const router = useRouter();
   const [until, setUntil] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [updatingWorkshop, setUpdatingWorkshop] = useState(false);
+  const [updatingHumanWaiting, setUpdatingHumanWaiting] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [carInWorkshop, setCarInWorkshop] = useState(carInShop);
+  const [isWaitingHuman, setIsWaitingHuman] = useState(waitingHuman);
   const [oilSpec, setOilSpec] = useState(vehicleOilSpec ?? "");
   const [updatingOil, setUpdatingOil] = useState(false);
 
@@ -61,6 +66,10 @@ export function AIControlSidebar({
   useEffect(() => {
     setCarInWorkshop(carInShop);
   }, [carInShop]);
+
+  useEffect(() => {
+    setIsWaitingHuman(waitingHuman);
+  }, [waitingHuman]);
 
   useEffect(() => {
     setOilSpec(vehicleOilSpec ?? "");
@@ -135,10 +144,29 @@ export function AIControlSidebar({
       } else {
         setUntil(null);
       }
+      router.refresh();
     } catch {
       //
     } finally {
       setUpdatingWorkshop(false);
+    }
+  }
+
+  async function handleSetWaitingHuman(nextValue: boolean) {
+    setUpdatingHumanWaiting(true);
+    try {
+      await setConversationHumanWaiting(conversationId, nextValue);
+      setIsWaitingHuman(nextValue);
+      if (nextValue) {
+        setUntil(new Date(Date.now() + 87600 * 60 * 60 * 1000));
+      } else if (!carInWorkshop) {
+        setUntil(null);
+      }
+      router.refresh();
+    } catch {
+      //
+    } finally {
+      setUpdatingHumanWaiting(false);
     }
   }
 
@@ -200,6 +228,30 @@ export function AIControlSidebar({
                   </option>
                 );
               })}
+            </select>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[#e9edef] bg-white p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
+            Atendimento humano
+          </p>
+          <p className="mt-1 text-xs text-[#667781]">
+            Marque quando a conversa estiver aguardando atendimento da equipe.
+          </p>
+          <div className="mt-3">
+            <label htmlFor="waiting-human" className="mb-1 block text-xs text-[#667781]">
+              Status
+            </label>
+            <select
+              id="waiting-human"
+              disabled={updatingHumanWaiting}
+              value={isWaitingHuman ? "yes" : "no"}
+              onChange={(event) => handleSetWaitingHuman(event.target.value === "yes")}
+              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+            >
+              <option value="yes">Aguardando atendimento</option>
+              <option value="no">Ativo</option>
             </select>
           </div>
         </div>

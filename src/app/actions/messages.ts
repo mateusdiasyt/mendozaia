@@ -81,7 +81,48 @@ export async function setConversationAIEnabled(conversationId: string) {
     .where(eq(conversations.id, conversationId));
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
+  revalidatePath("/dashboard/conversas");
   return { success: true };
+}
+
+export async function setConversationHumanWaiting(
+  conversationId: string,
+  waitingHuman: boolean
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  await db
+    .update(conversations)
+    .set({
+      conversationState: waitingHuman ? "waiting_human" : "init",
+      handoffReason: waitingHuman ? "Encaminhado manualmente para atendimento humano" : null,
+      handoffAt: waitingHuman ? new Date() : null,
+      isPriority: waitingHuman,
+      aiDisabledUntil: waitingHuman ? new Date(Date.now() + 87600 * 60 * 60 * 1000) : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  revalidatePath("/dashboard/conversas");
+  return { success: true, waitingHuman };
 }
 
 export async function setConversationCarInShop(

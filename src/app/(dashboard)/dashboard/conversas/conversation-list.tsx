@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageSquare, Search } from "lucide-react";
@@ -14,10 +15,15 @@ interface Conv {
   contactPhone: string;
   sessionName: string | null;
   sessionId: string;
+  isWaitingHuman: boolean;
 }
 
 export function ConversationList({ list }: { list: Conv[] }) {
   const pathname = usePathname();
+  const [tab, setTab] = useState<"active" | "waiting">("active");
+  const waitingList = useMemo(() => list.filter((c) => c.isWaitingHuman), [list]);
+  const activeList = useMemo(() => list.filter((c) => !c.isWaitingHuman), [list]);
+  const currentList = tab === "waiting" ? waitingList : activeList;
 
   return (
     <div className="flex w-[400px] shrink-0 flex-col border-r border-[#e9edef] bg-white">
@@ -39,23 +45,52 @@ export function ConversationList({ list }: { list: Conv[] }) {
         </button>
       </div>
 
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-[#e9edef] bg-white px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setTab("active")}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            tab === "active"
+              ? "bg-[#d9fdd3] text-[#02543f]"
+              : "bg-[#f0f2f5] text-[#54656f] hover:bg-[#e9edef]"
+          }`}
+        >
+          Ativas ({activeList.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("waiting")}
+          className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            tab === "waiting"
+              ? "bg-amber-100 text-amber-900"
+              : "bg-[#f0f2f5] text-[#54656f] hover:bg-[#e9edef]"
+          }`}
+        >
+          Aguardando atendimento ({waitingList.length})
+        </button>
+      </div>
+
       {/* List */}
       <div className="flex-1 overflow-y-auto">
-        {list.length === 0 ? (
+        {currentList.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-4 px-6 py-16">
             <div className="rounded-full bg-[#f0f2f5] p-4">
               <MessageSquare className="h-10 w-10 text-[#667781]" />
             </div>
             <p className="text-center font-medium text-[#111b21]">
-              Nenhuma conversa ainda
+              {tab === "waiting"
+                ? "Nenhuma conversa aguardando atendimento"
+                : "Nenhuma conversa ativa"}
             </p>
             <p className="max-w-xs text-center text-sm text-[#667781]">
-              As conversas aparecerão aqui quando você receber mensagens no
-              WhatsApp conectado.
+              {tab === "waiting"
+                ? "Quando a IA encaminhar para atendimento humano, as conversas aparecerão aqui."
+                : "As conversas aparecerão aqui quando você receber mensagens no WhatsApp conectado."}
             </p>
           </div>
         ) : (
-          list.map((conv) => {
+          currentList.map((conv) => {
             const isActive = pathname === `/dashboard/conversas/${conv.id}`;
             const displayName = conv.contactName || conv.contactPhone;
 
@@ -89,6 +124,11 @@ export function ConversationList({ list }: { list: Conv[] }) {
                   <p className="mt-0.5 truncate text-sm text-[#667781]">
                     {conv.lastMessagePreview || "Sem mensagens"}
                   </p>
+                  {conv.isWaitingHuman && (
+                    <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-900">
+                      Aguardando humano
+                    </p>
+                  )}
                 </div>
               </Link>
             );

@@ -34,6 +34,8 @@ export default async function ConversaPage({
       sessionName: whatsappSessions.name,
       sessionId: whatsappSessions.sessionId,
       aiDisabledUntil: conversations.aiDisabledUntil,
+      conversationState: conversations.conversationState,
+      isPriority: conversations.isPriority,
       conversationStateMetadata: conversations.conversationStateMetadata,
     })
     .from(conversations)
@@ -90,6 +92,10 @@ export default async function ConversaPage({
       | Record<string, unknown>
       | undefined;
   const carInShop = workshopFlow?.carInShop === true;
+  const waitingHuman =
+    conv.conversationState === "waiting_human" ||
+    conv.conversationState === "human_active" ||
+    conv.isPriority === true;
 
   await db
     .update(conversations)
@@ -176,6 +182,7 @@ export default async function ConversaPage({
           vehicleOilSpec={vehicleOilSpec}
           oilProducts={oilProducts}
           carInShop={carInShop}
+          waitingHuman={waitingHuman}
         />
       </div>
     </>
