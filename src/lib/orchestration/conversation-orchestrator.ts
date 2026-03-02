@@ -94,6 +94,44 @@ function looksLikeGreeting(text: string): boolean {
   );
 }
 
+function detectGreetingFromText(text: string): "bom_dia" | "boa_tarde" | "boa_noite" | "oi" | null {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.includes("bom dia")) return "bom_dia";
+  if (t.includes("boa tarde")) return "boa_tarde";
+  if (t.includes("boa noite")) return "boa_noite";
+  if (t.startsWith("oi") || t.startsWith("ola") || t.startsWith("opa") || t.startsWith("e ai")) {
+    return "oi";
+  }
+  return null;
+}
+
+function getCurrentGreeting(now: Date): "bom_dia" | "boa_tarde" | "boa_noite" {
+  const hour = now.getHours();
+  if (hour < 12) return "bom_dia";
+  if (hour < 18) return "boa_tarde";
+  return "boa_noite";
+}
+
+function buildAdaptiveGreeting(text: string, now: Date): string {
+  const requested = detectGreetingFromText(text);
+  const current = getCurrentGreeting(now);
+  const active = requested && requested !== "oi" ? requested : current;
+  const greetingKey = active === current ? active : current;
+  const variants: Record<"bom_dia" | "boa_tarde" | "boa_noite", string[]> = {
+    bom_dia: ["Bom dia!", "Olá, bom dia!", "Bom dia, tudo bem?"],
+    boa_tarde: ["Boa tarde!", "Olá, boa tarde!", "Boa tarde, tudo bem?"],
+    boa_noite: ["Boa noite!", "Olá, boa noite!", "Boa noite, tudo bem?"],
+  };
+  const selected = variants[greetingKey][now.getMinutes() % variants[greetingKey].length];
+  return selected;
+}
+
 function looksLikeAskKnownName(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -2759,9 +2797,10 @@ export async function processInboundMessage(
     !looksLikeReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
+    const greetingPrefix = buildAdaptiveGreeting(intentProbeText, new Date());
     const triageReply = !hasKnownName
-      ? "Olá, tudo bem? Qual é o seu nome?"
-      : `Olá, *${contactName!.trim()}*! Tudo bem? Qual sua dúvida?`;
+      ? `${greetingPrefix} Qual é o seu nome?`
+      : `${greetingPrefix} *${contactName!.trim()}*, qual sua dúvida?`;
     await options.sendMessage(ctx.conversationId, triageReply);
     await persistIntakeStage(
       ctx.conversationId,
