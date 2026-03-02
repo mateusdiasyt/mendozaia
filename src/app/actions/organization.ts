@@ -22,6 +22,12 @@ export interface ReservationScheduleConfig {
   blockedDates?: string[];
 }
 
+export interface BusinessProfileConfig {
+  instagram?: string;
+  address?: string;
+  mapsLink?: string;
+}
+
 export async function updateAiAgentConfig(config: AiAgentConfig) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
@@ -126,6 +132,37 @@ export async function updateReservationScheduleConfig(
           end: reservationSchedule.end,
           timezone: reservationSchedule.timezone,
         },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  return { success: true };
+}
+
+export async function updateBusinessProfileConfig(config: BusinessProfileConfig) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const businessProfile = {
+    instagram: (config.instagram ?? "").trim() || null,
+    address: (config.address ?? "").trim() || null,
+    mapsLink: (config.mapsLink ?? "").trim() || null,
+  };
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        businessProfile,
       },
       updatedAt: new Date(),
     })

@@ -3,6 +3,7 @@ import { getCurrentOrganization } from "@/lib/auth-utils";
 import { AiAgentForm } from "./ai-agent-form";
 import { ReservationsToggle } from "@/components/configuracoes/reservations-toggle";
 import { ReservationScheduleForm } from "@/components/configuracoes/reservation-schedule-form";
+import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -11,6 +12,8 @@ export default async function ConfiguracoesPage() {
 
   const settings = (org.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
+  const businessProfile =
+    (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
   const reservationSchedule =
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
@@ -75,6 +78,16 @@ export default async function ConfiguracoesPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <ReservationsToggle initialEnabled={reservationsEnabled} />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <BusinessProfileForm
+            initialConfig={{
+              instagram: (businessProfile.instagram as string | undefined) ?? "",
+              address: (businessProfile.address as string | undefined) ?? "",
+              mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
+            }}
+          />
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

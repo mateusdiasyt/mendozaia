@@ -59,6 +59,11 @@ export interface OrchestrationContext {
     workingDays?: number[];
     blockedDates?: string[];
   };
+  businessProfile?: {
+    instagram?: string | null;
+    address?: string | null;
+    mapsLink?: string | null;
+  };
 }
 
 export interface OrchestratorResult {

@@ -110,6 +110,22 @@ function looksLikeAskKnownVehicle(text: string): boolean {
   return /\b(sabe|lembra|entendeu|tem)\b.*\b(carro|veiculo|modelo)\b/.test(t);
 }
 
+function looksLikeAskInstagram(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(insta|instagram|rede social)\b/.test(t);
+}
+
+function looksLikeAskAddress(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(endereco|localizacao|localizacao|onde fica|mapa|google maps)\b/.test(t);
+}
+
 function looksLikeVehicleStatusInquiry(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -951,6 +967,20 @@ function buildMissingVehicleInfoReply(missing: ("modelo" | "ano" | "km")[]): str
   return "Para eu consultar a disponibilidade e já te ajudar com a reserva, me informe *modelo, ano e quilometragem* do veículo.";
 }
 
+function buildMissingVehicleRequiredReply(missing: ("modelo" | "ano" | "km")[]): string {
+  const requiredMissing = missing.filter((m) => m !== "km");
+  if (requiredMissing.length === 0) {
+    return "Perfeito. Se souber, me passe também a *quilometragem (km)* para deixar o orçamento mais preciso.";
+  }
+  if (requiredMissing.length === 2) {
+    return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
+  }
+  if (requiredMissing[0] === "modelo") {
+    return "Perfeito, já anotei o ano. Agora me informe o *modelo* do veículo. Se souber, pode me passar o *km* também.";
+  }
+  return "Perfeito, já anotei o modelo. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também.";
+}
+
 function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, available: boolean): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
   return available
@@ -1518,6 +1548,8 @@ export async function loadConversationContext(
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
   const businessHoursSettings =
     (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+  const businessProfileSettings =
+    (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const reservationSchedule = {
     start:
       (reservationScheduleSettings.start as string | undefined) ||
@@ -1624,6 +1656,12 @@ export async function loadConversationContext(
           }
         : undefined,
     reservationSchedule,
+    businessProfile: {
+      instagram:
+        (businessProfileSettings.instagram as string | undefined) ?? null,
+      address: (businessProfileSettings.address as string | undefined) ?? null,
+      mapsLink: (businessProfileSettings.mapsLink as string | undefined) ?? null,
+    },
   };
 }
 
@@ -2140,14 +2178,32 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
-      ctx.conversationId,
-      "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso."
+    const missingRequiredVehicle = getMissingSlots(ctx.vehicleSlots ?? {}).filter(
+      (slot) => slot !== "km"
     );
+    const capturedModelNow = !!vehicleSlotsFromCurrentMessage.modelo;
+    const capturedYearNow = !!vehicleSlotsFromCurrentMessage.ano;
+    if (capturedModelNow && missingRequiredVehicle.includes("ano")) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito, já anotei o *modelo*. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também."
+      );
+    } else if (capturedYearNow && missingRequiredVehicle.includes("modelo")) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito, já anotei o *ano*. Agora me informe o *modelo* do veículo. Se souber, pode me passar o *km* também."
+      );
+    } else {
+      await options.sendMessage(
+        ctx.conversationId,
+        buildMissingVehicleRequiredReply(getMissingSlots(ctx.vehicleSlots ?? {}))
+      );
+    }
+
     return {
       didReply: true,
       decision: "tool_then_ai",
-      reason: "Aguardando dados mínimos do veículo (modelo e ano)",
+      reason: "Aguardando complemento de dados do veículo",
       silence: false,
     };
   }
@@ -2483,6 +2539,60 @@ export async function processInboundMessage(
       didReply: true,
       decision: "tool_then_ai",
       reason: "Retorno de dados salvos para cliente",
+      silence: false,
+    };
+  }
+
+  const asksInstagram = looksLikeAskInstagram(ctx.messageContent);
+  const asksAddress = looksLikeAskAddress(ctx.messageContent);
+  if (asksInstagram || asksAddress) {
+    const instagram = ctx.businessProfile?.instagram?.trim() || "";
+    const address = ctx.businessProfile?.address?.trim() || "";
+    const mapsLink = ctx.businessProfile?.mapsLink?.trim() || "";
+    const chunks: string[] = [];
+
+    if (asksInstagram) {
+      if (instagram) {
+        chunks.push(`Nosso Instagram: *${instagram}*`);
+      } else {
+        chunks.push("No momento ainda não temos Instagram cadastrado.");
+      }
+    }
+
+    if (asksAddress) {
+      if (address) {
+        chunks.push(`Nosso endereço: *${address}*`);
+      } else {
+        chunks.push("No momento ainda não temos endereço cadastrado.");
+      }
+      if (mapsLink) {
+        chunks.push(`Localização no Google Maps: ${mapsLink}`);
+      }
+    }
+
+    await options.sendMessage(ctx.conversationId, chunks.join("\n"));
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "business_profile_reply",
+      decision: "tool_then_ai",
+      reason: "Cliente solicitou dados da empresa",
+      traceId: params.traceId,
+      stage: "orchestrator.profile",
+      decisionCode: "BUSINESS_PROFILE_REPLY",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        asksInstagram,
+        asksAddress,
+        hasInstagram: !!instagram,
+        hasAddress: !!address,
+        hasMapsLink: !!mapsLink,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Dados da empresa retornados ao cliente",
       silence: false,
     };
   }
