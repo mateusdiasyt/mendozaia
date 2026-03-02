@@ -14,11 +14,8 @@ import {
   organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { processMessageReceivedRules } from "@/lib/automation/engine";
-import { processInboundMessage } from "@/lib/orchestration";
+import { runConversationEngine } from "@/lib/conversation-engine";
 import { logOrchestration } from "@/lib/orchestration/logger";
-import { handleIncomingMessage } from "@/lib/intelligent-attendant";
-import type { ConversationState } from "@/lib/intelligent-attendant";
 
 // Formato esperado da Evolution API (texto e mídia)
 interface MessageContent {
@@ -67,11 +64,6 @@ interface WebhookPayload {
 }
 
 const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
-const INBOUND_DEBOUNCE_MS = 1500;
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function parsePresenceUpdate(body: WebhookPayload): {
   sessionId: string;
@@ -535,210 +527,25 @@ export async function POST(request: NextRequest) {
       },
     };
 
-    const context = {
+    const engineResult = await runConversationEngine({
       organizationId: session.organizationId,
       conversationId: conversation.id,
       contactId: contact.id,
       contactPhone: phone,
-      messageContent: messageText || undefined,
-      messageDirection: "inbound" as const,
-      lastMessageAt: new Date(),
+      messageContent: messageText || "",
+      messageContentType: contentType,
+      conversationState: conversation.conversationState,
+      aiDisabledUntil: conversation.aiDisabledUntil ?? null,
       assignedToId: conversation.assignedToId,
       contactTagIds: contactTagRows.map((r) => r.tagId),
       businessHours: settings?.businessHours,
-      aiDisabledUntil: conversation.aiDisabledUntil ?? null,
-    };
-
-    const isAiPaused = !!(
-      conversation.aiDisabledUntil && conversation.aiDisabledUntil > new Date()
-    );
-    const isHumanOnlyState =
-      conversation.conversationState === "waiting_human" ||
-      conversation.conversationState === "human_active";
-
-    if (isAiPaused || isHumanOnlyState) {
-      await logOrchestration({
-        conversationId: conversation.id,
-        organizationId: session.organizationId,
-        event: "webhook_automation_skipped",
-        decision: "human_only",
-        reason: isAiPaused
-          ? "IA pausada no contato; webhook não executa automação/orquestrador"
-          : "Conversa em estado humano; webhook não executa automação/orquestrador",
-        traceId,
-        stage: "webhook.guard",
-        decisionCode: "WEBHOOK_SKIP_AUTOMATION_ORCHESTRATOR",
-        metadata: {
-          aiDisabledUntil: conversation.aiDisabledUntil
-            ? conversation.aiDisabledUntil.toISOString()
-            : null,
-          conversationState: conversation.conversationState ?? null,
-        },
-      });
-
-      return NextResponse.json({ ok: true });
-    }
-
-    const useIntelligentAttendant =
-      process.env.USE_INTELLIGENT_ATTENDANT !== "false";
-    if (
-      useIntelligentAttendant &&
-      contentType === "text" &&
-      !!messageText?.trim()
-    ) {
-      await sleep(INBOUND_DEBOUNCE_MS);
-      const [latestInbound] = await db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(
-          and(
-            eq(messages.conversationId, conversation.id),
-            eq(messages.direction, "inbound")
-          )
-        )
-        .orderBy(desc(messages.createdAt))
-        .limit(1);
-
-      if (latestInbound?.id && inboundMessage?.id && latestInbound.id !== inboundMessage.id) {
-        await logOrchestration({
-          conversationId: conversation.id,
-          organizationId: session.organizationId,
-          event: "intelligent_attendant_debounced",
-          decision: "tool_then_ai",
-          reason: "Mensagem inbound mais nova detectada; aguardando composição",
-          traceId,
-          stage: "webhook.intelligent_attendant",
-          decisionCode: "INTELLIGENT_ATTENDANT_DEBOUNCED",
-        });
-        return NextResponse.json({ ok: true, mode: "debounced" });
-      }
-
-      const store = {
-        getByPhone: async (_phone: string): Promise<ConversationState | null> => {
-          const [row] = await db
-            .select({
-              conversationStateMetadata: conversations.conversationStateMetadata,
-            })
-            .from(conversations)
-            .where(eq(conversations.id, conversation.id))
-            .limit(1);
-          const metadata =
-            (row?.conversationStateMetadata as Record<string, unknown> | undefined) ??
-            {};
-          return (metadata.intelligentAttendantState as ConversationState | undefined) ?? null;
-        },
-        save: async (state: ConversationState): Promise<void> => {
-          const [row] = await db
-            .select({
-              conversationStateMetadata: conversations.conversationStateMetadata,
-            })
-            .from(conversations)
-            .where(eq(conversations.id, conversation.id))
-            .limit(1);
-          const metadata =
-            (row?.conversationStateMetadata as Record<string, unknown> | undefined) ??
-            {};
-          await db
-            .update(conversations)
-            .set({
-              conversationStateMetadata: {
-                ...metadata,
-                intelligentAttendantState: state,
-              },
-              updatedAt: new Date(),
-            })
-            .where(eq(conversations.id, conversation.id));
-        },
-      };
-
-      const intelligentResult = await handleIncomingMessage(
-        phone,
-        messageText,
-        { store }
-      );
-      if (intelligentResult.reply?.trim()) {
-        await executor.sendMessage(conversation.id, intelligentResult.reply);
-      }
-
-      await logOrchestration({
-        conversationId: conversation.id,
-        organizationId: session.organizationId,
-        event: "intelligent_attendant_processed",
-        decision: "tool_then_ai",
-        reason: "Fluxo inteligente processado via feature flag",
-        traceId,
-        stage: "webhook.intelligent_attendant",
-        decisionCode: "INTELLIGENT_ATTENDANT_PROCESSED",
-        metadata: {
-          action: intelligentResult.action,
-          step: intelligentResult.state.etapa,
-          intent: intelligentResult.state.intent,
-        },
-      });
-
-      return NextResponse.json({
-        ok: true,
-        mode: "intelligent_attendant",
-      });
-    }
-
-    const automationStartedAt = Date.now();
-    const { didReply } = await processMessageReceivedRules(context, executor);
-    await logOrchestration({
-      conversationId: conversation.id,
-      organizationId: session.organizationId,
-      event: "automation_processed",
-      decision: didReply ? "automation_only" : "tool_then_ai",
-      reason: didReply
-        ? "Automação respondeu antes do orquestrador"
-        : "Automação não respondeu; segue para orquestrador",
+      inboundMessageId: inboundMessage?.id,
       traceId,
-      stage: "automation.engine",
-      decisionCode: didReply ? "AUTOMATION_REPLIED" : "AUTOMATION_NO_REPLY",
-      durationMs: Date.now() - automationStartedAt,
-      metadata: {
-        didReply,
-      },
     });
 
-    // Orquestrador: IA nunca responde diretamente, passa por esta camada
-    const orchestratorStartedAt = Date.now();
-    const orchestratorResult = await processInboundMessage(
-      {
-        conversationId: conversation.id,
-        organizationId: session.organizationId,
-        contactId: contact.id,
-        contactPhone: phone,
-        messageContent: messageText || "",
-        messageContentType: contentType,
-        traceId,
-      },
-      {
-        automationDidReply: didReply,
-        sendMessage: async (convId, text) => {
-          if (executor.sendMessage) await executor.sendMessage(convId, text);
-        },
-      }
-    );
-    await logOrchestration({
-      conversationId: conversation.id,
-      organizationId: session.organizationId,
-      event: "orchestrator_result",
-      decision: orchestratorResult.decision,
-      reason: orchestratorResult.reason,
-      traceId,
-      stage: "orchestrator.exit",
-      decisionCode: orchestratorResult.didReply
-        ? "ORCHESTRATOR_REPLIED"
-        : orchestratorResult.silence
-          ? "ORCHESTRATOR_SILENCE"
-          : "ORCHESTRATOR_NO_REPLY",
-      durationMs: Date.now() - orchestratorStartedAt,
-      metadata: {
-        didReply: orchestratorResult.didReply,
-        silence: orchestratorResult.silence,
-      },
-    });
+    for (const reply of engineResult.replies) {
+      await executor.sendMessage(conversation.id, reply);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

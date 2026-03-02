@@ -161,6 +161,30 @@ function isSimpleNegative(text: string): boolean {
   return /\b(nao|negativo|errado|nao sei)\b/.test(t);
 }
 
+function looksLikeGenericFlowMessage(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s?]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /^(ok|entendi|blz|beleza|sim|isso|certo|show|perfeito|pode ser)$/.test(t) ||
+    /^quais?\s+dados\??$/.test(t) ||
+    /^que\s+dados\??$/.test(t) ||
+    /^como\s+assim\??$/.test(t)
+  );
+}
+
+function hasActiveConversationFlowState(state: string | null | undefined): boolean {
+  return (
+    state === CONVERSATION_STATES.COLLECTING_INFO ||
+    state === CONVERSATION_STATES.AWAITING_SYSTEM ||
+    state === CONVERSATION_STATES.READY_TO_CONFIRM
+  );
+}
+
 async function buildIntentProbeText(
   conversationId: string,
   currentMessage: string
@@ -1589,6 +1613,53 @@ export async function processInboundMessage(
     return { didReply: options.automationDidReply, decision: "silence", reason: "Contexto não encontrado", silence: true };
   }
 
+  const isHumanOnlyState =
+    ctx.conversationState === CONVERSATION_STATES.WAITING_HUMAN ||
+    ctx.conversationState === CONVERSATION_STATES.HUMAN_ACTIVE;
+  const isAiPaused = !!(ctx.aiDisabledUntil && ctx.aiDisabledUntil > new Date());
+  if (isHumanOnlyState || isAiPaused) {
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "decision",
+      stateBefore: ctx.conversationState,
+      decision: "human_only",
+      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      traceId: params.traceId,
+      stage: "orchestrator.decision",
+      decisionCode: "HUMAN_ONLY",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        reservationsEnabled: ctx.reservationsEnabled,
+        usesVehicleSlots: ctx.usesVehicleSlots ?? false,
+        vehicleSlots: ctx.vehicleSlots ?? null,
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: false,
+      decision: "human_only",
+      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      silence: true,
+    };
+  }
+
+  // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
+  if (options.automationDidReply) {
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "orchestrator_skipped",
+      decision: "automation_only",
+      reason: "Automação já respondeu",
+      traceId: params.traceId,
+      stage: "orchestrator.entry",
+      decisionCode: "AUTOMATION_ALREADY_REPLIED",
+      durationMs: Date.now() - startedAt,
+    });
+    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
+  }
+
   const [convMetaRow] = await db
     .select({ conversationStateMetadata: conversations.conversationStateMetadata })
     .from(conversations)
@@ -1596,10 +1667,6 @@ export async function processInboundMessage(
     .limit(1);
   const conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
-  const intentProbeText = await buildIntentProbeText(
-    ctx.conversationId,
-    ctx.messageContent
-  );
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
   const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
@@ -1608,6 +1675,86 @@ export async function processInboundMessage(
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   let contactName = ctx.contactName ?? null;
+  const missingVehicleProfileAtEntry = getMissingSlots(ctx.vehicleSlots ?? {});
+  const missingNameProfileAtEntry = !contactName;
+  const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+  const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
+    .filter(Boolean)
+    .join(" ");
+  const hasActiveFlow =
+    hasActiveConversationFlowState(ctx.conversationState) ||
+    !!intakeStage ||
+    !!ctx.pendingReservation ||
+    vehicleConfirmation.pending ||
+    oilFlowState.awaitingUnknownOilConfirmation ||
+    workshopState.awaitingVehicleDetails ||
+    reservationFlow.collectionStage === "collect_profile" ||
+    reservationFlow.collectionStage === "collect_datetime" ||
+    reservationFlow.collectionStage === "confirm_reservation";
+
+  if (hasActiveFlow && looksLikeGenericFlowMessage(ctx.messageContent)) {
+    let continuationReply: string | null = null;
+    if (intakeStage === "awaiting_name") {
+      continuationReply = "Para seguir, me diga seu *nome*, por favor.";
+    } else if (intakeStage === "awaiting_vehicle") {
+      continuationReply =
+        "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
+    } else if (intakeStage === "awaiting_need") {
+      continuationReply =
+        "Perfeito. Agora me diga qual é a sua dúvida principal para eu te orientar do jeito certo.";
+    } else if (intakeStage === "awaiting_issue") {
+      continuationReply =
+        "Me descreva o que está acontecendo com o veículo para eu direcionar o próximo passo.";
+    } else if (
+      intakeStage === "awaiting_reservation_profile" ||
+      reservationFlow.collectionStage === "collect_profile" ||
+      workshopState.awaitingVehicleDetails
+    ) {
+      continuationReply = buildMissingReservationProfileReply(
+        missingNameProfileAtEntry,
+        missingVehicleProfileAtEntry
+      );
+    } else if (oilFlowState.awaitingUnknownOilConfirmation) {
+      continuationReply = "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
+    } else if (vehicleConfirmation.pending && knownVehicleLabel) {
+      continuationReply = `Só confirmando antes de seguir: o veículo é *${knownVehicleLabel}*?`;
+    } else if (ctx.pendingReservation) {
+      continuationReply =
+        "Posso seguir com a reserva. Confirma para mim o *dia* e *horário* desejados?";
+    }
+
+    if (continuationReply) {
+      await options.sendMessage(ctx.conversationId, continuationReply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "active_flow_continuation",
+        decision: "tool_then_ai",
+        reason: "Mensagem genérica recebida durante fluxo ativo; mantendo continuidade",
+        traceId: params.traceId,
+        stage: "orchestrator.active_flow",
+        decisionCode: "ACTIVE_FLOW_CONTINUATION",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          conversationState: ctx.conversationState,
+          intakeStage,
+          reservationCollectionStage: reservationFlow.collectionStage ?? null,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Continuidade de fluxo ativo priorizada",
+        silence: false,
+      };
+    }
+  }
+
+  const intentProbeText = await buildIntentProbeText(
+    ctx.conversationId,
+    ctx.messageContent
+  );
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
@@ -1665,12 +1812,8 @@ export async function processInboundMessage(
   const missingNameProfile = !contactName;
   const likelySingleWordName = isLikelySingleWordHumanName(intentProbeText);
   const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
-  const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
   const currentVehicleSignature = buildVehicleSignature(ctx.vehicleSlots ?? {});
   const hasKnownModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
-  const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
-    .filter(Boolean)
-    .join(" ");
   const vehicleSlotsFromCurrentMessage = extractVehicleSlotsFromText(intentProbeText);
   const hasVehicleInfoInCurrentMessage = Boolean(
     vehicleSlotsFromCurrentMessage.modelo ||
@@ -1717,22 +1860,6 @@ export async function processInboundMessage(
         silence: true,
       };
     }
-  }
-
-  // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
-  if (options.automationDidReply) {
-    await logOrchestration({
-      conversationId: ctx.conversationId,
-      organizationId: ctx.organizationId,
-      event: "orchestrator_skipped",
-      decision: "automation_only",
-      reason: "Automação já respondeu",
-      traceId: params.traceId,
-      stage: "orchestrator.entry",
-      decisionCode: "AUTOMATION_ALREADY_REPLIED",
-      durationMs: Date.now() - startedAt,
-    });
-    return { didReply: true, decision: "automation_only", reason: "Automação respondeu", silence: false };
   }
 
   if (isAwaitingNameStage && justCapturedName && contactName) {
@@ -2004,39 +2131,6 @@ export async function processInboundMessage(
       decision: "tool_then_ai",
       reason: "Confirmação de nome e coleta de dados faltantes",
       silence: false,
-    };
-  }
-
-  // Respeita pausa manual da IA/handoff humano antes de qualquer fluxo determinístico.
-  // Sem isso, o orquestrador poderia responder mesmo com IA desativada no contato.
-  const isHumanOnlyState =
-    ctx.conversationState === CONVERSATION_STATES.WAITING_HUMAN ||
-    ctx.conversationState === CONVERSATION_STATES.HUMAN_ACTIVE;
-  const isAiPaused = !!(ctx.aiDisabledUntil && ctx.aiDisabledUntil > new Date());
-  if (isHumanOnlyState || isAiPaused) {
-    await logOrchestration({
-      conversationId: ctx.conversationId,
-      organizationId: ctx.organizationId,
-      event: "decision",
-      stateBefore: ctx.conversationState,
-      decision: "human_only",
-      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
-      traceId: params.traceId,
-      stage: "orchestrator.decision",
-      decisionCode: "HUMAN_ONLY",
-      durationMs: Date.now() - startedAt,
-      metadata: {
-        reservationsEnabled: ctx.reservationsEnabled,
-        usesVehicleSlots: ctx.usesVehicleSlots ?? false,
-        vehicleSlots: ctx.vehicleSlots ?? null,
-        messageContent: ctx.messageContent,
-      },
-    });
-    return {
-      didReply: false,
-      decision: "human_only",
-      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
-      silence: true,
     };
   }
 
