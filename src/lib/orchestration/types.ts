@@ -65,6 +65,11 @@ export interface OrchestrationContext {
     address?: string | null;
     mapsLink?: string | null;
   };
+  botConfig?: {
+    segment?: "mecanica" | "restaurante" | "geral";
+    tone?: "formal" | "neutro" | "casual";
+    language?: string;
+  };
 }
 
 export interface OrchestratorResult {

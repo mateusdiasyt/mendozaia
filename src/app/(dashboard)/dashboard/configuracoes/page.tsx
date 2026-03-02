@@ -4,6 +4,7 @@ import { AiAgentForm } from "./ai-agent-form";
 import { ReservationsToggle } from "@/components/configuracoes/reservations-toggle";
 import { ReservationScheduleForm } from "@/components/configuracoes/reservation-schedule-form";
 import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
+import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -14,6 +15,7 @@ export default async function ConfiguracoesPage() {
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
   const businessProfile =
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
   const reservationSchedule =
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
@@ -78,6 +80,21 @@ export default async function ConfiguracoesPage() {
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <ReservationsToggle initialEnabled={reservationsEnabled} />
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <BotPersonalizationForm
+            initialConfig={{
+              segment:
+                (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
+                "mecanica",
+              tone:
+                (botConfig.tone as "formal" | "neutro" | "casual" | undefined) ??
+                "neutro",
+              language: (botConfig.language as string | undefined) ?? "pt-BR",
+              useAIFallback: aiAgent.useAsFallback !== false,
+            }}
+          />
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

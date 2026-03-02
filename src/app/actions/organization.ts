@@ -29,6 +29,13 @@ export interface BusinessProfileConfig {
   mapsLink?: string;
 }
 
+export interface BotPersonalizationConfig {
+  segment: "mecanica" | "restaurante" | "geral";
+  tone: "formal" | "neutro" | "casual";
+  language?: string;
+  useAIFallback?: boolean;
+}
+
 export async function updateAiAgentConfig(config: AiAgentConfig) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
@@ -165,6 +172,46 @@ export async function updateBusinessProfileConfig(config: BusinessProfileConfig)
       settings: {
         ...settings,
         businessProfile,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  return { success: true };
+}
+
+export async function updateBotPersonalizationConfig(
+  config: BotPersonalizationConfig
+) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
+  const botConfig = {
+    segment: config.segment,
+    tone: config.tone,
+    language: (config.language ?? "pt-BR").trim() || "pt-BR",
+  };
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        botConfig,
+        aiAgent: {
+          ...aiAgent,
+          ...(typeof config.useAIFallback === "boolean"
+            ? { useAsFallback: config.useAIFallback }
+            : {}),
+        },
       },
       updatedAt: new Date(),
     })

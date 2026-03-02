@@ -151,6 +151,23 @@ function buildAdaptiveGreeting(text: string, now: Date, timezone?: string): stri
   return selected;
 }
 
+function applyToneToText(
+  text: string,
+  tone?: "formal" | "neutro" | "casual"
+): string {
+  if (tone === "formal") {
+    return text
+      .replace(/\bPrazer\b/g, "Prazer em atendê-lo")
+      .replace(/\bqual sua dúvida\?/gi, "como posso ajudar?");
+  }
+  if (tone === "casual") {
+    return text
+      .replace(/\bQual é o seu nome\?/g, "Como você se chama?")
+      .replace(/\bAgora me diga: qual é a sua dúvida\?/g, "Me conta rapidinho qual é sua dúvida?");
+  }
+  return text;
+}
+
 function looksLikeAskKnownName(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1675,6 +1692,13 @@ export async function loadConversationContext(
     (settings.businessHours as Record<string, unknown> | undefined) ?? {};
   const businessProfileSettings =
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
+  const botConfigSettings =
+    (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const configuredSegment =
+    (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
+    undefined;
+  const isMecanicaSegment = configuredSegment === "mecanica";
+  const isRestauranteSegment = configuredSegment === "restaurante";
   const reservationSchedule = {
     start:
       (reservationScheduleSettings.start as string | undefined) ||
@@ -1696,8 +1720,10 @@ export async function loadConversationContext(
       : [],
   };
   const usesVehicleSlots =
-    /modelo|ano|quilometragem|veículo/i.test(systemPrompt) &&
-    /agendamento|agendar|mecânica/i.test(systemPrompt);
+    configuredSegment
+      ? isMecanicaSegment
+      : /modelo|ano|quilometragem|veículo/i.test(systemPrompt) &&
+        /agendamento|agendar|mecânica/i.test(systemPrompt);
   const shouldExtractVehicleSlots = usesVehicleSlots || reservationsEnabled;
 
   const metadata = (conv.conversationStateMetadata as Record<string, unknown>) ?? {};
@@ -1787,6 +1813,13 @@ export async function loadConversationContext(
         (businessProfileSettings.instagram as string | undefined) ?? null,
       address: (businessProfileSettings.address as string | undefined) ?? null,
       mapsLink: (businessProfileSettings.mapsLink as string | undefined) ?? null,
+    },
+    botConfig: {
+      segment: configuredSegment ?? (isRestauranteSegment ? "restaurante" : "mecanica"),
+      tone:
+        (botConfigSettings.tone as "formal" | "neutro" | "casual" | undefined) ??
+        "neutro",
+      language: (botConfigSettings.language as string | undefined) ?? "pt-BR",
     },
   };
 }
@@ -2985,7 +3018,10 @@ export async function processInboundMessage(
     const triageReply = !hasKnownName
       ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
       : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
-    await options.sendMessage(ctx.conversationId, triageReply);
+    await options.sendMessage(
+      ctx.conversationId,
+      applyToneToText(triageReply, ctx.botConfig?.tone)
+    );
     await persistIntakeStage(
       ctx.conversationId,
       conversationMetadata,
