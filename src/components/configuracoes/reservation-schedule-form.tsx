@@ -30,9 +30,10 @@ export function ReservationScheduleForm({
   const [end, setEnd] = useState(initialConfig.end);
   const [timezone, setTimezone] = useState(initialConfig.timezone);
   const [workingDays, setWorkingDays] = useState<number[]>(initialConfig.workingDays);
-  const [blockedDatesText, setBlockedDatesText] = useState(
-    initialConfig.blockedDates.join("\n")
+  const [blockedDates, setBlockedDates] = useState<string[]>(
+    [...new Set(initialConfig.blockedDates)].sort()
   );
+  const [pendingBlockedDate, setPendingBlockedDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -43,6 +44,22 @@ export function ReservationScheduleForm({
     setWorkingDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
     );
+  }
+
+  function addBlockedDate() {
+    if (!pendingBlockedDate) return;
+    setBlockedDates((prev) => [...new Set([...prev, pendingBlockedDate])].sort());
+    setPendingBlockedDate("");
+  }
+
+  function removeBlockedDate(date: string) {
+    setBlockedDates((prev) => prev.filter((d) => d !== date));
+  }
+
+  function formatDateLabel(date: string): string {
+    const [year, month, day] = date.split("-");
+    if (!year || !month || !day) return date;
+    return `${day}/${month}/${year}`;
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -58,11 +75,6 @@ export function ReservationScheduleForm({
       });
       return;
     }
-
-    const blockedDates = blockedDatesText
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
 
     const result = await updateReservationScheduleConfig({
       start,
@@ -164,16 +176,63 @@ export function ReservationScheduleForm({
         </div>
       </div>
 
-      <label className="block text-sm font-medium text-slate-700">
-        Datas bloqueadas (uma por linha, formato YYYY-MM-DD)
-        <textarea
-          value={blockedDatesText}
-          onChange={(e) => setBlockedDatesText(e.target.value)}
-          rows={4}
-          className={inputClass}
-          placeholder={"2026-12-25\n2026-01-01"}
-        />
-      </label>
+      <div>
+        <p className="text-sm font-medium text-slate-700">Datas bloqueadas</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Selecione no calendario e clique em adicionar para bloquear.
+        </p>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="text-sm font-medium text-slate-700">
+            Selecionar data
+            <input
+              type="date"
+              value={pendingBlockedDate}
+              onChange={(e) => setPendingBlockedDate(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={addBlockedDate}
+            disabled={!pendingBlockedDate}
+            className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+          >
+            Adicionar data
+          </button>
+          {blockedDates.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setBlockedDates([])}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              Limpar todas
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Resumo das datas bloqueadas ({blockedDates.length})
+          </p>
+          {blockedDates.length === 0 ? (
+            <p className="mt-2 text-sm text-slate-500">Nenhuma data bloqueada.</p>
+          ) : (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {blockedDates.map((date) => (
+                <button
+                  key={date}
+                  type="button"
+                  onClick={() => removeBlockedDate(date)}
+                  className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100"
+                  title="Remover bloqueio"
+                >
+                  {formatDateLabel(date)} x
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       <button
         type="submit"
