@@ -1415,6 +1415,10 @@ type WorkshopState = {
   awaitingVehicleDetails: boolean;
 };
 
+type ProfileUpdateFlowState = {
+  awaitingConfirmation: boolean;
+};
+
 function getVehicleConfirmationState(
   metadata: Record<string, unknown>
 ): VehicleConfirmationState {
@@ -1510,6 +1514,46 @@ async function persistWorkshopState(
     };
   } else {
     delete nextMetadata.workshopFlow;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getProfileUpdateFlowState(
+  metadata: Record<string, unknown>
+): ProfileUpdateFlowState {
+  const flow = (metadata.profileUpdateFlow as Record<string, unknown> | undefined) ?? {};
+  return {
+    awaitingConfirmation: flow.awaitingConfirmation === true,
+  };
+}
+
+async function persistProfileUpdateFlowState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  nextState: ProfileUpdateFlowState | null
+): Promise<void> {
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
+  if (nextState) {
+    nextMetadata.profileUpdateFlow = {
+      ...nextState,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.profileUpdateFlow;
   }
   await db
     .update(conversations)
@@ -1981,6 +2025,7 @@ export async function processInboundMessage(
   const vehicleConfirmation = getVehicleConfirmationState(conversationMetadata);
   const oilFlowState = getOilFlowState(conversationMetadata);
   const workshopState = getWorkshopState(conversationMetadata);
+  const profileUpdateFlow = getProfileUpdateFlowState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   const isImplicitAwaitingName =
@@ -2005,6 +2050,63 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_profile" ||
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation";
+
+  if (profileUpdateFlow.awaitingConfirmation) {
+    if (isSimpleAffirmative(ctx.messageContent)) {
+      await persistProfileUpdateFlowState(
+        ctx.conversationId,
+        conversationMetadata,
+        null
+      );
+      await persistIntakeStage(
+        ctx.conversationId,
+        conversationMetadata,
+        "awaiting_vehicle"
+      );
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito! Me passe os dados atualizados do veículo: *modelo, ano e km*."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente confirmou atualização de dados do veículo",
+        silence: false,
+      };
+    }
+
+    if (isSimpleNegative(ctx.messageContent)) {
+      await persistProfileUpdateFlowState(
+        ctx.conversationId,
+        conversationMetadata,
+        null
+      );
+      let continuationPrompt = "Perfeito, seguimos com os dados atuais. Como posso te ajudar agora?";
+      if (intakeStage === "awaiting_need") {
+        continuationPrompt = "Perfeito, seguimos com os dados atuais. Agora me diga: qual é a sua dúvida?";
+      } else if (intakeStage === "awaiting_issue") {
+        continuationPrompt = "Perfeito, seguimos com os dados atuais. Pode me explicar qual é a sua dúvida/situação do veículo?";
+      }
+      await options.sendMessage(ctx.conversationId, continuationPrompt);
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente optou por não alterar dados cadastrados",
+        silence: false,
+      };
+    }
+
+    await options.sendMessage(
+      ctx.conversationId,
+      "Para eu seguir certinho, me confirme: deseja alterar os dados cadastrados do veículo? Responda *sim* ou *não*."
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Aguardando confirmação para atualização de dados",
+      silence: false,
+    };
+  }
 
   if (hasActiveFlow && looksLikeGenericFlowMessage(ctx.messageContent)) {
     let continuationReply: string | null = null;
@@ -2625,16 +2727,27 @@ export async function processInboundMessage(
     } else if (asksKnownVehicle && hasKnownVehicle && wantsVehicleUpdate) {
       reply = `Tenho seu veículo cadastrado como *${vehicleLabel}*. Perfeito, vamos atualizar.\nMe envie, por favor, *modelo, ano e km* do veículo atual.`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     } else if (knownName && hasKnownVehicle) {
-      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*.\nSe quiser alterar os dados do veículo, me envie *modelo, ano e km* que eu atualizo agora.`;
+      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*.\nDeseja alterar os dados do veículo cadastrados? Responda *sim* ou *não*.`;
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingConfirmation: true,
+      });
     } else if (knownName) {
-      reply = `Tenho seu nome salvo como *${knownName}*. Ainda não tenho o veículo completo.\nPode me informar *modelo, ano e km* para eu cadastrar?`;
+      reply = `Tenho seu nome salvo como *${knownName}*, mas ainda não tenho o veículo completo.\nDeseja cadastrar/atualizar agora? Responda *sim* ou *não*.`;
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingConfirmation: true,
+      });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     } else if (hasKnownVehicle) {
-      reply = `Tenho seu veículo salvo como *${vehicleLabel}*.\nSe quiser alterar, me envie *modelo, ano e km*.\nE também me diga seu nome para eu completar seu cadastro.`;
+      reply = `Tenho seu veículo salvo como *${vehicleLabel}*.\nDeseja alterar os dados do veículo cadastrados? Responda *sim* ou *não*.`;
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingConfirmation: true,
+      });
     } else {
       reply = "Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.";
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     }
 
     await options.sendMessage(ctx.conversationId, reply);
