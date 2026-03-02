@@ -111,16 +111,34 @@ function detectGreetingFromText(text: string): "bom_dia" | "boa_tarde" | "boa_no
   return null;
 }
 
-function getCurrentGreeting(now: Date): "bom_dia" | "boa_tarde" | "boa_noite" {
-  const hour = now.getHours();
+function getHourInTimezone(now: Date, timezone?: string): number {
+  if (!timezone) return now.getHours();
+  try {
+    const hourStr = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      hour12: false,
+      timeZone: timezone,
+    }).format(now);
+    const hour = Number(hourStr);
+    return Number.isFinite(hour) ? hour : now.getHours();
+  } catch {
+    return now.getHours();
+  }
+}
+
+function getCurrentGreeting(
+  now: Date,
+  timezone?: string
+): "bom_dia" | "boa_tarde" | "boa_noite" {
+  const hour = getHourInTimezone(now, timezone);
   if (hour < 12) return "bom_dia";
   if (hour < 18) return "boa_tarde";
   return "boa_noite";
 }
 
-function buildAdaptiveGreeting(text: string, now: Date): string {
+function buildAdaptiveGreeting(text: string, now: Date, timezone?: string): string {
   const requested = detectGreetingFromText(text);
-  const current = getCurrentGreeting(now);
+  const current = getCurrentGreeting(now, timezone);
   const active = requested && requested !== "oi" ? requested : current;
   const greetingKey = active === current ? active : current;
   const variants: Record<"bom_dia" | "boa_tarde" | "boa_noite", string[]> = {
@@ -128,7 +146,8 @@ function buildAdaptiveGreeting(text: string, now: Date): string {
     boa_tarde: ["Boa tarde!", "Olá, boa tarde!", "Boa tarde, tudo bem?"],
     boa_noite: ["Boa noite!", "Olá, boa noite!", "Boa noite, tudo bem?"],
   };
-  const selected = variants[greetingKey][now.getMinutes() % variants[greetingKey].length];
+  const minute = getHourInTimezone(now, timezone) * 60 + now.getMinutes();
+  const selected = variants[greetingKey][minute % variants[greetingKey].length];
   return selected;
 }
 
@@ -2797,7 +2816,11 @@ export async function processInboundMessage(
     !looksLikeReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
-    const greetingPrefix = buildAdaptiveGreeting(intentProbeText, new Date());
+    const greetingPrefix = buildAdaptiveGreeting(
+      intentProbeText,
+      new Date(),
+      ctx.reservationSchedule?.timezone
+    );
     const triageReply = !hasKnownName
       ? `${greetingPrefix} Qual é o seu nome?`
       : `${greetingPrefix} *${contactName!.trim()}*, qual sua dúvida?`;
