@@ -2080,7 +2080,9 @@ export async function processInboundMessage(
   const isAwaitingNameStage =
     intakeStage === "awaiting_name" || isImplicitAwaitingName;
   let contactName = ctx.contactName ?? null;
-  const missingVehicleProfileAtEntry = getMissingSlots(ctx.vehicleSlots ?? {});
+  const missingVehicleProfileAtEntry = ctx.usesVehicleSlots
+    ? getMissingSlots(ctx.vehicleSlots ?? {})
+    : [];
   const missingNameProfileAtEntry = !contactName;
   const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
@@ -2281,7 +2283,9 @@ export async function processInboundMessage(
       contactName = inferredName;
     }
   }
-  const missingVehicleProfile = getMissingSlots(ctx.vehicleSlots ?? {});
+  const missingVehicleProfile = ctx.usesVehicleSlots
+    ? getMissingSlots(ctx.vehicleSlots ?? {})
+    : [];
   const missingNameProfile = !contactName;
   const likelySingleWordName = isLikelySingleWordHumanName(intentProbeText);
   const hasFullVehicleProfile = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
@@ -2868,6 +2872,7 @@ export async function processInboundMessage(
     if (intakeStage === "awaiting_name" || (!contactName && !intakeStage)) {
       continuationPrompt = "Para continuarmos, qual é o seu nome?";
     } else if (
+      !!ctx.usesVehicleSlots &&
       !hasModelAndYear &&
       (intakeStage === "awaiting_need" || intakeStage === null)
     ) {
@@ -3822,7 +3827,9 @@ export async function processInboundMessage(
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
-    const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+    const missingVehicle = ctx.usesVehicleSlots
+      ? getMissingSlots(ctx.vehicleSlots ?? {})
+      : [];
     const missingName = !contactName;
 
     if (!looksLikeReservationConfirmation(ctx.messageContent)) {
