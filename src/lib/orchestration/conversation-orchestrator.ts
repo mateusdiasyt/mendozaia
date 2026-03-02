@@ -2455,30 +2455,28 @@ export async function processInboundMessage(
   }
 
   const missingWorkshopVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
-  const missingWorkshopName = !contactName;
+  const missingWorkshopRequiredVehicle = missingWorkshopVehicle.filter(
+    (slot) => slot !== "km"
+  );
   if (
     (looksLikeVehicleStatusInquiry(ctx.messageContent) || workshopState.awaitingVehicleDetails) &&
     !workshopState.carInShop
   ) {
-    if (missingWorkshopName || missingWorkshopVehicle.length > 0) {
+    if (missingWorkshopRequiredVehicle.length > 0) {
       await persistWorkshopState(ctx.conversationId, conversationMetadata, {
         carInShop: false,
         awaitingVehicleDetails: true,
       });
-      if (missingWorkshopName) {
-        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-      }
       await options.sendMessage(
         ctx.conversationId,
-        `Antes de direcionar para o mecânico técnico, preciso registrar alguns dados.\n${buildMissingReservationProfileReply(
-          missingWorkshopName,
+        `Antes de direcionar para o mecânico técnico, preciso registrar os dados do veículo.\n${buildMissingVehicleRequiredReply(
           missingWorkshopVehicle
         )}`
       );
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Solicitação de status com dados do veículo incompletos",
+        reason: "Solicitação de status com dados do veículo não registrados",
         silence: false,
       };
     }
