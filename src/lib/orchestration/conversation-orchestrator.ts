@@ -164,7 +164,19 @@ function looksLikeAskKnownVehicle(text: string): boolean {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  return /\b(sabe|lembra|entendeu|tem)\b.*\b(carro|veiculo|modelo)\b/.test(t);
+  return (
+    /\b(sabe|lembra|entendeu|tem|tenho)\b.*\b(carro|veiculo|modelo)\b/.test(t) ||
+    /\b(qual|que)\b.*\b(carro|veiculo|modelo)\b.*\b(tenho|ta|esta|cadastrado)\b/.test(t) ||
+    /\b(meu carro|meu veiculo|veiculo cadastrado|dados do carro)\b/.test(t)
+  );
+}
+
+function looksLikeVehicleUpdateRequest(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return /\b(alterar|atualizar|trocar|corrigir|mudar)\b.*\b(carro|veiculo|modelo|ano|km)\b/.test(t);
 }
 
 function looksLikeAskInstagram(text: string): boolean {
@@ -2606,17 +2618,23 @@ export async function processInboundMessage(
       .join(" - ");
 
     let reply = "Ainda não tenho tudo salvo aqui.";
+    const wantsVehicleUpdate = looksLikeVehicleUpdateRequest(ctx.messageContent);
     if (asksKnownName && !knownName) {
       reply = "Desculpa, ainda não sei seu nome. Qual seria o seu nome?";
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+    } else if (asksKnownVehicle && hasKnownVehicle && wantsVehicleUpdate) {
+      reply = `Tenho seu veículo cadastrado como *${vehicleLabel}*. Perfeito, vamos atualizar.\nMe envie, por favor, *modelo, ano e km* do veículo atual.`;
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     } else if (knownName && hasKnownVehicle) {
-      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*. Continua com esses dados?`;
+      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*.\nSe quiser alterar os dados do veículo, me envie *modelo, ano e km* que eu atualizo agora.`;
     } else if (knownName) {
-      reply = `Tenho seu nome salvo como *${knownName}*. Pode me confirmar modelo, ano e km do veículo para eu atualizar?`;
+      reply = `Tenho seu nome salvo como *${knownName}*. Ainda não tenho o veículo completo.\nPode me informar *modelo, ano e km* para eu cadastrar?`;
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     } else if (hasKnownVehicle) {
-      reply = `Tenho seu veículo salvo como *${vehicleLabel}*. Pode me confirmar se continua com ele? Se quiser, já me passe seu nome também.`;
+      reply = `Tenho seu veículo salvo como *${vehicleLabel}*.\nSe quiser alterar, me envie *modelo, ano e km*.\nE também me diga seu nome para eu completar seu cadastro.`;
     } else {
       reply = "Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.";
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
     }
 
     await options.sendMessage(ctx.conversationId, reply);
