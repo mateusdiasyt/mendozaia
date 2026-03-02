@@ -1780,6 +1780,18 @@ export async function processInboundMessage(
       allowSingleWord: allowSingleWordName,
     });
   }
+  const latestMessageLooksLikeSingleName = isLikelySingleWordHumanName(
+    ctx.messageContent
+  );
+  if (isAwaitingNameStage && latestMessageLooksLikeSingleName) {
+    const latestMessageName = extractCustomerName(ctx.messageContent, {
+      allowSingleWord: true,
+      blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
+    });
+    if (latestMessageName) {
+      inferredName = latestMessageName;
+    }
+  }
   const justCapturedName = !contactName && !!inferredName;
   const detectedOilSpec = extractOilSpec(intentProbeText);
   if (detectedOilSpec) {
@@ -1838,7 +1850,7 @@ export async function processInboundMessage(
       intentProbeText,
       explicitNameIntro
     );
-    if (suppressRepeatedNamePrompt) {
+    if (suppressRepeatedNamePrompt && !justCapturedName && !latestMessageLooksLikeSingleName) {
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
