@@ -2338,10 +2338,6 @@ export async function processInboundMessage(
         };
       }
 
-      await persistWorkshopState(ctx.conversationId, conversationMetadata, {
-        carInShop: true,
-        awaitingVehicleDetails: false,
-      });
       await options.sendMessage(
         ctx.conversationId,
         "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
@@ -2494,10 +2490,6 @@ export async function processInboundMessage(
         };
       }
 
-      await persistWorkshopState(ctx.conversationId, conversationMetadata, {
-        carInShop: true,
-        awaitingVehicleDetails: false,
-      });
       await options.sendMessage(
         ctx.conversationId,
         "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
