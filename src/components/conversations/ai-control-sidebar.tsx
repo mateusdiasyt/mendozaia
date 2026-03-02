@@ -241,7 +241,7 @@ export function AIControlSidebar({
           </p>
           <div className="mt-3">
             <label htmlFor="waiting-human" className="mb-1 block text-xs text-[#667781]">
-              Status
+              Aguardando atendimento humano
             </label>
             <select
               id="waiting-human"
@@ -250,8 +250,8 @@ export function AIControlSidebar({
               onChange={(event) => handleSetWaitingHuman(event.target.value === "yes")}
               className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
             >
-              <option value="yes">Aguardando atendimento</option>
-              <option value="no">Ativo</option>
+              <option value="yes">Sim</option>
+              <option value="no">Não</option>
             </select>
           </div>
         </div>
