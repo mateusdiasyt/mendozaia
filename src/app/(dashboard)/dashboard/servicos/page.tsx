@@ -1,4 +1,5 @@
 import { createService, listServices, toggleServiceActive } from "@/app/actions/services";
+import { getCurrentOrganization } from "@/lib/auth-utils";
 
 function formatCurrencyFromCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -8,15 +9,26 @@ function formatCurrencyFromCents(cents: number): string {
 }
 
 export default async function ServicosPage() {
+  const org = await getCurrentOrganization();
+  const settings = (org?.settings as Record<string, unknown> | undefined) ?? {};
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const segment =
+    (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ?? "mecanica";
+  const pageTitle = segment === "restaurante" ? "Reservas de mesa" : "Serviços";
+  const pageDescription =
+    segment === "restaurante"
+      ? "Cadastre tipos de reserva/atendimento para orientação automática no WhatsApp."
+      : "Cadastre serviços para orçamento e orientação automática no WhatsApp.";
+  const namePlaceholder =
+    segment === "restaurante" ? "Nome (ex: Reserva jantar)" : "Nome (ex: Troca de óleo)";
+
   const { services } = await listServices();
 
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-slate-900">Serviços</h1>
-        <p className="mt-1 text-slate-500">
-          Cadastre serviços para orçamento e orientação automática no WhatsApp.
-        </p>
+        <h1 className="text-2xl font-semibold text-slate-900">{pageTitle}</h1>
+        <p className="mt-1 text-slate-500">{pageDescription}</p>
       </div>
 
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -31,7 +43,7 @@ export default async function ServicosPage() {
           <input
             name="name"
             required
-            placeholder="Nome (ex: Troca de óleo)"
+            placeholder={namePlaceholder}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
           <input

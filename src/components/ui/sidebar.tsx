@@ -31,10 +31,15 @@ const baseNavItems = [
 export function Sidebar({
   reservationsEnabled = false,
   isAdmin = false,
+  segment = "mecanica",
 }: {
   reservationsEnabled?: boolean;
   isAdmin?: boolean;
+  segment?: "mecanica" | "restaurante" | "geral";
 }) {
+  const servicesLabel =
+    segment === "restaurante" ? "Reservas de mesa" : "Serviços";
+  const productsLabel = segment === "restaurante" ? "Cardápio" : "Produtos";
   const navItems = [
     ...baseNavItems.slice(0, 4),
     ...(reservationsEnabled
@@ -46,12 +51,12 @@ export function Sidebar({
           },
           {
             href: "/dashboard/produtos",
-            label: "Produtos",
+            label: productsLabel,
             icon: Package,
           },
           {
             href: "/dashboard/servicos",
-            label: "Serviços",
+            label: servicesLabel,
             icon: Wrench,
           },
         ]

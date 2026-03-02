@@ -8,6 +8,7 @@ import {
   updateProductCategoryDefinition,
   updateProductStockStatus,
 } from "@/app/actions/products";
+import { getCurrentOrganization } from "@/lib/auth-utils";
 
 function formatCurrencyFromCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -17,16 +18,39 @@ function formatCurrencyFromCents(cents: number): string {
 }
 
 export default async function ProdutosPage() {
+  const org = await getCurrentOrganization();
+  const settings = (org?.settings as Record<string, unknown> | undefined) ?? {};
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const segment =
+    (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ?? "mecanica";
+  const pageTitle = segment === "restaurante" ? "Cardápio" : "Produtos";
+  const pageDescription =
+    segment === "restaurante"
+      ? "Cadastre itens de cardápio para consulta automática de preço e disponibilidade pela IA."
+      : "Cadastre produtos para consulta automática de preço e disponibilidade pela IA.";
+  const categoryPlaceholder =
+    segment === "restaurante"
+      ? "Nome da categoria (ex: Sobremesa)"
+      : "Nome da categoria (ex: Fluido)";
+  const aliasesPlaceholder =
+    segment === "restaurante"
+      ? "Palavras-chave (ex: doce, sobremesa, pudim)"
+      : "Palavras-chave (ex: fluido, aditivo)";
+  const productPlaceholder =
+    segment === "restaurante" ? "Nome (ex: Lasanha da casa)" : "Nome (ex: Óleo 5W30)";
+  const modelPlaceholder =
+    segment === "restaurante"
+      ? "Marca/variação (opcional)"
+      : "Modelo/Marca (opcional)";
+
   const { products } = await listProducts();
   const { categories } = await listProductCategories();
 
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-slate-900">Produtos</h1>
-        <p className="mt-1 text-slate-500">
-          Cadastre produtos para consulta automática de preço e disponibilidade pela IA.
-        </p>
+        <h1 className="text-2xl font-semibold text-slate-900">{pageTitle}</h1>
+        <p className="mt-1 text-slate-500">{pageDescription}</p>
       </div>
 
       <div className="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -44,12 +68,12 @@ export default async function ProdutosPage() {
           <input
             name="name"
             required
-            placeholder="Nome da categoria (ex: Fluido)"
+            placeholder={categoryPlaceholder}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
           <input
             name="aliases"
-            placeholder="Palavras-chave (ex: fluido, aditivo)"
+            placeholder={aliasesPlaceholder}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm md:col-span-2"
           />
           <div className="md:col-span-3">
@@ -117,12 +141,12 @@ export default async function ProdutosPage() {
           <input
             name="name"
             required
-            placeholder="Nome (ex: Óleo 5W30)"
+            placeholder={productPlaceholder}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
           <input
             name="model"
-            placeholder="Modelo/Marca (opcional)"
+            placeholder={modelPlaceholder}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           />
           <select

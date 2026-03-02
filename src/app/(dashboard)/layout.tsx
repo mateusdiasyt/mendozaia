@@ -11,10 +11,18 @@ export default async function DashboardLayout({
   const isAdmin = membership?.role === "admin";
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const segment =
+    (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
+    "mecanica";
 
   return (
     <div className="flex h-screen bg-slate-50">
-      <Sidebar reservationsEnabled={reservationsEnabled} isAdmin={isAdmin} />
+      <Sidebar
+        reservationsEnabled={reservationsEnabled}
+        isAdmin={isAdmin}
+        segment={segment}
+      />
       <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/80">
         {children}
       </main>

@@ -23,6 +23,11 @@ export default async function ConversaPage({
   if (!org) return null;
 
   const { id } = await params;
+  const settings = (org.settings as Record<string, unknown> | undefined) ?? {};
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const segment =
+    (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ?? "mecanica";
+  const usesVehicleSlots = segment === "mecanica";
 
   const [conv] = await db
     .select({
@@ -57,36 +62,40 @@ export default async function ConversaPage({
     .where(eq(messages.conversationId, id))
     .orderBy(asc(messages.createdAt));
 
-  const memories = await db
-    .select({ key: contactMemories.key, value: contactMemories.value })
-    .from(contactMemories)
-    .where(
-      and(
-        eq(contactMemories.contactId, conv.contactId),
-        inArray(contactMemories.key, [
-          "vehicle_model",
-          "vehicle_year",
-          "vehicle_km",
-          "vehicle_oil_spec",
-        ])
-      )
-    );
+  const memories = usesVehicleSlots
+    ? await db
+        .select({ key: contactMemories.key, value: contactMemories.value })
+        .from(contactMemories)
+        .where(
+          and(
+            eq(contactMemories.contactId, conv.contactId),
+            inArray(contactMemories.key, [
+              "vehicle_model",
+              "vehicle_year",
+              "vehicle_km",
+              "vehicle_oil_spec",
+            ])
+          )
+        )
+    : [];
 
   const memoryByKey = Object.fromEntries(memories.map((m) => [m.key, m.value]));
   const vehicleModel = memoryByKey.vehicle_model ?? null;
   const vehicleYear = memoryByKey.vehicle_year ?? null;
   const vehicleKm = memoryByKey.vehicle_km ?? null;
   const vehicleOilSpec = memoryByKey.vehicle_oil_spec ?? null;
-  const oilProducts = await db
-    .select({ id: products.id, name: products.name, model: products.model })
-    .from(products)
-    .where(
-      and(
-        eq(products.organizationId, org.id),
-        eq(products.isActive, true),
-        eq(products.category, "oleo")
-      )
-    );
+  const oilProducts = usesVehicleSlots
+    ? await db
+        .select({ id: products.id, name: products.name, model: products.model })
+        .from(products)
+        .where(
+          and(
+            eq(products.organizationId, org.id),
+            eq(products.isActive, true),
+            eq(products.category, "oleo")
+          )
+        )
+    : [];
   const workshopFlow =
     (conv.conversationStateMetadata as Record<string, unknown> | undefined)?.workshopFlow as
       | Record<string, unknown>
@@ -183,6 +192,7 @@ export default async function ConversaPage({
           oilProducts={oilProducts}
           carInShop={carInShop}
           waitingHuman={waitingHuman}
+          segment={segment}
         />
       </div>
     </>

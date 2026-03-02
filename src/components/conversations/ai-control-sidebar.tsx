@@ -30,6 +30,7 @@ interface AIControlSidebarProps {
   oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
   waitingHuman?: boolean;
+  segment?: "mecanica" | "restaurante" | "geral";
 }
 
 export function AIControlSidebar({
@@ -42,7 +43,9 @@ export function AIControlSidebar({
   oilProducts = [],
   carInShop = false,
   waitingHuman = false,
+  segment = "mecanica",
 }: AIControlSidebarProps) {
+  const showVehicleControls = segment === "mecanica";
   const router = useRouter();
   const [until, setUntil] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
@@ -192,45 +195,47 @@ export function AIControlSidebar({
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
-        <div className="rounded-lg border border-[#e9edef] bg-[#f8f9fa] p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
-            Veículo do contato
-          </p>
-          <div className="mt-2 space-y-1 text-sm text-[#111b21]">
-            <p>
-              Modelo: <span className="font-medium">{vehicleModel || "Não informado"}</span>
+        {showVehicleControls && (
+          <div className="rounded-lg border border-[#e9edef] bg-[#f8f9fa] p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
+              Veículo do contato
             </p>
-            <p>
-              Ano: <span className="font-medium">{vehicleYear || "Não informado"}</span>
-            </p>
-            <p>
-              KM: <span className="font-medium">{vehicleKm || "Não informado"}</span>
-            </p>
+            <div className="mt-2 space-y-1 text-sm text-[#111b21]">
+              <p>
+                Modelo: <span className="font-medium">{vehicleModel || "Não informado"}</span>
+              </p>
+              <p>
+                Ano: <span className="font-medium">{vehicleYear || "Não informado"}</span>
+              </p>
+              <p>
+                KM: <span className="font-medium">{vehicleKm || "Não informado"}</span>
+              </p>
+            </div>
+            <div className="mt-3">
+              <label htmlFor="vehicle-oil-spec" className="mb-1 block text-xs text-[#667781]">
+                Óleo
+              </label>
+              <select
+                id="vehicle-oil-spec"
+                disabled={updatingOil}
+                value={oilSpec}
+                onChange={(event) => handleSetOilSpec(event.target.value)}
+                className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+              >
+                <option value="">Não informado</option>
+                {oilProducts.map((item) => {
+                  const value = item.model?.trim() ? item.model.trim() : item.name.trim();
+                  const label = item.model?.trim() ? `${item.model.trim()} — ${item.name}` : item.name;
+                  return (
+                    <option key={item.id} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
           </div>
-          <div className="mt-3">
-            <label htmlFor="vehicle-oil-spec" className="mb-1 block text-xs text-[#667781]">
-              Óleo
-            </label>
-            <select
-              id="vehicle-oil-spec"
-              disabled={updatingOil}
-              value={oilSpec}
-              onChange={(event) => handleSetOilSpec(event.target.value)}
-              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
-            >
-              <option value="">Não informado</option>
-              {oilProducts.map((item) => {
-                const value = item.model?.trim() ? item.model.trim() : item.name.trim();
-                const label = item.model?.trim() ? `${item.model.trim()} — ${item.name}` : item.name;
-                return (
-                  <option key={item.id} value={value}>
-                    {label}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        </div>
+        )}
 
         <div className="rounded-lg border border-[#e9edef] bg-white p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
@@ -256,29 +261,31 @@ export function AIControlSidebar({
           </div>
         </div>
 
-        <div className="rounded-lg border border-[#e9edef] bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
-            Carro na mecânica
-          </p>
-          <p className="mt-1 text-xs text-[#667781]">
-            Quando marcado como Sim, a IA fica desativada para atendimento humano.
-          </p>
-          <div className="mt-3">
-            <label htmlFor="car-in-shop" className="mb-1 block text-xs text-[#667781]">
-              Status
-            </label>
-            <select
-              id="car-in-shop"
-              disabled={updatingWorkshop}
-              value={carInWorkshop ? "yes" : "no"}
-              onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
-              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
-            >
-              <option value="yes">Sim</option>
-              <option value="no">Não</option>
-            </select>
+        {showVehicleControls && (
+          <div className="rounded-lg border border-[#e9edef] bg-white p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
+              Carro na mecânica
+            </p>
+            <p className="mt-1 text-xs text-[#667781]">
+              Quando marcado como Sim, a IA fica desativada para atendimento humano.
+            </p>
+            <div className="mt-3">
+              <label htmlFor="car-in-shop" className="mb-1 block text-xs text-[#667781]">
+                Status
+              </label>
+              <select
+                id="car-in-shop"
+                disabled={updatingWorkshop}
+                value={carInWorkshop ? "yes" : "no"}
+                onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
+                className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+              >
+                <option value="yes">Sim</option>
+                <option value="no">Não</option>
+              </select>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Status */}
         <div

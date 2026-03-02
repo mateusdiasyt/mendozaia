@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { productCategories, products } from "@/lib/db/schema";
+type Segment = "mecanica" | "restaurante" | "geral";
 
 function parseCurrencyToCents(raw: string): number {
   const normalized = raw.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
@@ -29,7 +30,10 @@ function parseInStock(raw: FormDataEntryValue | null): boolean {
   return String(raw ?? "yes") === "yes";
 }
 
-async function ensureDefaultProductCategories(organizationId: string): Promise<void> {
+async function ensureDefaultProductCategories(
+  organizationId: string,
+  segment: Segment
+): Promise<void> {
   const existing = await db
     .select({ id: productCategories.id })
     .from(productCategories)
@@ -37,19 +41,58 @@ async function ensureDefaultProductCategories(organizationId: string): Promise<v
     .limit(1);
   if (existing.length > 0) return;
 
-  await db.insert(productCategories).values([
+  await db.insert(productCategories).values(defaultCategoryDefinitions(organizationId, segment));
+}
+
+function getOrganizationSegment(settings: unknown): Segment {
+  const botConfig =
+    (settings as Record<string, unknown> | undefined)?.botConfig as
+      | Record<string, unknown>
+      | undefined;
+  const segment = botConfig?.segment;
+  if (segment === "restaurante" || segment === "geral" || segment === "mecanica") {
+    return segment;
+  }
+  return "mecanica";
+}
+
+function defaultCategoryDefinitions(organizationId: string, segment: Segment) {
+  if (segment === "restaurante") {
+    return [
+      { organizationId, key: "entrada", name: "Entrada", aliases: "aperitivo,entrada,petisco" },
+      {
+        organizationId,
+        key: "prato_principal",
+        name: "Prato principal",
+        aliases: "prato principal,almoco,jantar",
+      },
+      { organizationId, key: "bebida", name: "Bebida", aliases: "suco,refrigerante,drink" },
+      { organizationId, key: "sobremesa", name: "Sobremesa", aliases: "doce,sobremesa" },
+      { organizationId, key: "outros", name: "Outros", aliases: "diversos,geral" },
+    ];
+  }
+  if (segment === "geral") {
+    return [
+      { organizationId, key: "principal", name: "Principal", aliases: "principal,produto" },
+      { organizationId, key: "premium", name: "Premium", aliases: "premium,destaque" },
+      { organizationId, key: "promocao", name: "Promoção", aliases: "promocao,oferta" },
+      { organizationId, key: "outros", name: "Outros", aliases: "diversos,geral" },
+    ];
+  }
+  return [
     { organizationId, key: "oleo", name: "Óleo", aliases: "lubrificante,5w30,10w40,0w20" },
     { organizationId, key: "filtro", name: "Filtro", aliases: "filtro de oleo,filtro de ar" },
-    { organizationId, key: "peca", name: "Peça", aliases: "autopeça,reposição" },
-    { organizationId, key: "acessorio", name: "Acessório", aliases: "acessório,extra" },
+    { organizationId, key: "peca", name: "Peça", aliases: "autopeca,reposicao" },
+    { organizationId, key: "acessorio", name: "Acessório", aliases: "acessorio,extra" },
     { organizationId, key: "outros", name: "Outros", aliases: "diversos,geral" },
-  ]);
+  ];
 }
 
 export async function listProducts() {
   const org = await getCurrentOrganization();
   if (!org) return { products: [] as Array<typeof products.$inferSelect> };
-  await ensureDefaultProductCategories(org.id);
+  const segment = getOrganizationSegment(org.settings);
+  await ensureDefaultProductCategories(org.id, segment);
 
   const rows = await db
     .select()
@@ -63,7 +106,8 @@ export async function listProductCategories() {
   if (!org) {
     return { categories: [] as Array<typeof productCategories.$inferSelect> };
   }
-  await ensureDefaultProductCategories(org.id);
+  const segment = getOrganizationSegment(org.settings);
+  await ensureDefaultProductCategories(org.id, segment);
 
   const categories = await db
     .select()
@@ -75,6 +119,8 @@ export async function listProductCategories() {
 export async function createProduct(formData: FormData) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
+  const segment = getOrganizationSegment(org.settings);
+  await ensureDefaultProductCategories(org.id, segment);
 
   const name = (formData.get("name") as string)?.trim();
   const model = ((formData.get("model") as string) || "").trim();
