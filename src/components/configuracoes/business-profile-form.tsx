@@ -5,6 +5,7 @@ import { updateBusinessProfileConfig } from "@/app/actions/organization";
 
 interface BusinessProfileFormProps {
   initialConfig: {
+    botName: string;
     instagram: string;
     address: string;
     mapsLink: string;
@@ -12,6 +13,7 @@ interface BusinessProfileFormProps {
 }
 
 export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps) {
+  const [botName, setBotName] = useState(initialConfig.botName);
   const [instagram, setInstagram] = useState(initialConfig.instagram);
   const [address, setAddress] = useState(initialConfig.address);
   const [mapsLink, setMapsLink] = useState(initialConfig.mapsLink);
@@ -27,6 +29,7 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
     setMessage(null);
 
     const result = await updateBusinessProfileConfig({
+      botName,
       instagram,
       address,
       mapsLink,
@@ -66,6 +69,17 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
           {message.text}
         </div>
       )}
+
+      <label className="block text-sm font-medium text-slate-700">
+        Nome do bot
+        <input
+          type="text"
+          value={botName}
+          onChange={(e) => setBotName(e.target.value)}
+          className={inputClass}
+          placeholder="Alan"
+        />
+      </label>
 
       <label className="block text-sm font-medium text-slate-700">
         Instagram

@@ -60,6 +60,7 @@ export interface OrchestrationContext {
     blockedDates?: string[];
   };
   businessProfile?: {
+    botName?: string | null;
     instagram?: string | null;
     address?: string | null;
     mapsLink?: string | null;

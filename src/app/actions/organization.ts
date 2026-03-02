@@ -23,6 +23,7 @@ export interface ReservationScheduleConfig {
 }
 
 export interface BusinessProfileConfig {
+  botName?: string;
   instagram?: string;
   address?: string;
   mapsLink?: string;
@@ -152,6 +153,7 @@ export async function updateBusinessProfileConfig(config: BusinessProfileConfig)
 
   const settings = (current?.settings as Record<string, unknown>) ?? {};
   const businessProfile = {
+    botName: (config.botName ?? "").trim() || null,
     instagram: (config.instagram ?? "").trim() || null,
     address: (config.address ?? "").trim() || null,
     mapsLink: (config.mapsLink ?? "").trim() || null,

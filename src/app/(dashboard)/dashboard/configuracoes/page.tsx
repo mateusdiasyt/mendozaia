@@ -83,6 +83,7 @@ export default async function ConfiguracoesPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <BusinessProfileForm
             initialConfig={{
+              botName: (businessProfile.botName as string | undefined) ?? "",
               instagram: (businessProfile.instagram as string | undefined) ?? "",
               address: (businessProfile.address as string | undefined) ?? "",
               mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",

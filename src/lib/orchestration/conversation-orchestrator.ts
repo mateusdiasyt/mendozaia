@@ -195,6 +195,18 @@ function looksLikeAskAddress(text: string): boolean {
   return /\b(endereco|localizacao|localizacao|onde fica|mapa|google maps)\b/.test(t);
 }
 
+function looksLikeAskBotName(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(qual|como)\b.*\b(seu nome|nome do bot|nome)\b/.test(t) ||
+    /\bquem (e|é) voce\b/.test(t) ||
+    /\bse chama\b/.test(t)
+  );
+}
+
 function looksLikeVehicleStatusInquiry(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1770,6 +1782,7 @@ export async function loadConversationContext(
         : undefined,
     reservationSchedule,
     businessProfile: {
+      botName: (businessProfileSettings.botName as string | undefined) ?? null,
       instagram:
         (businessProfileSettings.instagram as string | undefined) ?? null,
       address: (businessProfileSettings.address as string | undefined) ?? null,
@@ -2707,6 +2720,21 @@ export async function processInboundMessage(
 
   const asksKnownName = looksLikeAskKnownName(ctx.messageContent);
   const asksKnownVehicle = looksLikeAskKnownVehicle(ctx.messageContent);
+  const asksBotName = looksLikeAskBotName(ctx.messageContent);
+  if (asksBotName) {
+    const botName = ctx.businessProfile?.botName?.trim() || "assistente da oficina";
+    await options.sendMessage(
+      ctx.conversationId,
+      `Prazer! Eu sou *${botName}*. Como posso te ajudar hoje?`
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Cliente perguntou o nome do bot",
+      silence: false,
+    };
+  }
+
   if (asksKnownName || asksKnownVehicle) {
     const knownName = contactName?.trim() || null;
     const knownVehicle = ctx.vehicleSlots ?? {};
@@ -2947,14 +2975,16 @@ export async function processInboundMessage(
     !looksLikeReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
+    const botName = ctx.businessProfile?.botName?.trim() || "";
+    const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
       intentProbeText,
       new Date(),
       ctx.reservationSchedule?.timezone
     );
     const triageReply = !hasKnownName
-      ? `${greetingPrefix} Qual é o seu nome?`
-      : `${greetingPrefix} *${contactName!.trim()}*, qual sua dúvida?`;
+      ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
+      : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
     await options.sendMessage(ctx.conversationId, triageReply);
     await persistIntakeStage(
       ctx.conversationId,
