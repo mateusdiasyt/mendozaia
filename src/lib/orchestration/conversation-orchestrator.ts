@@ -2574,7 +2574,10 @@ export async function processInboundMessage(
     let continuationPrompt: string | null = null;
     if (intakeStage === "awaiting_name" || (!contactName && !intakeStage)) {
       continuationPrompt = "Para continuarmos, qual é o seu nome?";
-    } else if (intakeStage === "awaiting_vehicle" || (!hasModelAndYear && intakeStage === "awaiting_need")) {
+    } else if (
+      !hasModelAndYear &&
+      (intakeStage === "awaiting_need" || intakeStage === null)
+    ) {
       continuationPrompt =
         "Perfeito. Agora me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km*.";
     } else if (intakeStage === "awaiting_need") {
