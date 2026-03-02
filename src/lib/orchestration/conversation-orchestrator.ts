@@ -2263,6 +2263,36 @@ export async function processInboundMessage(
       };
     }
 
+    // Guard-rail: enquanto estiver aguardando a necessidade do cliente, não pode
+    // avançar para reserva só porque recebeu dados adicionais do veículo (ex: km).
+    // Sem uma intenção concreta, reforça a pergunta de descoberta.
+    if (!looksLikeCatalogIntent(ctx.messageContent)) {
+      const followUpNeed =
+        "Perfeito, agora que tenho os dados necessários, qual seria a sua dúvida?";
+      await options.sendMessage(ctx.conversationId, followUpNeed);
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "intake_reask_need",
+        decision: "tool_then_ai",
+        reason: "Mensagem sem intenção concreta durante descoberta da necessidade",
+        traceId: params.traceId,
+        stage: "orchestrator.intake",
+        decisionCode: "INTAKE_REASK_NEED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Reforçando pergunta da dúvida antes de avançar no fluxo",
+        silence: false,
+      };
+    }
+
     if (!isGenericBudgetRequest(ctx.messageContent)) {
       // Cliente já descreveu o problema; deixa a busca do catálogo seguir.
     } else {
