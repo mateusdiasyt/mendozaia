@@ -458,6 +458,112 @@ function extractReservationDateTime(
   };
 }
 
+function extractReservationDateOnly(
+  text: string,
+  now: Date = new Date()
+): { dateStr: string } | null {
+  const date = extractDate(text, now);
+  const time = extractTime(text);
+  if (!date || time) return null;
+  return {
+    dateStr: toDateStr(date.year, date.month, date.day),
+  };
+}
+
+function detectReservationPeriod(text: string): "morning" | "afternoon" | null {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/\b(manha|de manha|pela manha)\b/.test(t)) return "morning";
+  if (/\b(tarde|de tarde|pela tarde)\b/.test(t)) return "afternoon";
+  return null;
+}
+
+function isReservationTimeAllowed(timeStr: string): boolean {
+  const [hour, minute] = timeStr.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
+  if (hour < 9 || hour > 16) return false;
+  if (minute < 0 || minute > 59) return false;
+  return true;
+}
+
+type ReservationPeriodSelection = {
+  dateStr: string;
+  period?: "morning" | "afternoon";
+};
+
+function getReservationPeriodSelection(
+  metadata: Record<string, unknown>
+): ReservationPeriodSelection | null {
+  const flow = (metadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
+  const dateStr = typeof flow.dateStr === "string" ? flow.dateStr : null;
+  if (!dateStr) return null;
+  const period =
+    flow.period === "morning" || flow.period === "afternoon"
+      ? (flow.period as "morning" | "afternoon")
+      : undefined;
+  return { dateStr, period };
+}
+
+async function persistReservationPeriodSelection(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  payload: ReservationPeriodSelection | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (payload?.dateStr) {
+    nextMetadata.reservationPeriodFlow = {
+      dateStr: payload.dateStr,
+      period: payload.period ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.reservationPeriodFlow;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+async function findAvailableSlotsForPeriod(
+  organizationId: string,
+  dateStr: string,
+  period: "morning" | "afternoon",
+  now: Date
+): Promise<string[]> {
+  const candidateHours = period === "morning" ? [9, 10, 11, 12] : [13, 14, 15, 16];
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const sameDay =
+    now.getFullYear() === year &&
+    now.getMonth() + 1 === month &&
+    now.getDate() === day;
+
+  const available: string[] = [];
+  for (const hour of candidateHours) {
+    if (sameDay && hour <= now.getHours()) continue;
+    const timeStr = toTimeStr(hour, 0);
+    const availability = await checkAvailabilityForOrg(
+      organizationId,
+      dateStr,
+      timeStr,
+      60
+    );
+    if (availability.available) {
+      available.push(timeStr);
+    }
+  }
+  return available;
+}
+
 function looksLikeVehicleInfoMessage(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -3005,6 +3111,188 @@ export async function processInboundMessage(
     }
   }
 
+  if (ctx.reservationsEnabled && ctx.usesVehicleSlots && !ctx.pendingReservation) {
+    const nowRef = new Date();
+    const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+    const missingName = !contactName;
+    const periodSelection = getReservationPeriodSelection(conversationMetadata);
+    const parsedDateOnly = extractReservationDateOnly(ctx.messageContent, nowRef);
+    const parsedDateTime = extractReservationDateTime(ctx.messageContent, nowRef);
+    const timeOnly = extractTime(ctx.messageContent);
+    const informedPeriod = detectReservationPeriod(ctx.messageContent);
+
+    if (
+      parsedDateOnly &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      await persistReservationPeriodSelection(
+        ctx.conversationId,
+        conversationMetadata,
+        { dateStr: parsedDateOnly.dateStr }
+      );
+      const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, para *${friendlyDate}*. Você prefere *manhã* ou *tarde*? Atendemos das *09:00 às 17:00*.`
+      );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_datetime",
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_collect_period",
+        decision: "tool_then_ai",
+        reason: "Cliente informou data sem horário; solicitando período",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_COLLECT_PERIOD",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          dateStr: parsedDateOnly.dateStr,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitou período após receber data sem horário",
+        silence: false,
+      };
+    }
+
+    if (
+      periodSelection?.dateStr &&
+      informedPeriod &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      const slots = await findAvailableSlotsForPeriod(
+        ctx.organizationId,
+        periodSelection.dateStr,
+        informedPeriod,
+        nowRef
+      );
+      const friendlyDate = formatDateForPtBr(periodSelection.dateStr);
+      if (slots.length === 0) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não encontrei horários livres entre 09:00 e 17:00. Quer tentar o outro período?`
+        );
+      } else {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Perfeito. Para *${friendlyDate}* no período da ${informedPeriod === "morning" ? "manhã" : "tarde"}, tenho: *${slots.join(", ")}*. Qual horário você prefere?`
+        );
+      }
+      await persistReservationPeriodSelection(
+        ctx.conversationId,
+        conversationMetadata,
+        { dateStr: periodSelection.dateStr, period: informedPeriod }
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_suggest_period_slots",
+        decision: "tool_then_ai",
+        reason: "Período informado; sugerindo horários disponíveis no intervalo comercial",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_SUGGEST_PERIOD_SLOTS",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          dateStr: periodSelection.dateStr,
+          period: informedPeriod,
+          slots,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Horários sugeridos por período",
+        silence: false,
+      };
+    }
+
+    if (
+      periodSelection?.dateStr &&
+      timeOnly &&
+      !parsedDateTime &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
+      if (!isReservationTimeAllowed(timeStr)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Consigo reservar apenas entre *09:00 e 17:00*. Me diga um horário dentro desse intervalo, por favor."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Horário fora da janela comercial",
+          silence: false,
+        };
+      }
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        periodSelection.dateStr,
+        timeStr,
+        60
+      );
+      const parsedWithContext = {
+        dateStr: periodSelection.dateStr,
+        timeStr,
+      };
+      await options.sendMessage(
+        ctx.conversationId,
+        buildAvailabilityReply(parsedWithContext, availability.available)
+      );
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        availability.available
+          ? {
+              dateStr: parsedWithContext.dateStr,
+              timeStr: parsedWithContext.timeStr,
+              durationMinutes: 60,
+            }
+          : null
+      );
+      if (availability.available) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+      }
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_time_with_context",
+        decision: "tool_then_ai",
+        reason: "Horário recebido sem data; aplicando data previamente informada",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_TIME_WITH_CONTEXT",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          dateStr: parsedWithContext.dateStr,
+          timeStr: parsedWithContext.timeStr,
+          available: availability.available,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Disponibilidade consultada com data de contexto",
+        silence: false,
+      };
+    }
+  }
+
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
@@ -3285,6 +3573,13 @@ export async function processInboundMessage(
             }
           : null
       );
+      if (availability.available) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -3431,6 +3726,13 @@ export async function processInboundMessage(
             }
           : null
       );
+      if (availability.available) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -3656,6 +3958,13 @@ export async function processInboundMessage(
             }
           : null
       );
+      if (availability.available) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
