@@ -139,6 +139,7 @@ const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
 const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
 const INTENT_STITCH_MAX_MESSAGES = 3;
 const INTENT_STITCH_MAX_CHARS = 280;
+const NAME_PROMPT_REPEAT_WINDOW_MS = 45 * 1000; // 45s
 
 function isSimpleAffirmative(text: string): boolean {
   const t = text
@@ -200,6 +201,44 @@ async function buildIntentProbeText(
   return stitched.length > INTENT_STITCH_MAX_CHARS
     ? stitched.slice(-INTENT_STITCH_MAX_CHARS)
     : stitched;
+}
+
+async function shouldSuppressRepeatedNamePrompt(
+  conversationId: string,
+  intentProbeText: string,
+  explicitNameIntro: boolean
+): Promise<boolean> {
+  if (explicitNameIntro) return false;
+
+  const normalized = intentProbeText.trim();
+  const isShortOrGreeting =
+    normalized.length <= 8 || looksLikeGreeting(intentProbeText);
+  if (!isShortOrGreeting) return false;
+
+  const [lastOutbound] = await db
+    .select({
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (!lastOutbound?.content) return false;
+  const isRecent =
+    Date.now() - lastOutbound.createdAt.getTime() <=
+    NAME_PROMPT_REPEAT_WINDOW_MS;
+  const asksName =
+    /qual\s+(?:e|é)\s+o\s+seu\s+nome\??/i.test(lastOutbound.content) ||
+    /qual\s+seria\s+o\s+seu\s+nome\??/i.test(lastOutbound.content);
+
+  return isRecent && asksName;
 }
 
 function looksLikeVehicleCorrectionDuringOilFlow(
@@ -1649,6 +1688,36 @@ export async function processInboundMessage(
     !!parsedVehicleSlotsUpdatedAt &&
     !Number.isNaN(parsedVehicleSlotsUpdatedAt.getTime()) &&
     Date.now() - parsedVehicleSlotsUpdatedAt.getTime() < VEHICLE_CONFIRMATION_STALE_MS;
+
+  if (intakeStage === "awaiting_name") {
+    const suppressRepeatedNamePrompt = await shouldSuppressRepeatedNamePrompt(
+      ctx.conversationId,
+      intentProbeText,
+      explicitNameIntro
+    );
+    if (suppressRepeatedNamePrompt) {
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "name_prompt_suppressed",
+        decision: "tool_then_ai",
+        reason: "Evita repetir pergunta de nome em mensagens curtas seguidas",
+        traceId: params.traceId,
+        stage: "orchestrator.profile",
+        decisionCode: "NAME_PROMPT_SUPPRESSED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          intentProbeText,
+        },
+      });
+      return {
+        didReply: false,
+        decision: "tool_then_ai",
+        reason: "Pergunta de nome suprimida para evitar repetição",
+        silence: true,
+      };
+    }
+  }
 
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
