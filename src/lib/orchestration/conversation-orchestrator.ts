@@ -250,6 +250,19 @@ function looksLikeCarProblemOrRepairIntent(text: string): boolean {
   );
 }
 
+function formatVehicleForNaturalSpeech(slots: VehicleSlots | undefined): string {
+  if (!slots) return "";
+  const parts: string[] = [];
+  if (slots.modelo) parts.push(slots.modelo);
+  if (slots.ano) parts.push(String(slots.ano));
+  if (slots.km) {
+    const km = slots.km;
+    const kmStr = km >= 1000 ? `${Math.round(km / 1000)} mil km` : `${km} km`;
+    parts.push(`com ${kmStr}`);
+  }
+  return parts.join(" ");
+}
+
 function buildVehicleSignature(slots: VehicleSlots | undefined): string {
   if (!slots) return "";
   const modelo = (slots.modelo ?? "")
@@ -287,6 +300,30 @@ function isSimpleNegative(text: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   return /\b(nao|negativo|errado|nao sei)\b/.test(t);
+}
+
+function looksLikeVehicleDidNotChange(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /\b(nao mudei|nao mudou|continua|continua o mesmo|o mesmo|mesmo carro)\b/.test(t) ||
+    /^(nao|não)$/.test(t)
+  );
+}
+
+function looksLikeVehicleChanged(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .trim();
+  return /\b(sim|mudei|mudou|troquei|tenho outro|outro carro)\b/.test(t);
 }
 
 function looksLikeGenericFlowMessage(text: string): boolean {
@@ -2212,7 +2249,102 @@ export async function processInboundMessage(
     hasRestaurantActiveFlow;
 
   if (profileUpdateFlow.awaitingConfirmation) {
-    if (isSimpleAffirmative(ctx.messageContent)) {
+    const knownVehicle = ctx.vehicleSlots ?? {};
+    const extractedNew = extractVehicleSlotsFromText(ctx.messageContent);
+    const norm = (s: string | undefined) => (s ?? "").toLowerCase().trim();
+    const hasNewVehicleInfo =
+      (extractedNew.modelo && norm(extractedNew.modelo) !== norm(knownVehicle.modelo)) ||
+      (extractedNew.ano && extractedNew.ano !== knownVehicle.ano) ||
+      !!extractedNew.km;
+
+    if (hasNewVehicleInfo) {
+      const merged = mergeVehicleSlots(knownVehicle, extractedNew);
+      const missing = getMissingSlots(merged);
+      await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
+      if (missing.length === 0) {
+        await db
+          .update(conversations)
+          .set({
+            conversationStateMetadata: {
+              ...conversationMetadata,
+              vehicleSlots: merged,
+              vehicleSlotsUpdatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+        if (merged.modelo) await saveContactMemory(ctx.contactId, "vehicle_model", merged.modelo);
+        if (merged.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(merged.ano));
+        if (merged.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(merged.km));
+        const naturalVehicle = formatVehicleForNaturalSpeech(merged);
+        await options.sendMessage(
+          ctx.conversationId,
+          `Anotado: *${naturalVehicle}*. Confirmado em meu sistema. Como posso te ajudar agora?`
+        );
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
+      } else {
+        await db
+          .update(conversations)
+          .set({
+            conversationStateMetadata: {
+              ...conversationMetadata,
+              vehicleSlots: merged,
+              vehicleSlotsUpdatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+        if (merged.modelo) await saveContactMemory(ctx.contactId, "vehicle_model", merged.modelo);
+        if (merged.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(merged.ano));
+        if (merged.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(merged.km));
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        const singleAsk: Record<string, string> = {
+          modelo: "Qual é o *modelo* do veículo?",
+          ano: "Qual é o *ano* do veículo?",
+          km: "Qual é a *quilometragem* do veículo?",
+        };
+        const labels = missing.map((m) => (m === "km" ? "quilometragem (km)" : m));
+        const askMissing =
+          missing.length === 1
+            ? singleAsk[missing[0]] ?? `Me informe *${missing[0]}*.`
+            : labels.length === 2
+              ? `Me informe *${labels[0]}* e *${labels[1]}*.`
+              : `Me informe *${labels.slice(0, -1).join("*, *")} e *${labels[labels.length - 1]}*.`;
+        await options.sendMessage(
+          ctx.conversationId,
+          `Vou alterar em meu sistema que você mudou de carro. ${askMissing}`
+        );
+      }
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente informou novo veículo; extraído e solicitando dados faltantes",
+        silence: false,
+      };
+    }
+
+    if (isSimpleNegative(ctx.messageContent) || looksLikeVehicleDidNotChange(ctx.messageContent)) {
+      await persistProfileUpdateFlowState(
+        ctx.conversationId,
+        conversationMetadata,
+        null
+      );
+      let continuationPrompt = "Perfeito, confirmado. Como posso te ajudar agora?";
+      if (intakeStage === "awaiting_need") {
+        continuationPrompt = "Perfeito, confirmado. Agora me diga: qual é a sua dúvida?";
+      } else if (intakeStage === "awaiting_issue") {
+        continuationPrompt = "Perfeito, confirmado. Pode me explicar qual é a sua dúvida/situação do veículo?";
+      }
+      await options.sendMessage(ctx.conversationId, continuationPrompt);
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente confirmou que não mudou de carro",
+        silence: false,
+      };
+    }
+
+    if (isSimpleAffirmative(ctx.messageContent) || looksLikeVehicleChanged(ctx.messageContent)) {
       await persistProfileUpdateFlowState(
         ctx.conversationId,
         conversationMetadata,
@@ -2225,45 +2357,26 @@ export async function processInboundMessage(
       );
       await options.sendMessage(
         ctx.conversationId,
-        "Perfeito! Me passe os dados atualizados do veículo: *modelo, ano e km*."
+        "Vou alterar em meu sistema que você mudou de carro. Me informe o *modelo*, *ano* e *quilometragem* do veículo atual."
       );
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Cliente confirmou atualização de dados do veículo",
-        silence: false,
-      };
-    }
-
-    if (isSimpleNegative(ctx.messageContent)) {
-      await persistProfileUpdateFlowState(
-        ctx.conversationId,
-        conversationMetadata,
-        null
-      );
-      let continuationPrompt = "Perfeito, seguimos com os dados atuais. Como posso te ajudar agora?";
-      if (intakeStage === "awaiting_need") {
-        continuationPrompt = "Perfeito, seguimos com os dados atuais. Agora me diga: qual é a sua dúvida?";
-      } else if (intakeStage === "awaiting_issue") {
-        continuationPrompt = "Perfeito, seguimos com os dados atuais. Pode me explicar qual é a sua dúvida/situação do veículo?";
-      }
-      await options.sendMessage(ctx.conversationId, continuationPrompt);
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Cliente optou por não alterar dados cadastrados",
+        reason: "Cliente confirmou que mudou de carro; solicitando novos dados",
         silence: false,
       };
     }
 
     await options.sendMessage(
       ctx.conversationId,
-      "Para eu seguir certinho, me confirme: deseja alterar os dados cadastrados do veículo? Responda *sim* ou *não*."
+      "Sei sim, você tem um *" +
+        formatVehicleForNaturalSpeech(knownVehicle) +
+        "*, ou você mudou de carro?"
     );
     return {
       didReply: true,
       decision: "tool_then_ai",
-      reason: "Aguardando confirmação para atualização de dados",
+      reason: "Aguardando confirmação sobre mudança de veículo",
       silence: false,
     };
   }
@@ -2953,11 +3066,13 @@ export async function processInboundMessage(
       reply = "Desculpa, ainda não sei seu nome. Qual seria o seu nome?";
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
     } else if (asksKnownVehicle && hasKnownVehicle && wantsVehicleUpdate) {
-      reply = `Tenho seu veículo cadastrado como *${vehicleLabel}*. Perfeito, vamos atualizar.\nMe envie, por favor, *modelo, ano e km* do veículo atual.`;
+      const naturalVehicle = formatVehicleForNaturalSpeech(knownVehicle);
+      reply = `Sei sim, você tem um *${naturalVehicle}*. Vou atualizar. Me informe o *modelo*, *ano* e *quilometragem* do veículo atual.`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     } else if (knownName && hasKnownVehicle) {
-      reply = `Tenho sim: nome *${knownName}* e veículo *${vehicleLabel}*.\nDeseja alterar os dados do veículo cadastrados? Responda *sim* ou *não*.`;
+      const naturalVehicle = formatVehicleForNaturalSpeech(knownVehicle);
+      reply = `Sei sim *${knownName}*, você tem um *${naturalVehicle}*, ou você mudou de carro?`;
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, {
         awaitingConfirmation: true,
       });
@@ -2968,7 +3083,8 @@ export async function processInboundMessage(
       });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     } else if (hasKnownVehicle) {
-      reply = `Tenho seu veículo salvo como *${vehicleLabel}*.\nDeseja alterar os dados do veículo cadastrados? Responda *sim* ou *não*.`;
+      const naturalVehicle = formatVehicleForNaturalSpeech(knownVehicle);
+      reply = `Sei sim, você tem um *${naturalVehicle}*, ou você mudou de carro?`;
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, {
         awaitingConfirmation: true,
       });
