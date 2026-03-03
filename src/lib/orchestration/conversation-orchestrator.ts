@@ -639,6 +639,50 @@ function getReservationPeriodSelection(
   return { dateStr, period };
 }
 
+type RestaurantReservationFlow = {
+  dateStr?: string;
+  timeStr?: string;
+  peopleCount?: number;
+  collectionStage?: string;
+};
+
+function getRestaurantReservationFlow(
+  metadata: Record<string, unknown>
+): RestaurantReservationFlow | null {
+  const flow = (metadata.restaurantReservationFlow as Record<string, unknown> | undefined) ?? {};
+  const dateStr = typeof flow.dateStr === "string" ? flow.dateStr : undefined;
+  const timeStr = typeof flow.timeStr === "string" ? flow.timeStr : undefined;
+  const peopleCount =
+    typeof flow.peopleCount === "number" && flow.peopleCount >= 1
+      ? flow.peopleCount
+      : undefined;
+  const collectionStage = typeof flow.collectionStage === "string" ? flow.collectionStage : undefined;
+  if (!dateStr && !timeStr && !peopleCount && !collectionStage) return null;
+  return { dateStr, timeStr, peopleCount, collectionStage };
+}
+
+async function persistRestaurantReservationFlow(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  payload: Partial<RestaurantReservationFlow> | null
+): Promise<void> {
+  const nextMetadata = { ...currentMetadata };
+  if (payload && Object.keys(payload).length > 0) {
+    const current = (currentMetadata.restaurantReservationFlow as Record<string, unknown>) ?? {};
+    nextMetadata.restaurantReservationFlow = { ...current, ...payload };
+  } else {
+    delete nextMetadata.restaurantReservationFlow;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
 async function persistReservationPeriodSelection(
   conversationId: string,
   currentMetadata: Record<string, unknown>,
@@ -744,6 +788,54 @@ function looksLikeReservationIntent(text: string): boolean {
     ) ||
     containsDateOrTimeHint(t)
   );
+}
+
+function looksLikeRestaurantReservationIntent(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(mesa|reserva de mesa|reservar mesa|quero uma mesa|mesa para)\b/.test(t) ||
+    (/\b(reservar|reserva)\b/.test(t) && /\b(mesa|jantar|almoco)\b/.test(t))
+  );
+}
+
+function extractPeopleCount(text: string): number | null {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  const pessoas = t.match(/(\d{1,2})\s*pessoas?/);
+  if (pessoas) {
+    const n = Number(pessoas[1]);
+    if (n >= 1 && n <= 20) return n;
+  }
+  const para = t.match(/para\s+(\d{1,2})/);
+  if (para) {
+    const n = Number(para[1]);
+    if (n >= 1 && n <= 20) return n;
+  }
+  const onlyNum = t.match(/^(\d{1,2})$/);
+  if (onlyNum) {
+    const n = Number(onlyNum[1]);
+    if (n >= 1 && n <= 20) return n;
+  }
+  const wordMap: Record<string, number> = {
+    uma: 1,
+    duas: 2,
+    tres: 3,
+    quatro: 4,
+    cinco: 5,
+    seis: 6,
+    sete: 7,
+    oito: 8,
+    nove: 9,
+    dez: 10,
+  };
+  const word = t.replace(/\s*pessoas?/g, "").trim();
+  if (wordMap[word] !== undefined) return wordMap[word];
+  return null;
 }
 
 function looksLikeCatalogIntent(text: string): boolean {
@@ -2088,6 +2180,11 @@ export async function processInboundMessage(
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
     .filter(Boolean)
     .join(" ");
+  const restaurantFlow = getRestaurantReservationFlow(conversationMetadata);
+  const hasRestaurantActiveFlow =
+    ctx.botConfig?.segment === "restaurante" &&
+    restaurantFlow?.collectionStage &&
+    restaurantFlow.collectionStage !== "completed";
   const hasActiveFlow =
     hasActiveConversationFlowState(ctx.conversationState) ||
     !!intakeStage ||
@@ -2097,7 +2194,8 @@ export async function processInboundMessage(
     workshopState.awaitingVehicleDetails ||
     reservationFlow.collectionStage === "collect_profile" ||
     reservationFlow.collectionStage === "collect_datetime" ||
-    reservationFlow.collectionStage === "confirm_reservation";
+    reservationFlow.collectionStage === "confirm_reservation" ||
+    hasRestaurantActiveFlow;
 
   if (profileUpdateFlow.awaitingConfirmation) {
     if (isSimpleAffirmative(ctx.messageContent)) {
@@ -2185,6 +2283,19 @@ export async function processInboundMessage(
     } else if (ctx.pendingReservation) {
       continuationReply =
         "Posso seguir com a reserva. Confirma para mim o *dia* e *horário* desejados?";
+    } else if (restaurantFlow?.collectionStage === "collect_name") {
+      continuationReply = "Para seguir, me diga seu *nome*, por favor.";
+    } else if (restaurantFlow?.collectionStage === "collect_date") {
+      continuationReply =
+        "Para qual data você gostaria de reservar? (ex: amanhã ou 15/03)";
+    } else if (restaurantFlow?.collectionStage === "collect_datetime") {
+      continuationReply =
+        "Qual horário você prefere? Atendemos conforme nossa agenda.";
+    } else if (restaurantFlow?.collectionStage === "collect_people") {
+      continuationReply = "Para quantas pessoas será a reserva?";
+    } else if (restaurantFlow?.collectionStage === "confirm_reservation") {
+      const people = restaurantFlow.peopleCount ?? 0;
+      continuationReply = `Confirmar reserva para *${people}* pessoa(s)? Responda *sim* para confirmar.`;
     }
 
     if (continuationReply) {
@@ -3004,6 +3115,55 @@ export async function processInboundMessage(
     };
   }
 
+  // Saudação para restaurante: fluxo simplificado (nome + opções).
+  if (
+    ctx.reservationsEnabled &&
+    ctx.botConfig?.segment === "restaurante" &&
+    looksLikeGreeting(intentProbeText) &&
+    !ctx.pendingReservation &&
+    !looksLikeReservationIntent(intentProbeText) &&
+    !looksLikeRestaurantReservationIntent(intentProbeText)
+  ) {
+    const hasKnownName = !!contactName?.trim();
+    const botName = ctx.businessProfile?.botName?.trim() || "";
+    const botIntro = botName ? ` Me chamo *${botName}*.` : "";
+    const greetingPrefix = buildAdaptiveGreeting(
+      intentProbeText,
+      new Date(),
+      ctx.reservationSchedule?.timezone
+    );
+    const triageReply = !hasKnownName
+      ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
+      : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, como posso ajudar? Podemos fazer reserva de mesa, consultar cardápio ou tirar dúvidas.`;
+    await options.sendMessage(
+      ctx.conversationId,
+      applyToneToText(triageReply, ctx.botConfig?.tone)
+    );
+    await persistIntakeStage(
+      ctx.conversationId,
+      conversationMetadata,
+      !hasKnownName ? "awaiting_name" : null
+    );
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "intake_greeting_restaurant",
+      decision: "tool_then_ai",
+      reason: "Saudação recebida; fluxo restaurante",
+      traceId: params.traceId,
+      stage: "orchestrator.reservations",
+      decisionCode: "INTAKE_GREETING_RESTAURANT",
+      durationMs: Date.now() - startedAt,
+      metadata: { messageContent: ctx.messageContent, hasKnownName },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Saudação restaurante enviada",
+      silence: false,
+    };
+  }
+
   // Abordagem inicial neutra: entende a dúvida antes de mencionar opções.
   if (
     ctx.reservationsEnabled &&
@@ -3624,6 +3784,306 @@ export async function processInboundMessage(
     }
   }
 
+  // Fluxo de reserva para restaurante: nome → data → horário → pessoas → confirmação
+  if (
+    ctx.reservationsEnabled &&
+    ctx.botConfig?.segment === "restaurante" &&
+    (looksLikeReservationIntent(intentProbeText) || looksLikeRestaurantReservationIntent(intentProbeText))
+  ) {
+    const nowRef = new Date();
+    const reservationWindow = {
+      start: ctx.reservationSchedule?.start ?? "09:00",
+      end: ctx.reservationSchedule?.end ?? "17:00",
+    };
+    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+    const rf = getRestaurantReservationFlow(conversationMetadata);
+    const periodSelection = getReservationPeriodSelection(conversationMetadata);
+    const parsedDateOnly = extractReservationDateOnly(ctx.messageContent, nowRef);
+    const parsedDateTime = extractReservationDateTime(ctx.messageContent, nowRef);
+    const timeOnly = extractTime(ctx.messageContent);
+    const informedPeriod = detectReservationPeriod(ctx.messageContent);
+    const peopleCount = extractPeopleCount(ctx.messageContent);
+
+    if (!contactName && (!rf || rf.collectionStage === "collect_name")) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Para reservar uma mesa, primeiro me diga seu *nome*, por favor."
+      );
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_name",
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: solicitando nome para reserva",
+        silence: false,
+      };
+    }
+
+    if (
+      contactName &&
+      (!rf || rf.collectionStage === "collect_date") &&
+      !parsedDateOnly &&
+      !parsedDateTime
+    ) {
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_date",
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, *${contactName}*. Para qual data você gostaria de reservar? (ex: amanhã ou 15/03). Atendemos das *${reservationWindowLabel}*.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: solicitando data",
+        silence: false,
+      };
+    }
+
+    if (
+      contactName &&
+      (!rf || rf.collectionStage === "collect_date") &&
+      parsedDateTime
+    ) {
+      if (!isDateAllowedForReservation(parsedDateTime.dateStr, ctx.reservationSchedule)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Nessa data não temos atendimento. Me diga outro dia. Atendemos das *${reservationWindowLabel}*.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: data indisponível",
+          silence: false,
+        };
+      }
+      const timeStr = parsedDateTime.timeStr;
+      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: horário fora da janela",
+          silence: false,
+        };
+      }
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        parsedDateTime.dateStr,
+        timeStr,
+        90
+      );
+      if (!availability.available) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Esse horário não está disponível. Me diga outro dia e horário."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: horário indisponível",
+          silence: false,
+        };
+      }
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        dateStr: parsedDateTime.dateStr,
+        timeStr,
+        collectionStage: "collect_people",
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Horário disponível. Para quantas pessoas será a reserva?"
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: data+horário recebidos, solicitando pessoas",
+        silence: false,
+      };
+    }
+
+    if (
+      contactName &&
+      (!rf || rf.collectionStage === "collect_date") &&
+      parsedDateOnly &&
+      !parsedDateTime
+    ) {
+      if (!isDateAllowedForReservation(parsedDateOnly.dateStr, ctx.reservationSchedule)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Nessa data não temos atendimento. Me diga outro dia (ex: amanhã ou 15/03). Atendemos das *${reservationWindowLabel}*.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: data indisponível",
+          silence: false,
+        };
+      }
+      await persistReservationPeriodSelection(
+        ctx.conversationId,
+        conversationMetadata,
+        { dateStr: parsedDateOnly.dateStr }
+      );
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        dateStr: parsedDateOnly.dateStr,
+        collectionStage: "collect_datetime",
+      });
+      const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, *${contactName}*. Para *${friendlyDate}*, você prefere *manhã* ou *tarde*? Atendemos das *${reservationWindowLabel}*.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: solicitando período",
+        silence: false,
+      };
+    }
+
+    if (
+      rf?.dateStr &&
+      (periodSelection?.dateStr ?? rf.dateStr) &&
+      informedPeriod &&
+      !rf.timeStr
+    ) {
+      const dateStr = rf.dateStr;
+      const slots = await findAvailableSlotsForPeriod(
+        ctx.organizationId,
+        dateStr,
+        informedPeriod,
+        nowRef,
+        reservationWindow
+      );
+      const friendlyDate = formatDateForPtBr(dateStr);
+      if (slots.length === 0) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não há horários livres. Quer tentar o outro período?`
+        );
+      } else {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Para *${friendlyDate}* no período da ${informedPeriod === "morning" ? "manhã" : "tarde"}, tenho: *${slots.join(", ")}*. Qual horário você prefere?`
+        );
+      }
+      await persistReservationPeriodSelection(
+        ctx.conversationId,
+        conversationMetadata,
+        { dateStr, period: informedPeriod }
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: horários sugeridos",
+        silence: false,
+      };
+    }
+
+    if (
+      rf?.dateStr &&
+      !rf.timeStr &&
+      timeOnly &&
+      !parsedDateTime
+    ) {
+      const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
+      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: horário fora da janela",
+          silence: false,
+        };
+      }
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        rf.dateStr,
+        timeStr,
+        90
+      );
+      if (!availability.available) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Esse horário não está disponível. Me diga outro horário que eu consulto."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: horário indisponível",
+          silence: false,
+        };
+      }
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        dateStr: rf.dateStr,
+        timeStr,
+        collectionStage: "collect_people",
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Horário disponível. Para quantas pessoas será a reserva?"
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: solicitando quantidade de pessoas",
+        silence: false,
+      };
+    }
+
+    if (
+      rf?.dateStr &&
+      rf?.timeStr &&
+      rf.collectionStage === "collect_people" &&
+      !peopleCount &&
+      !looksLikeReservationConfirmation(ctx.messageContent)
+    ) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Para quantas pessoas será a reserva? (ex: 2, 4 pessoas)"
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: resposta inválida para quantidade de pessoas",
+        silence: false,
+      };
+    }
+
+    if (rf?.dateStr && rf?.timeStr && !rf.peopleCount && peopleCount) {
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+        dateStr: rf.dateStr,
+        timeStr: rf.timeStr,
+        peopleCount,
+        collectionStage: "confirm_reservation",
+      });
+      await savePendingReservation(ctx.conversationId, conversationMetadata, {
+        dateStr: rf.dateStr,
+        timeStr: rf.timeStr,
+        durationMinutes: 90,
+      });
+      const friendlyDate = formatDateForPtBr(rf.dateStr);
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito. Reserva para *${peopleCount}* pessoa(s) em *${friendlyDate}* às *${rf.timeStr}*. Responda *sim* para confirmar.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Restaurante: aguardando confirmação",
+        silence: false,
+      };
+    }
+  }
+
   if (ctx.reservationsEnabled && ctx.usesVehicleSlots && !ctx.pendingReservation) {
     const nowRef = new Date();
     const reservationWindow = {
@@ -3831,8 +4291,27 @@ export async function processInboundMessage(
       ? getMissingSlots(ctx.vehicleSlots ?? {})
       : [];
     const missingName = !contactName;
+    const missingRestaurantPeople =
+      ctx.botConfig?.segment === "restaurante" &&
+      !getRestaurantReservationFlow(conversationMetadata)?.peopleCount &&
+      !missingName;
 
     if (!looksLikeReservationConfirmation(ctx.messageContent)) {
+      if (missingRestaurantPeople) {
+        await options.sendMessage(
+          ctx.conversationId,
+          "Para quantas pessoas será a reserva?"
+        );
+        await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_people",
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Restaurante: solicitando quantidade de pessoas",
+          silence: false,
+        };
+      }
       if (missingName || missingVehicle.length > 0) {
         const promptKey = buildProfilePromptKey(missingName, missingVehicle);
         const promptState = getPromptRepeatState(conversationMetadata, promptKey);
@@ -3982,13 +4461,20 @@ export async function processInboundMessage(
     }
 
     const startAt = parseStartAt(pending.dateStr, pending.timeStr);
+    const restaurantPeople =
+      ctx.botConfig?.segment === "restaurante"
+        ? getRestaurantReservationFlow(conversationMetadata)?.peopleCount ?? null
+        : null;
     const reservationNotes = JSON.stringify({
       customerName: contactName,
-      vehicle: {
-        modelo: ctx.vehicleSlots?.modelo ?? null,
-        ano: ctx.vehicleSlots?.ano ?? null,
-        km: ctx.vehicleSlots?.km ?? null,
-      },
+      vehicle: ctx.usesVehicleSlots
+        ? {
+            modelo: ctx.vehicleSlots?.modelo ?? null,
+            ano: ctx.vehicleSlots?.ano ?? null,
+            km: ctx.vehicleSlots?.km ?? null,
+          }
+        : null,
+      peopleCount: restaurantPeople,
       serviceName: reservationContext.serviceName,
       productName: reservationContext.productName,
     });
@@ -3996,19 +4482,29 @@ export async function processInboundMessage(
       startAt,
       durationMinutes: pending.durationMinutes,
       contactId: ctx.contactId,
-      serviceName: reservationContext.serviceName ?? undefined,
+      serviceName:
+        ctx.botConfig?.segment === "restaurante"
+          ? "Reserva de mesa"
+          : (reservationContext.serviceName ?? undefined),
       productName: reservationContext.productName ?? undefined,
       notes: reservationNotes,
       source: "ai",
     });
     await savePendingReservation(ctx.conversationId, conversationMetadata, null);
     await persistReservationContext(ctx.conversationId, conversationMetadata, null);
+    if (ctx.botConfig?.segment === "restaurante") {
+      await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, null);
+    }
 
     if (created?.success) {
       const friendlyDate = formatDateForPtBr(pending.dateStr);
+      const peopleLabel =
+        ctx.botConfig?.segment === "restaurante" && restaurantPeople
+          ? ` para ${restaurantPeople} pessoa(s)`
+          : "";
       await options.sendMessage(
         ctx.conversationId,
-        `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}.`
+        `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "completed",
