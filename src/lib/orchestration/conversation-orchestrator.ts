@@ -250,6 +250,20 @@ function looksLikeCarProblemOrRepairIntent(text: string): boolean {
   );
 }
 
+function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(barulho|ruido|ruído|batendo|vibrando|tremendo)\b/.test(t) ||
+    /\b(fumaca|fumaça|fumacando|fumaciando)\b/.test(t) ||
+    /\b(superaquecendo|esquentando demais|ferveu|motor aquecendo)\b/.test(t) ||
+    /\b(nao liga|não liga|apagou|perdeu forca|perdeu força)\b/.test(t) ||
+    /\b(problema|defeito)\b.*\b(carro|veiculo|motor|freio|suspensao|suspensão)\b/.test(t)
+  );
+}
+
 function formatVehicleForNaturalSpeech(slots: VehicleSlots | undefined): string {
   if (!slots) return "";
   const parts: string[] = [];
@@ -2492,6 +2506,50 @@ export async function processInboundMessage(
         silence: false,
       };
     }
+  }
+
+  if (
+    ctx.usesVehicleSlots &&
+    looksLikeDirectHumanMechanicalIssue(ctx.messageContent)
+  ) {
+    await options.sendMessage(
+      ctx.conversationId,
+      "Entendi. Isso parece um problema mecânico e vou te encaminhar agora para um mecânico técnico te atender da forma correta."
+    );
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      "Cliente descreveu problema mecânico; encaminhamento técnico imediato"
+    );
+    if (handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "direct_handoff_mechanical_issue",
+      decision: "human_only",
+      reason: "Problema mecânico detectado; handoff imediato",
+      traceId: params.traceId,
+      stage: "orchestrator.handoff",
+      decisionCode: "DIRECT_HANDOFF_MECHANICAL_ISSUE",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: "Problema mecânico encaminhado para técnico",
+      silence: false,
+    };
   }
 
   if (profileUpdateFlow.awaitingConfirmation) {
