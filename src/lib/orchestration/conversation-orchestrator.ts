@@ -281,6 +281,7 @@ const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
 const INTENT_STITCH_MAX_MESSAGES = 3;
 const INTENT_STITCH_MAX_CHARS = 280;
 const NAME_PROMPT_REPEAT_WINDOW_MS = 45 * 1000; // 45s
+const FLOW_RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 45min
 
 function isSimpleAffirmative(text: string): boolean {
   const t = text
@@ -342,6 +343,28 @@ function looksLikeGenericFlowMessage(text: string): boolean {
   );
 }
 
+function looksLikeContinueFlowChoice(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /\b(continuar|continua|seguir|prosseguir|retomar|pode continuar)\b/.test(t);
+}
+
+function looksLikeRestartFlowChoice(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /\b(novo atendimento|novo|reiniciar|recomecar|recomecar|do zero)\b/.test(t);
+}
+
 function hasActiveConversationFlowState(state: string | null | undefined): boolean {
   return (
     state === CONVERSATION_STATES.COLLECTING_INFO ||
@@ -390,6 +413,25 @@ async function buildIntentProbeText(
   return stitched.length > INTENT_STITCH_MAX_CHARS
     ? stitched.slice(-INTENT_STITCH_MAX_CHARS)
     : stitched;
+}
+
+async function shouldOfferFlowResumeChoice(conversationId: string): Promise<boolean> {
+  const inbound = await db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "inbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(2);
+  if (inbound.length < 2) return false;
+  const latest = inbound[0]?.createdAt;
+  const previous = inbound[1]?.createdAt;
+  if (!latest || !previous) return false;
+  return latest.getTime() - previous.getTime() >= FLOW_RESUME_TIMEOUT_MS;
 }
 
 async function shouldSuppressRepeatedNamePrompt(
@@ -1591,6 +1633,10 @@ type ProfileUpdateFlowState = {
   awaitingConfirmation: boolean;
 };
 
+type ResumeChoiceFlowState = {
+  awaitingChoice: boolean;
+};
+
 function getVehicleConfirmationState(
   metadata: Record<string, unknown>
 ): VehicleConfirmationState {
@@ -1730,6 +1776,81 @@ async function persistProfileUpdateFlowState(
   await db
     .update(conversations)
     .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+function getResumeChoiceFlowState(
+  metadata: Record<string, unknown>
+): ResumeChoiceFlowState {
+  const flow = (metadata.resumeChoiceFlow as Record<string, unknown> | undefined) ?? {};
+  return {
+    awaitingChoice: flow.awaitingChoice === true,
+  };
+}
+
+async function persistResumeChoiceFlowState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  nextState: ResumeChoiceFlowState | null
+): Promise<void> {
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
+  if (nextState) {
+    nextMetadata.resumeChoiceFlow = {
+      ...nextState,
+      updatedAt: new Date().toISOString(),
+    };
+  } else {
+    delete nextMetadata.resumeChoiceFlow;
+  }
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+}
+
+async function clearConversationFlowState(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>
+): Promise<void> {
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
+  delete nextMetadata.intakeFlow;
+  delete nextMetadata.reservationFlow;
+  delete nextMetadata.reservationPeriodFlow;
+  delete nextMetadata.pendingReservation;
+  delete nextMetadata.reservationContext;
+  delete nextMetadata.profileUpdateFlow;
+  delete nextMetadata.oilFlow;
+  delete nextMetadata.vehicleConfirmation;
+  delete nextMetadata.workshopFlow;
+  delete nextMetadata.restaurantReservationFlow;
+  delete nextMetadata.resumeChoiceFlow;
+
+  await db
+    .update(conversations)
+    .set({
+      conversationState: CONVERSATION_STATES.INIT,
       conversationStateMetadata:
         Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
       updatedAt: new Date(),
@@ -2215,6 +2336,7 @@ export async function processInboundMessage(
   const oilFlowState = getOilFlowState(conversationMetadata);
   const workshopState = getWorkshopState(conversationMetadata);
   const profileUpdateFlow = getProfileUpdateFlowState(conversationMetadata);
+  const resumeChoiceFlow = getResumeChoiceFlowState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   const isImplicitAwaitingName =
@@ -2247,6 +2369,116 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation" ||
     hasRestaurantActiveFlow;
+
+  const buildActiveFlowContinuationReply = (): string | null => {
+    if (intakeStage === "awaiting_name") {
+      return "Para seguir, me diga seu *nome*, por favor.";
+    }
+    if (intakeStage === "awaiting_vehicle") {
+      return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
+    }
+    if (intakeStage === "awaiting_need") {
+      return "Perfeito. Agora me diga qual é a sua dúvida principal para eu te orientar do jeito certo.";
+    }
+    if (intakeStage === "awaiting_issue") {
+      return "Me descreva o que está acontecendo com o veículo para eu direcionar o próximo passo.";
+    }
+    if (
+      intakeStage === "awaiting_reservation_profile" ||
+      reservationFlow.collectionStage === "collect_profile" ||
+      workshopState.awaitingVehicleDetails
+    ) {
+      return buildMissingReservationProfileReply(
+        missingNameProfileAtEntry,
+        missingVehicleProfileAtEntry
+      );
+    }
+    if (oilFlowState.awaitingUnknownOilConfirmation) {
+      return "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
+    }
+    if (vehicleConfirmation.pending && knownVehicleLabel) {
+      return `Só confirmando antes de seguir: o veículo é *${knownVehicleLabel}*?`;
+    }
+    if (ctx.pendingReservation) {
+      return "Posso seguir com a reserva. Confirma para mim o *dia* e *horário* desejados?";
+    }
+    if (restaurantFlow?.collectionStage === "collect_name") {
+      return "Para seguir, me diga seu *nome*, por favor.";
+    }
+    if (restaurantFlow?.collectionStage === "collect_date") {
+      return "Para qual data você gostaria de reservar? (ex: amanhã ou 15/03)";
+    }
+    if (restaurantFlow?.collectionStage === "collect_datetime") {
+      return "Qual horário você prefere? Atendemos conforme nossa agenda.";
+    }
+    if (restaurantFlow?.collectionStage === "collect_people") {
+      return "Para quantas pessoas será a reserva?";
+    }
+    if (restaurantFlow?.collectionStage === "confirm_reservation") {
+      const people = restaurantFlow.peopleCount ?? 0;
+      return `Confirmar reserva para *${people}* pessoa(s)? Responda *sim* para confirmar.`;
+    }
+    return null;
+  };
+
+  if (resumeChoiceFlow.awaitingChoice) {
+    if (looksLikeRestartFlowChoice(ctx.messageContent)) {
+      await clearConversationFlowState(ctx.conversationId, conversationMetadata);
+      const restartReply = contactName?.trim()
+        ? `Perfeito, *${contactName.trim()}*. Iniciamos um novo atendimento. Como posso te ajudar hoje?`
+        : "Perfeito, iniciamos um novo atendimento. Qual é o seu nome?";
+      await options.sendMessage(ctx.conversationId, restartReply);
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente escolheu iniciar novo atendimento",
+        silence: false,
+      };
+    }
+
+    if (looksLikeContinueFlowChoice(ctx.messageContent) || isSimpleAffirmative(ctx.messageContent)) {
+      await persistResumeChoiceFlowState(ctx.conversationId, conversationMetadata, null);
+      const continuationReply = buildActiveFlowContinuationReply() ??
+        "Perfeito, vamos continuar de onde paramos. Como posso ajudar?";
+      await options.sendMessage(ctx.conversationId, continuationReply);
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente escolheu continuar atendimento anterior",
+        silence: false,
+      };
+    }
+
+    await options.sendMessage(
+      ctx.conversationId,
+      "Quer *continuar* o atendimento anterior ou iniciar um *novo atendimento*?"
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Aguardando escolha de retomada",
+      silence: false,
+    };
+  }
+
+  if (hasActiveFlow && looksLikeGreeting(ctx.messageContent)) {
+    const shouldOfferResumeChoice = await shouldOfferFlowResumeChoice(ctx.conversationId);
+    if (shouldOfferResumeChoice) {
+      await persistResumeChoiceFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingChoice: true,
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Bem-vindo de volta! Quer *continuar* o atendimento anterior ou iniciar um *novo atendimento*?"
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Saudação após inatividade; solicitando escolha de retomada",
+        silence: false,
+      };
+    }
+  }
 
   if (profileUpdateFlow.awaitingConfirmation) {
     const knownVehicle = ctx.vehicleSlots ?? {};
@@ -2382,48 +2614,7 @@ export async function processInboundMessage(
   }
 
   if (hasActiveFlow && looksLikeGenericFlowMessage(ctx.messageContent)) {
-    let continuationReply: string | null = null;
-    if (intakeStage === "awaiting_name") {
-      continuationReply = "Para seguir, me diga seu *nome*, por favor.";
-    } else if (intakeStage === "awaiting_vehicle") {
-      continuationReply =
-        "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
-    } else if (intakeStage === "awaiting_need") {
-      continuationReply =
-        "Perfeito. Agora me diga qual é a sua dúvida principal para eu te orientar do jeito certo.";
-    } else if (intakeStage === "awaiting_issue") {
-      continuationReply =
-        "Me descreva o que está acontecendo com o veículo para eu direcionar o próximo passo.";
-    } else if (
-      intakeStage === "awaiting_reservation_profile" ||
-      reservationFlow.collectionStage === "collect_profile" ||
-      workshopState.awaitingVehicleDetails
-    ) {
-      continuationReply = buildMissingReservationProfileReply(
-        missingNameProfileAtEntry,
-        missingVehicleProfileAtEntry
-      );
-    } else if (oilFlowState.awaitingUnknownOilConfirmation) {
-      continuationReply = "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
-    } else if (vehicleConfirmation.pending && knownVehicleLabel) {
-      continuationReply = `Só confirmando antes de seguir: o veículo é *${knownVehicleLabel}*?`;
-    } else if (ctx.pendingReservation) {
-      continuationReply =
-        "Posso seguir com a reserva. Confirma para mim o *dia* e *horário* desejados?";
-    } else if (restaurantFlow?.collectionStage === "collect_name") {
-      continuationReply = "Para seguir, me diga seu *nome*, por favor.";
-    } else if (restaurantFlow?.collectionStage === "collect_date") {
-      continuationReply =
-        "Para qual data você gostaria de reservar? (ex: amanhã ou 15/03)";
-    } else if (restaurantFlow?.collectionStage === "collect_datetime") {
-      continuationReply =
-        "Qual horário você prefere? Atendemos conforme nossa agenda.";
-    } else if (restaurantFlow?.collectionStage === "collect_people") {
-      continuationReply = "Para quantas pessoas será a reserva?";
-    } else if (restaurantFlow?.collectionStage === "confirm_reservation") {
-      const people = restaurantFlow.peopleCount ?? 0;
-      continuationReply = `Confirmar reserva para *${people}* pessoa(s)? Responda *sim* para confirmar.`;
-    }
+    const continuationReply = buildActiveFlowContinuationReply();
 
     if (continuationReply) {
       await options.sendMessage(ctx.conversationId, continuationReply);
