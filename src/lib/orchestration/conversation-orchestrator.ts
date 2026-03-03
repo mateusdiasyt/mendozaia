@@ -2512,6 +2512,79 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     looksLikeDirectHumanMechanicalIssue(ctx.messageContent)
   ) {
+    const extractedIssueVehicle = extractVehicleSlotsFromText(ctx.messageContent);
+    const mergedIssueVehicle = mergeVehicleSlots(
+      ctx.vehicleSlots ?? {},
+      extractedIssueVehicle
+    );
+    const missingIssueVehicle = getMissingSlots(mergedIssueVehicle);
+    const inferredIssueName = !contactName
+      ? extractCustomerName(ctx.messageContent, {
+          allowSingleWord: true,
+          blockedValues: [mergedIssueVehicle.modelo ?? ""],
+        })
+      : null;
+    if (!contactName && inferredIssueName) {
+      await db
+        .update(contacts)
+        .set({ name: inferredIssueName, updatedAt: new Date() })
+        .where(eq(contacts.id, ctx.contactId));
+      contactName = inferredIssueName;
+    }
+
+    if (
+      JSON.stringify(mergedIssueVehicle) !== JSON.stringify(ctx.vehicleSlots ?? {})
+    ) {
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: {
+            ...conversationMetadata,
+            vehicleSlots: mergedIssueVehicle,
+            vehicleSlotsUpdatedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      if (mergedIssueVehicle.modelo) {
+        await saveContactMemory(ctx.contactId, "vehicle_model", mergedIssueVehicle.modelo);
+      }
+      if (mergedIssueVehicle.ano) {
+        await saveContactMemory(ctx.contactId, "vehicle_year", String(mergedIssueVehicle.ano));
+      }
+      if (mergedIssueVehicle.km) {
+        await saveContactMemory(ctx.contactId, "vehicle_km", String(mergedIssueVehicle.km));
+      }
+    }
+
+    if (!contactName || missingIssueVehicle.length > 0) {
+      if (!contactName && missingIssueVehicle.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+        await options.sendMessage(
+          ctx.conversationId,
+          "Antes de eu te encaminhar para um mecânico técnico, preciso registrar seu *nome* e os dados do veículo (*modelo, ano e km*). Me envie em uma mensagem, por favor."
+        );
+      } else if (!contactName) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+        await options.sendMessage(
+          ctx.conversationId,
+          "Antes de eu te encaminhar para um mecânico técnico, me informe seu *nome*, por favor."
+        );
+      } else {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await options.sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName.trim()}*. Antes de eu te encaminhar para o mecânico técnico, ${buildMissingVehicleInfoReply(missingIssueVehicle)}`
+        );
+      }
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Problema mecânico detectado; coletando nome e dados do veículo antes do handoff",
+        silence: false,
+      };
+    }
+
     await options.sendMessage(
       ctx.conversationId,
       "Entendi. Isso parece um problema mecânico e vou te encaminhar agora para um mecânico técnico te atender da forma correta."
