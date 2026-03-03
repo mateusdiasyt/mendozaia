@@ -327,6 +327,20 @@ function looksLikeVehicleChanged(text: string): boolean {
   return /\b(sim|mudei|mudou|troquei|tenho outro|outro carro)\b/.test(t);
 }
 
+function looksLikeUnknownKm(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /\b(nao sei|desconheco|nao lembro|sem km)\b/.test(t) &&
+    /\b(km|quilometragem|odometro|odometro)\b/.test(t)
+  );
+}
+
 function looksLikeGenericFlowMessage(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -2850,6 +2864,89 @@ export async function processInboundMessage(
           didReply: true,
           decision: "tool_then_ai",
           reason: "Óleo identificado; seguindo com qualificação após dados completos do veículo",
+          silence: false,
+        };
+      }
+
+      if (reservationContext.serviceName === "Verificação") {
+        const hasKm = !!ctx.vehicleSlots?.km;
+        if (hasKm) {
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+          await options.sendMessage(
+            ctx.conversationId,
+            `Perfeito, já salvei aqui os dados do veículo (${vehicleLabel}). Vou encaminhar agora para um mecânico técnico verificar esse problema.`
+          );
+          const handoff = await handoffToHuman(
+            ctx.conversationId,
+            ctx.organizationId,
+            "Cliente descreveu problema no carro; dados mínimos coletados para atendimento técnico"
+          );
+          if (handoff.success) {
+            await db
+              .update(conversations)
+              .set({
+                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, ctx.conversationId));
+          }
+          return {
+            didReply: true,
+            decision: "human_only",
+            reason: "Verificação com modelo, ano e km; handoff técnico",
+            silence: false,
+          };
+        }
+
+        if (isSimpleAffirmative(ctx.messageContent)) {
+          await options.sendMessage(
+            ctx.conversationId,
+            "Perfeito, fico no aguardo da quilometragem."
+          );
+          return {
+            didReply: true,
+            decision: "tool_then_ai",
+            reason: "Aguardando km do veículo no fluxo de verificação",
+            silence: false,
+          };
+        }
+
+        if (looksLikeUnknownKm(ctx.messageContent)) {
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+          await options.sendMessage(
+            ctx.conversationId,
+            `Sem problemas. Com os dados que já tenho do veículo (${vehicleLabel}), vou encaminhar agora para um mecânico técnico verificar seu caso.`
+          );
+          const handoff = await handoffToHuman(
+            ctx.conversationId,
+            ctx.organizationId,
+            "Cliente não sabe a quilometragem; encaminhado para mecânico técnico"
+          );
+          if (handoff.success) {
+            await db
+              .update(conversations)
+              .set({
+                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, ctx.conversationId));
+          }
+          return {
+            didReply: true,
+            decision: "human_only",
+            reason: "Verificação sem km; handoff técnico",
+            silence: false,
+          };
+        }
+
+        await options.sendMessage(
+          ctx.conversationId,
+          "Perfeito, já salvei aqui o modelo do seu carro. Você consegue me mandar a *km* do seu carro?"
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Verificação com modelo e ano; solicitando km de forma opcional",
           silence: false,
         };
       }

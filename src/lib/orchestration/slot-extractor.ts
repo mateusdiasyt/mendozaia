@@ -136,7 +136,7 @@ function extractModelo(text: string): string | undefined {
   if (candidate) {
     candidate = candidate
       .replace(/\b\d{1,2}\s*w\s*\d{2}\b/gi, " ")
-      .replace(/\b(?:e|é)?\s*um[a]?\s+/gi, " ")
+      .replace(/\b(?:e|é)\s+(?:um[a]?\s+)?/gi, " ")
       .replace(/\s*(?:,|\.|;)\s*$/, "")
       .replace(/\s+/g, " ")
       .trim();
