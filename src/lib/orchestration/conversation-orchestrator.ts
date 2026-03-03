@@ -2512,6 +2512,10 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     looksLikeDirectHumanMechanicalIssue(ctx.messageContent)
   ) {
+    await persistReservationContext(ctx.conversationId, conversationMetadata, {
+      serviceName: "Verificação",
+      productName: reservationContext.productName,
+    });
     const extractedIssueVehicle = extractVehicleSlotsFromText(ctx.messageContent);
     const mergedIssueVehicle = mergeVehicleSlots(
       ctx.vehicleSlots ?? {},
@@ -3001,6 +3005,9 @@ export async function processInboundMessage(
 
       if (reservationContext.serviceName === "Verificação") {
         const hasKm = !!ctx.vehicleSlots?.km;
+        const providedModelOrYearNow = Boolean(
+          vehicleSlotsFromCurrentMessage.modelo || vehicleSlotsFromCurrentMessage.ano
+        );
         if (hasKm) {
           await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
           await options.sendMessage(
@@ -3072,8 +3079,18 @@ export async function processInboundMessage(
 
         await options.sendMessage(
           ctx.conversationId,
-          "Perfeito, já salvei aqui o modelo do seu carro. Você consegue me mandar a *km* do seu carro?"
+          `Perfeito, registrei seu veículo como *${vehicleLabel}*.`
         );
+        await options.sendMessage(
+          ctx.conversationId,
+          "Você consegue me mandar a *km* do seu carro?"
+        );
+        if (!providedModelOrYearNow) {
+          await options.sendMessage(
+            ctx.conversationId,
+            "Se não souber a km, tudo bem que eu continuo seu atendimento."
+          );
+        }
         return {
           didReply: true,
           decision: "tool_then_ai",
