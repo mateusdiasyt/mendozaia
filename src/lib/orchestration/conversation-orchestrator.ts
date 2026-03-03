@@ -3014,7 +3014,7 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     looksLikeCarProblemOrRepairIntent(intentProbeText) &&
     contactName &&
-    missingVehicleProfile.length > 0
+    !hasModelAndYearProfile
   ) {
     const knownName = contactName.trim();
     await persistReservationContext(ctx.conversationId, conversationMetadata, {
@@ -3024,7 +3024,7 @@ export async function processInboundMessage(
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     await options.sendMessage(
       ctx.conversationId,
-      `Perfeito *${knownName}*, me informa o *modelo*, *ano* e *quilometragem* do veículo para que eu possa verificar a disponibilidade de nosso agendamento.`
+      `Perfeito *${knownName}*, me informa o *modelo* e o *ano* do veículo para que eu possa verificar a disponibilidade de nosso agendamento. Se souber, pode me passar também a *quilometragem*.`
     );
     await logOrchestration({
       conversationId: ctx.conversationId,
@@ -3041,7 +3041,7 @@ export async function processInboundMessage(
     return {
       didReply: true,
       decision: "tool_then_ai",
-      reason: "Problema no carro identificado; solicitando modelo, ano e km para agendamento",
+      reason: "Problema no carro identificado; solicitando modelo e ano (km opcional)",
       silence: false,
     };
   }
@@ -3389,31 +3389,36 @@ export async function processInboundMessage(
     if (
       looksLikeCarProblemOrRepairIntent(intentProbeText) &&
       ctx.usesVehicleSlots &&
-      hasFullVehicleProfile &&
-      ctx.reservationsEnabled
+      hasModelAndYearProfile
     ) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Verificação",
         productName: reservationContext.productName,
       });
-      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
-      const reservationWindow = {
-        start: ctx.reservationSchedule?.start ?? "09:00",
-        end: ctx.reservationSchedule?.end ?? "17:00",
-      };
-      const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       const knownName = contactName?.trim() || "";
       await options.sendMessage(
         ctx.conversationId,
-        `Perfeito *${knownName}*! Para verificar a situação do seu veículo, vou agendar. Qual data e horário você prefere? Atendemos das *${reservationWindowLabel}*.`
+        `Perfeito *${knownName}*! Vou encaminhar agora seu atendimento para um mecânico técnico verificar esse problema no veículo.`
       );
-      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
-        collectionStage: "collect_datetime",
-      });
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Cliente descreveu problema no veículo; encaminhado para mecânico técnico"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
       return {
         didReply: true,
-        decision: "tool_then_ai",
-        reason: "Problema no carro com veículo completo; iniciando agendamento",
+        decision: "human_only",
+        reason: "Problema no carro com modelo e ano; handoff técnico",
         silence: false,
       };
     }
