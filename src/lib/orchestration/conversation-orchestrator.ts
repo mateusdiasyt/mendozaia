@@ -3961,7 +3961,11 @@ export async function processInboundMessage(
     // Guard-rail: enquanto estiver aguardando a necessidade do cliente, não pode
     // avançar para reserva só porque recebeu dados adicionais do veículo (ex: km).
     // Sem uma intenção concreta, reforça a pergunta de descoberta.
-    if (!looksLikeCatalogIntent(intentProbeText)) {
+    if (
+      !looksLikeCatalogIntent(intentProbeText) &&
+      !looksLikeCarProblemOrRepairIntent(intentProbeText) &&
+      !looksLikeDirectHumanMechanicalIssue(intentProbeText)
+    ) {
       const followUpNeed =
         "Perfeito, agora que tenho os dados necessários, qual seria a sua dúvida?";
       await options.sendMessage(ctx.conversationId, followUpNeed);
