@@ -236,6 +236,20 @@ function looksLikeVehicleStatusInquiry(text: string): boolean {
   );
 }
 
+function looksLikeCarProblemOrRepairIntent(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(barulho|ruido|ruído|estranho|problema|defeito)\b.*\b(carro|veiculo)\b/.test(t) ||
+    /\b(carro|veiculo)\b.*\b(barulho|ruido|ruído|estranho|problema|defeito)\b/.test(t) ||
+    /\b(verificar|verificacao|verificação|checar|checagem)\b.*\b(carro|veiculo)\b/.test(t) ||
+    /\b(quero fazer verificar|preciso verificar|gostaria de verificar)\b/.test(t) ||
+    /\b(fazer|levar)\b.*\b(verificar|checar)\b/.test(t)
+  );
+}
+
 function buildVehicleSignature(slots: VehicleSlots | undefined): string {
   if (!slots) return "";
   const modelo = (slots.modelo ?? "")
@@ -2883,7 +2897,45 @@ export async function processInboundMessage(
     };
   }
 
-  if (asksKnownName || asksKnownVehicle) {
+  if (
+    ctx.usesVehicleSlots &&
+    looksLikeCarProblemOrRepairIntent(intentProbeText) &&
+    contactName &&
+    missingVehicleProfile.length > 0
+  ) {
+    const knownName = contactName.trim();
+    await persistReservationContext(ctx.conversationId, conversationMetadata, {
+      serviceName: "Verificação",
+      productName: reservationContext.productName,
+    });
+    await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+    await options.sendMessage(
+      ctx.conversationId,
+      `Perfeito *${knownName}*, me informa o *modelo*, *ano* e *quilometragem* do veículo para que eu possa verificar a disponibilidade de nosso agendamento.`
+    );
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "car_problem_direct_vehicle_request",
+      decision: "tool_then_ai",
+      reason: "Cliente descreveu problema no carro; solicitando dados do veículo para agendamento",
+      traceId: params.traceId,
+      stage: "orchestrator.intake",
+      decisionCode: "CAR_PROBLEM_DIRECT_VEHICLE_REQUEST",
+      durationMs: Date.now() - startedAt,
+      metadata: { messageContent: ctx.messageContent },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Problema no carro identificado; solicitando modelo, ano e km para agendamento",
+      silence: false,
+    };
+  }
+
+  const isAskVehicleButCarProblem =
+    asksKnownVehicle && looksLikeCarProblemOrRepairIntent(ctx.messageContent);
+  if ((asksKnownName || asksKnownVehicle) && !isAskVehicleButCarProblem) {
     const knownName = contactName?.trim() || null;
     const knownVehicle = ctx.vehicleSlots ?? {};
     const hasKnownVehicle = !!(knownVehicle.modelo || knownVehicle.ano || knownVehicle.km);
@@ -3218,6 +3270,38 @@ export async function processInboundMessage(
   }
 
   if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(intentProbeText)) {
+    if (
+      looksLikeCarProblemOrRepairIntent(intentProbeText) &&
+      ctx.usesVehicleSlots &&
+      hasFullVehicleProfile &&
+      ctx.reservationsEnabled
+    ) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Verificação",
+        productName: reservationContext.productName,
+      });
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
+      const reservationWindow = {
+        start: ctx.reservationSchedule?.start ?? "09:00",
+        end: ctx.reservationSchedule?.end ?? "17:00",
+      };
+      const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+      const knownName = contactName?.trim() || "";
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito *${knownName}*! Para verificar a situação do seu veículo, vou agendar. Qual data e horário você prefere? Atendemos das *${reservationWindowLabel}*.`
+      );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "collect_datetime",
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Problema no carro com veículo completo; iniciando agendamento",
+        silence: false,
+      };
+    }
+
     if (isRevisionServiceIntent(intentProbeText)) {
       const slots = ctx.vehicleSlots ?? {};
       const hasCompleteVehicleData = !!(slots.modelo && slots.ano && slots.km);
