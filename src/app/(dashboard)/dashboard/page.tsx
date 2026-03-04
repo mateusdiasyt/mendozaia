@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { conversations, contacts, messages } from "@/lib/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import Link from "next/link";
+import { PlanPaywall } from "@/components/billing/plan-paywall";
 import {
   MessageSquare,
   Users,
@@ -50,6 +51,10 @@ export default async function DashboardPage() {
         <p className="text-slate-500">Nenhuma organização encontrada.</p>
       </div>
     );
+  }
+
+  if (org.plan === "free") {
+    return <PlanPaywall organizationName={org.name} />;
   }
 
   const startOfToday = new Date();
