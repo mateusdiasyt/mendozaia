@@ -13,13 +13,13 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s1",
     sender: "client",
-    text: "Oi! Quero agendar uma revisao do meu carro.",
+    text: "Oi! Quero agendar uma revisão do meu carro.",
     delayMs: 1200,
   },
   {
     id: "s2",
     sender: "bot",
-    text: "Perfeito! Me informa seu nome, modelo, ano e km do veiculo.",
+    text: "Perfeito! Me informa seu nome, modelo, ano e km do veículo.",
     delayMs: 2300,
   },
   {
@@ -31,7 +31,7 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s4",
     sender: "bot",
-    text: "Show, dados registrados. Qual dia voce prefere?",
+    text: "Show, dados registrados. Qual dia você prefere?",
     delayMs: 2100,
   },
   {
@@ -43,7 +43,7 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s6",
     sender: "bot",
-    text: "Perfeito. Tenho 10:00, 14:00 e 16:00. Qual horario?",
+    text: "Perfeito. Tenho 10:00, 14:00 e 16:00. Qual horário?",
     delayMs: 2200,
   },
   {
@@ -55,7 +55,7 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s8",
     sender: "bot",
-    text: "Confirmando: revisao do Onix 2022 na quinta as 14:00. Posso confirmar?",
+    text: "Confirmando: revisão do Onix 2022 na quinta às 14:00. Posso confirmar?",
     delayMs: 2300,
   },
   {
@@ -67,7 +67,7 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s10",
     sender: "bot",
-    text: "Reserva confirmada. Te espero na quinta as 14:00.",
+    text: "Reserva confirmada. Te espero na quinta às 14:00.",
     delayMs: 2200,
   },
 ];
@@ -118,7 +118,10 @@ export function AnimatedWhatsappSim() {
       <div className="rounded-xl border border-slate-200 bg-[#f0f2f5] px-3 py-2 text-xs font-semibold text-slate-600">
         Simulacao de conversa (Agendamento completo)
       </div>
-      <div ref={scrollerRef} className="mt-3 h-[292px] space-y-2 overflow-y-auto pr-1">
+      <div
+        ref={scrollerRef}
+        className="mt-3 h-[292px] space-y-2 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pointer-events-none"
+      >
         {visibleMessages.map((message) => {
           const isBot = message.sender === "bot";
           return (
