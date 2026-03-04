@@ -6,10 +6,49 @@ import { processInboundMessage } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
 import type { ConversationEngineInput, ConversationEngineResult } from "./types";
 
-const INBOUND_DEBOUNCE_MS = 1500;
+const INBOUND_DEBOUNCE_DEFAULT_MS = 6000;
+const INBOUND_DEBOUNCE_SHORT_BURST_MS = 8000;
+const INBOUND_DEBOUNCE_CLEAR_INTENT_MS = 4500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeShortBurstMessage(text: string): boolean {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (t.length <= 8) return true;
+  return /^(oi|ola|e ai|eai|opa|beleza|blz|bom dia|boa tarde|boa noite|ein|ok)$/.test(t);
+}
+
+function looksLikeClearIntentMessage(text: string): boolean {
+  const t = normalizeText(text);
+  if (!t) return false;
+  if (t.length >= 70) return true;
+  return (
+    /\b(problema|barulho|fumaca|fumaca|orcamento|revisao|agendar|agendamento|reserva)\b/.test(t) ||
+    /\b(modelo|ano|km|quilometragem)\b/.test(t)
+  );
+}
+
+function getInboundDebounceMs(messageContent: string): number {
+  if (looksLikeShortBurstMessage(messageContent)) {
+    return INBOUND_DEBOUNCE_SHORT_BURST_MS;
+  }
+  if (looksLikeClearIntentMessage(messageContent)) {
+    return INBOUND_DEBOUNCE_CLEAR_INTENT_MS;
+  }
+  return INBOUND_DEBOUNCE_DEFAULT_MS;
 }
 
 function pushReply(replies: string[], text: string): void {
@@ -64,7 +103,8 @@ export async function runConversationEngine(
     input.messageContent.trim() &&
     input.inboundMessageId
   ) {
-    await sleep(INBOUND_DEBOUNCE_MS);
+    const debounceMs = getInboundDebounceMs(input.messageContent);
+    await sleep(debounceMs);
     const [latestInbound] = await db
       .select({ id: messages.id })
       .from(messages)
@@ -90,6 +130,9 @@ export async function runConversationEngine(
         traceId: input.traceId,
         stage: "conversation_engine.debounce",
         decisionCode: "ENGINE_DEBOUNCED",
+        metadata: {
+          debounceMs,
+        },
       });
       return {
         mode: "debounced",
