@@ -1,11 +1,17 @@
 import { auth } from "@/auth";
 
 export default auth((req) => {
+  const pathname = req.nextUrl.pathname;
   const isLoggedIn = !!req.auth;
   const isAuthPage =
-    req.nextUrl.pathname.startsWith("/login") ||
-    req.nextUrl.pathname.startsWith("/registro");
-  const isPublicPage = req.nextUrl.pathname === "/";
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/registro");
+  const isPublicPage = pathname === "/";
+  const isPublicAsset = /\.[^/]+$/.test(pathname); // /logo.png, /icon_mendoza.png, etc.
+
+  if (isPublicAsset) {
+    return;
+  }
 
   if (isAuthPage || isPublicPage) {
     if (isLoggedIn && (isAuthPage || isPublicPage)) {

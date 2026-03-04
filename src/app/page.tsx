@@ -82,13 +82,17 @@ export default async function HomePage() {
             </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold">O que você ganha</h2>
-            <ul className="mt-4 space-y-3 text-sm text-slate-700">
-              <li>- Atendimento híbrido: IA + humano técnico.</li>
-              <li>- Fluxos inteligentes com coleta de dados por etapa.</li>
-              <li>- Painel completo de conversas, contatos e reservas.</li>
-              <li>- Personalização por segmento sem depender de prompt.</li>
-              <li>- Operação pronta para revenda (multi-cliente).</li>
+            <h2 className="text-lg font-semibold text-slate-900">O que você ganha</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Estrutura profissional para atender, vender e escalar.
+            </p>
+            <ul className="mt-4 space-y-2 text-sm text-slate-700">
+              <li>⚡ Respostas mais rápidas com IA e regras de negócio.</li>
+              <li>🤝 Handoff inteligente para humano nos casos críticos.</li>
+              <li>🧠 Memória de cliente e veículo para atendimento contínuo.</li>
+              <li>📅 Agendamentos organizados com disponibilidade automática.</li>
+              <li>📊 Painel claro de conversas, contatos e evolução do time.</li>
+              <li>🧩 Base pronta para múltiplos nichos e revenda.</li>
             </ul>
           </div>
         </div>
@@ -99,7 +103,7 @@ export default async function HomePage() {
           <h2 className="text-3xl font-bold">Como funciona</h2>
           <div className="mt-8 grid gap-4 md:grid-cols-4">
             {[
-              ["1. Conecte o WhatsApp", "Integre o número via Evolution API em minutos."],
+              ["1. Conecte o WhatsApp", "Conecte seu número diretamente no nosso painel em minutos."],
               ["2. Configure seu nicho", "Escolha segmento, tom e regras do atendimento."],
               ["3. Ative automações", "Fluxos inteligentes para orçamento, agendamento e triagem."],
               ["4. Escale com controle", "IA responde, humano assume casos técnicos quando necessário."],
