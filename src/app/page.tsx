@@ -54,7 +54,7 @@ export default async function HomePage() {
       </header>
 
       <section className="mx-auto w-full max-w-6xl px-4 pb-14 pt-14">
-        <div className="grid items-center gap-8 md:grid-cols-2">
+        <div className="grid items-center gap-8">
           <div>
             <p className="inline-flex rounded-full bg-indigo-100 px-3 py-1 text-xs font-semibold text-indigo-700">
               CRM + Automação WhatsApp + IA
@@ -81,20 +81,6 @@ export default async function HomePage() {
                 Ver planos
               </a>
             </div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-900">O que você ganha</h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Estrutura profissional para atender, vender e escalar.
-            </p>
-            <ul className="mt-4 space-y-2 text-sm text-slate-700">
-              <li>⚡ Respostas mais rápidas com IA e regras de negócio.</li>
-              <li>🤝 Handoff inteligente para humano nos casos críticos.</li>
-              <li>🧠 Memória de cliente e veículo para atendimento contínuo.</li>
-              <li>📅 Agendamentos organizados com disponibilidade automática.</li>
-              <li>📊 Painel claro de conversas, contatos e evolução do time.</li>
-              <li>🧩 Base pronta para múltiplos nichos e revenda.</li>
-            </ul>
           </div>
         </div>
       </section>
