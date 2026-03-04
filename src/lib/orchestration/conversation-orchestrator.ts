@@ -254,18 +254,45 @@ function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
   const t = text
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-  return (
-    /\b(barulho|ruido|ruído|batendo|vibrando|tremendo)\b/.test(t) ||
-    /\b(falha|falhando|engasgando|engasgo)\b/.test(t) ||
-    /\b(bico|vela|bobina|inje[cç][aã]o)\b/.test(t) ||
-    /\b(diagnostico|diagnóstico)\b/.test(t) ||
-    /\b(perdeu potencia|perdeu potência|sem forca|sem força|falta forca|falta força|fraco|fraca)\b/.test(t) ||
-    /\b(fumaca|fumaça|fumacando|fumaciando)\b/.test(t) ||
-    /\b(superaquecendo|esquentando demais|ferveu|motor aquecendo)\b/.test(t) ||
-    /\b(nao liga|não liga|apagou|perdeu forca|perdeu força)\b/.test(t) ||
-    /\b(problema|defeito)\b.*\b(carro|veiculo|motor|freio|suspensao|suspensão)\b/.test(t)
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const hasVehicleContext =
+    /\b(carro|veiculo|motor|freio|embreagem|direcao|suspensao|radiador|injecao|bateria|painel)\b/.test(
+      t
+    );
+
+  const criticalPatterns = [
+    /\b(nao liga|apagou|morreu do nada|pane)\b/,
+    /\b(superaquecendo|ferveu|motor aquecendo)\b/,
+    /\b(fumaca|fumacando|fumaciando)\b/,
+    /\b(perdeu potencia|sem forca|falta forca)\b/,
+    /\b(freio falhou|sem freio|freio ruim)\b/,
+    /\b(vazando oleo|vazamento|vazando agua)\b/,
+  ];
+
+  if (criticalPatterns.some((pattern) => pattern.test(t))) {
+    return true;
+  }
+
+  const symptomPatterns = [
+    /\b(barulho|ruido|batendo|vibrando|tremendo)\b/,
+    /\b(falha|falhando|engasgando|engasgo)\b/,
+    /\b(bico|vela|bobina|injecao)\b/,
+    /\b(cheiro estranho|cheiro forte|cheiro de queimado)\b/,
+    /\b(luz do painel|luz de injecao|check engine|alerta no painel)\b/,
+    /\b(defeito|problema mecanico|problema tecnico)\b/,
+    /\b(diagnostico|verificar)\b/,
+  ];
+
+  const symptomHits = symptomPatterns.reduce(
+    (count, pattern) => (pattern.test(t) ? count + 1 : count),
+    0
   );
+
+  return (hasVehicleContext && symptomHits >= 1) || symptomHits >= 2;
 }
 
 function formatVehicleForNaturalSpeech(slots: VehicleSlots | undefined): string {
