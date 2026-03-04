@@ -22,6 +22,7 @@ export default async function ConversasLayout({
       lastMessageAt: conversations.lastMessageAt,
       lastMessagePreview: conversations.lastMessagePreview,
       unreadCount: conversations.unreadCount,
+      contactTypingAt: conversations.contactTypingAt,
       conversationState: conversations.conversationState,
       isPriority: conversations.isPriority,
       contactName: contacts.name,
@@ -41,13 +42,22 @@ export default async function ConversasLayout({
     )
     .orderBy(desc(conversations.lastMessageAt));
 
-  const listWithStatus = list.map((item) => ({
-    ...item,
-    isWaitingHuman:
-      item.conversationState === "waiting_human" ||
-      item.conversationState === "human_active" ||
-      item.isPriority === true,
-  }));
+  const nowMs = Date.now();
+  const CONTACT_TYPING_TIMEOUT_MS = 12_000;
+  const listWithStatus = list.map((item) => {
+    const isTyping =
+      !!item.contactTypingAt &&
+      nowMs - new Date(item.contactTypingAt).getTime() < CONTACT_TYPING_TIMEOUT_MS;
+
+    return {
+      ...item,
+      isTyping,
+      isWaitingHuman:
+        item.conversationState === "waiting_human" ||
+        item.conversationState === "human_active" ||
+        item.isPriority === true,
+    };
+  });
 
   return (
     <div className="flex min-h-0 w-full flex-1 shrink-0">

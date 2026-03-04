@@ -1,7 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { db } from "@/lib/db";
-import { messages } from "@/lib/db/schema";
+import { conversations, messages } from "@/lib/db/schema";
 import { processInboundMessage } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
 import type { ConversationEngineInput, ConversationEngineResult } from "./types";
@@ -9,6 +9,8 @@ import type { ConversationEngineInput, ConversationEngineResult } from "./types"
 const INBOUND_DEBOUNCE_DEFAULT_MS = 6000;
 const INBOUND_DEBOUNCE_SHORT_BURST_MS = 8000;
 const INBOUND_DEBOUNCE_CLEAR_INTENT_MS = 4500;
+const CONTACT_TYPING_WINDOW_MS = 12_000;
+const CONTACT_TYPING_EXTRA_WAIT_MS = 3_500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,6 +59,11 @@ function pushReply(replies: string[], text: string): void {
   const lastReply = replies[replies.length - 1];
   if (lastReply === normalized) return;
   replies.push(normalized);
+}
+
+function isRecentTyping(typingAt: Date | null | undefined): boolean {
+  if (!typingAt) return false;
+  return Date.now() - new Date(typingAt).getTime() < CONTACT_TYPING_WINDOW_MS;
 }
 
 export async function runConversationEngine(
@@ -141,6 +148,68 @@ export async function runConversationEngine(
         orchestratorDidReply: false,
         silence: true,
       };
+    }
+
+    const [conversationTypingState] = await db
+      .select({ contactTypingAt: conversations.contactTypingAt })
+      .from(conversations)
+      .where(eq(conversations.id, input.conversationId))
+      .limit(1);
+
+    if (isRecentTyping(conversationTypingState?.contactTypingAt ?? null)) {
+      await logOrchestration({
+        conversationId: input.conversationId,
+        organizationId: input.organizationId,
+        event: "conversation_engine_typing_pause",
+        decision: "tool_then_ai",
+        reason: "Contato digitando; aplicando espera extra antes de responder",
+        traceId: input.traceId,
+        stage: "conversation_engine.typing_pause",
+        decisionCode: "ENGINE_TYPING_PAUSE",
+        metadata: {
+          extraWaitMs: CONTACT_TYPING_EXTRA_WAIT_MS,
+        },
+      });
+
+      await sleep(CONTACT_TYPING_EXTRA_WAIT_MS);
+
+      const [latestInboundAfterTypingWait] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, input.conversationId),
+            eq(messages.direction, "inbound")
+          )
+        )
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+
+      if (
+        latestInboundAfterTypingWait?.id &&
+        latestInboundAfterTypingWait.id !== input.inboundMessageId
+      ) {
+        await logOrchestration({
+          conversationId: input.conversationId,
+          organizationId: input.organizationId,
+          event: "conversation_engine_debounced",
+          decision: "tool_then_ai",
+          reason: "Nova mensagem inbound durante espera de digitação",
+          traceId: input.traceId,
+          stage: "conversation_engine.typing_pause",
+          decisionCode: "ENGINE_DEBOUNCED_TYPING",
+          metadata: {
+            extraWaitMs: CONTACT_TYPING_EXTRA_WAIT_MS,
+          },
+        });
+        return {
+          mode: "debounced",
+          replies,
+          automationDidReply: false,
+          orchestratorDidReply: false,
+          silence: true,
+        };
+      }
     }
   }
 
