@@ -63,10 +63,12 @@ export function PlanPaywall({
     () => PLANS.find((p) => p.id === selectedPlan) ?? null,
     [selectedPlan]
   );
+  const isAwaitingApproval = billingStatus === "pending_approval";
+  const currentStep = isAwaitingApproval ? 3 : step === "proof" ? 3 : selectedPlanData ? 2 : 1;
 
   return (
     <div className="mx-auto w-full max-w-6xl p-8">
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-6">
+      <div className="rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-white p-6">
         <div className="flex items-center gap-3">
           <Lock className="h-5 w-5 text-indigo-700" />
           <h1 className="text-xl font-semibold text-indigo-900">
@@ -79,11 +81,36 @@ export function PlanPaywall({
         </p>
       </div>
 
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="grid gap-2 md:grid-cols-3">
+          <StepItem
+            index={1}
+            title="Escolha do plano"
+            active={currentStep >= 1}
+            done={currentStep > 1}
+          />
+          <StepItem
+            index={2}
+            title="Pagamento via PIX"
+            active={currentStep >= 2}
+            done={currentStep > 2}
+          />
+          <StepItem
+            index={3}
+            title="Envio de comprovante"
+            active={currentStep >= 3}
+            done={isAwaitingApproval}
+          />
+        </div>
+      </div>
+
       {billingStatus === "pending_approval" && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          Aguardando aprovação, aguarde um momento.
-          {requestedPlan ? ` Plano solicitado: ${requestedPlan.toUpperCase()}.` : ""}
-          {proofFileNameInitial ? ` Comprovante recebido: ${proofFileNameInitial}.` : ""}
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 shadow-sm">
+          <p className="font-semibold">Aguardando aprovação, aguarde um momento.</p>
+          <p className="mt-1">
+            {requestedPlan ? `Plano solicitado: ${requestedPlan.toUpperCase()}. ` : ""}
+            {proofFileNameInitial ? `Comprovante recebido: ${proofFileNameInitial}.` : ""}
+          </p>
         </div>
       )}
 
@@ -95,7 +122,14 @@ export function PlanPaywall({
               selectedPlan === plan.id ? "border-indigo-500 ring-2 ring-indigo-100" : "border-slate-200"
             }`}
           >
-            <h2 className="text-lg font-semibold text-slate-900">{plan.name}</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              {plan.name}
+              {selectedPlan === plan.id && (
+                <span className="ml-2 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+                  Selecionado
+                </span>
+              )}
+            </h2>
             <p className="mt-1 text-3xl font-bold text-slate-900">{plan.price}</p>
             <p className="mt-1 text-sm text-slate-500">{plan.description}</p>
             <ul className="mt-4 space-y-2 text-sm text-slate-700">
@@ -113,7 +147,7 @@ export function PlanPaywall({
                 setSelectedPlan(plan.id);
               }}
             >
-              Pagar este plano
+              Escolher plano
             </button>
           </article>
         ))}
@@ -121,9 +155,18 @@ export function PlanPaywall({
 
       {selectedPlanData && (
         <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-semibold text-slate-900">
-            Pagamento via PIX - Plano {selectedPlanData.name}
-          </h3>
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">
+              Checkout do plano
+            </p>
+            <h3 className="mt-1 text-lg font-semibold text-indigo-900">
+              {selectedPlanData.name} - {selectedPlanData.price}
+            </h3>
+          </div>
+
+          <h4 className="mt-5 text-sm font-semibold uppercase tracking-wide text-slate-600">
+            Etapa 2 - Pague com PIX
+          </h4>
           <div className="mt-4 grid gap-3 text-sm text-slate-700 md:grid-cols-2">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="font-medium text-slate-900">Chave PIX</p>
@@ -138,7 +181,7 @@ export function PlanPaywall({
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <QrCode className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Agora envie o valor do plano para a chave PIX acima.
+              Envie o valor do plano para a chave PIX acima e depois avance para enviar o comprovante.
             </p>
           </div>
 
@@ -159,8 +202,11 @@ export function PlanPaywall({
               </button>
             ) : (
               <div className="w-full space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
+                  Etapa 3 - Envie o comprovante
+                </h4>
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  Agora envie o arquivo do comprovante (print ou PDF) no painel.
+                  Envie o arquivo do comprovante (print ou PDF) para análise do admin.
                 </div>
                 <input
                   type="file"
@@ -217,6 +263,41 @@ export function PlanPaywall({
           <span>{errorMessage}</span>
         </div>
       )}
+    </div>
+  );
+}
+
+function StepItem({
+  index,
+  title,
+  active,
+  done,
+}: {
+  index: number;
+  title: string;
+  active: boolean;
+  done: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-xl border px-3 py-3 text-sm ${
+        active ? "border-indigo-200 bg-indigo-50" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+            done
+              ? "bg-emerald-100 text-emerald-700"
+              : active
+                ? "bg-indigo-100 text-indigo-700"
+                : "bg-slate-200 text-slate-600"
+          }`}
+        >
+          {index}
+        </span>
+        <span className="font-medium text-slate-800">{title}</span>
+      </div>
     </div>
   );
 }
