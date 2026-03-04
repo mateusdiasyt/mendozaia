@@ -54,6 +54,7 @@ export async function signUp(formData: FormData) {
       .values({
         name: organizationName,
         slug,
+        plan: "none",
       })
       .returning();
 

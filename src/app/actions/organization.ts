@@ -344,6 +344,122 @@ export async function submitPaymentAndActivatePlan(plan: string) {
   return { success: true };
 }
 
+export async function submitPaymentProof(
+  plan: "starter" | "pro" | "scale",
+  proofReference: string
+) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+  if (!ALLOWED_PAID_PLANS.has(plan)) return { error: "Plano inválido" };
+
+  const trimmedProof = proofReference.trim();
+  if (!trimmedProof) return { error: "Envie o comprovante para análise" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        billing: {
+          ...billing,
+          status: "pending_approval",
+          requestedPlan: plan,
+          paymentMethod: "pix",
+          pixKey: BILLING_PIX_KEY,
+          proofContact: BILLING_PROOF_CONTACT,
+          proofReference: trimmedProof,
+          proofSubmittedAt: new Date().toISOString(),
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard/admin/usuarios");
+  return { success: true };
+}
+
+export async function adminReviewPaymentRequest(
+  organizationId: string,
+  decision: "approve" | "deny"
+) {
+  const membership = await getCurrentMembership();
+  if (!membership || membership.role !== "platform_admin") {
+    return { error: "Sem permissão" };
+  }
+
+  const [current] = await db
+    .select({ plan: organizations.plan, settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+
+  if (!current) return { error: "Organização não encontrada" };
+
+  const settings = (current.settings as Record<string, unknown>) ?? {};
+  const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
+  const requestedPlan =
+    typeof billing.requestedPlan === "string" ? billing.requestedPlan : null;
+
+  if (!requestedPlan || !ALLOWED_PAID_PLANS.has(requestedPlan)) {
+    return { error: "Nenhuma solicitação pendente válida para aprovação" };
+  }
+
+  if (decision === "approve") {
+    await db
+      .update(organizations)
+      .set({
+        plan: requestedPlan,
+        settings: {
+          ...settings,
+          billing: {
+            ...billing,
+            status: "active",
+            approvedAt: new Date().toISOString(),
+            reviewedAt: new Date().toISOString(),
+            reviewDecision: "approved",
+            requestedPlan: null,
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(organizations.id, organizationId));
+  } else {
+    await db
+      .update(organizations)
+      .set({
+        plan: "none",
+        settings: {
+          ...settings,
+          billing: {
+            ...billing,
+            status: "rejected",
+            reviewedAt: new Date().toISOString(),
+            reviewDecision: "rejected",
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(organizations.id, organizationId));
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/admin/usuarios");
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true };
+}
+
 export async function adminSetOrganizationPlan(
   organizationId: string,
   plan: "none" | "starter" | "pro" | "scale"
@@ -379,6 +495,7 @@ export async function adminSetOrganizationPlan(
           status: isPaidPlan ? "active" : "inactive",
           activatedAt: isPaidPlan ? new Date().toISOString() : null,
           activatedBy: "platform_admin_manual",
+          requestedPlan: null,
         },
       },
       updatedAt: new Date(),

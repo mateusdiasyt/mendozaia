@@ -1,7 +1,7 @@
 import { auth } from "@/auth";
 import { getCurrentMembership, getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
-import { conversations, contacts, messages } from "@/lib/db/schema";
+import { conversations, contacts, messages, organizations } from "@/lib/db/schema";
 import { and, eq, gte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { PlanPaywall } from "@/components/billing/plan-paywall";
@@ -22,6 +22,22 @@ export default async function DashboardPage() {
   const org = await getCurrentOrganization();
 
   if (membership?.role === "platform_admin") {
+    const orgBillingRows = await db
+      .select({
+        id: organizations.id,
+        name: organizations.name,
+        settings: organizations.settings,
+      })
+      .from(organizations);
+
+    const pendingApprovals = orgBillingRows.filter((orgRow) => {
+      const settings =
+        (orgRow.settings as Record<string, unknown> | undefined) ?? {};
+      const billing =
+        (settings.billing as Record<string, unknown> | undefined) ?? {};
+      return billing.status === "pending_approval";
+    });
+
     return (
       <div className="p-8">
         <div className="mb-8">
@@ -41,6 +57,32 @@ export default async function DashboardPage() {
             <li>• Sem acesso a dados operacionais por organização</li>
           </ul>
         </div>
+
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-amber-900">
+            Notificações de pagamento
+          </h3>
+          <p className="mt-2 text-sm text-amber-900">
+            {pendingApprovals.length > 0
+              ? `${pendingApprovals.length} organização(ões) aguardando aprovação de comprovante.`
+              : "Sem pagamentos pendentes no momento."}
+          </p>
+          {pendingApprovals.length > 0 && (
+            <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-amber-900">
+              {pendingApprovals.slice(0, 5).map((item) => (
+                <li key={item.id}>{item.name}</li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-4">
+            <Link
+              href="/dashboard/admin/usuarios"
+              className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-500"
+            >
+              Revisar pagamentos na aba Usuários
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
@@ -54,7 +96,22 @@ export default async function DashboardPage() {
   }
 
   if (org.plan === "free" || org.plan === "none") {
-    return <PlanPaywall organizationName={org.name} />;
+    const settings = (org.settings as Record<string, unknown> | undefined) ?? {};
+    const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
+    const billingStatus =
+      typeof billing.status === "string" ? billing.status : null;
+    const requestedPlan =
+      typeof billing.requestedPlan === "string" ? billing.requestedPlan : null;
+    const proofReferenceInitial =
+      typeof billing.proofReference === "string" ? billing.proofReference : null;
+    return (
+      <PlanPaywall
+        organizationName={org.name}
+        billingStatus={billingStatus}
+        requestedPlan={requestedPlan}
+        proofReferenceInitial={proofReferenceInitial}
+      />
+    );
   }
 
   const startOfToday = new Date();

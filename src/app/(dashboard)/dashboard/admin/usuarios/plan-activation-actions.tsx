@@ -3,13 +3,18 @@
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { adminSetOrganizationPlan } from "@/app/actions/organization";
+import { adminReviewPaymentRequest } from "@/app/actions/organization";
 
 export function PlanActivationActions({
   organizationId,
   currentPlan,
+  billingStatus,
+  requestedPlan,
 }: {
   organizationId: string;
   currentPlan: string;
+  billingStatus?: string | null;
+  requestedPlan?: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -22,9 +27,48 @@ export function PlanActivationActions({
   ];
 
   const normalizedCurrentPlan = currentPlan === "free" ? "none" : currentPlan;
+  const canReview = billingStatus === "pending_approval" && !!requestedPlan;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="space-y-2">
+      {canReview && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const result = await adminReviewPaymentRequest(
+                  organizationId,
+                  "approve"
+                );
+                if (!result?.error) router.refresh();
+              })
+            }
+            className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Aprovar {requestedPlan?.toUpperCase()}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              startTransition(async () => {
+                const result = await adminReviewPaymentRequest(
+                  organizationId,
+                  "deny"
+                );
+                if (!result?.error) router.refresh();
+              })
+            }
+            className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Negar solicitação
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
       {plans.map((plan) => (
         <button
           key={plan}
@@ -47,6 +91,7 @@ export function PlanActivationActions({
           {plan === "none" ? "SEM PLANO" : plan.toUpperCase()}
         </button>
       ))}
+      </div>
     </div>
   );
 }

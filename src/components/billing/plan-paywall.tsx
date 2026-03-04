@@ -2,8 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { submitPaymentAndActivatePlan } from "@/app/actions/organization";
-import { CheckCircle2, Lock, QrCode } from "lucide-react";
+import { submitPaymentProof } from "@/app/actions/organization";
+import { CheckCircle2, Lock, QrCode, AlertCircle } from "lucide-react";
 
 type PlanId = "starter" | "pro" | "scale";
 
@@ -40,10 +40,23 @@ const PLANS: Array<{
   },
 ];
 
-export function PlanPaywall({ organizationName }: { organizationName: string }) {
+export function PlanPaywall({
+  organizationName,
+  billingStatus,
+  requestedPlan,
+  proofReferenceInitial,
+}: {
+  organizationName: string;
+  billingStatus?: string | null;
+  requestedPlan?: string | null;
+  proofReferenceInitial?: string | null;
+}) {
   const router = useRouter();
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
+  const [step, setStep] = useState<"select" | "proof">("select");
+  const [proofReference, setProofReference] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   const selectedPlanData = useMemo(
@@ -66,6 +79,14 @@ export function PlanPaywall({ organizationName }: { organizationName: string }) 
         </p>
       </div>
 
+      {billingStatus === "pending_approval" && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Aguardando aprovação, aguarde um momento.
+          {requestedPlan ? ` Plano solicitado: ${requestedPlan.toUpperCase()}.` : ""}
+          {proofReferenceInitial ? " Comprovante recebido no painel." : ""}
+        </div>
+      )}
+
       <div className="mt-6 grid gap-4 md:grid-cols-3">
         {PLANS.map((plan) => (
           <article
@@ -87,6 +108,8 @@ export function PlanPaywall({ organizationName }: { organizationName: string }) 
               className="mt-5 w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
               onClick={() => {
                 setSuccessMessage(null);
+                setErrorMessage(null);
+                setStep("select");
                 setSelectedPlan(plan.id);
               }}
             >
@@ -115,28 +138,63 @@ export function PlanPaywall({ organizationName }: { organizationName: string }) 
           <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <QrCode className="mt-0.5 h-4 w-4 shrink-0" />
             <p>
-              Envie o comprovante para o contato acima e clique no botão abaixo. O painel será
-              ativado automaticamente para o plano selecionado.
+              Agora envie o valor do plano para a chave PIX acima.
             </p>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-3">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() =>
-                startTransition(async () => {
-                  const result = await submitPaymentAndActivatePlan(selectedPlanData.id);
-                  if (!result?.error) {
-                    setSuccessMessage("Comprovante enviado e plano ativado com sucesso.");
-                    router.refresh();
+            {step === "select" ? (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  setStep("proof");
+                  setSuccessMessage(null);
+                  setErrorMessage(null);
+                }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Já enviei o pagamento
+              </button>
+            ) : (
+              <div className="w-full space-y-3">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  Agora envie o comprovante de pagamento (link do print, arquivo no drive ou
+                  referência do envio).
+                </div>
+                <input
+                  type="text"
+                  value={proofReference}
+                  onChange={(event) => setProofReference(event.target.value)}
+                  placeholder="Cole aqui o link/referência do comprovante"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                />
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={() =>
+                    startTransition(async () => {
+                      setErrorMessage(null);
+                      const result = await submitPaymentProof(
+                        selectedPlanData.id,
+                        proofReference
+                      );
+                      if (result?.error) {
+                        setErrorMessage(result.error);
+                        return;
+                      }
+                      setSuccessMessage(
+                        "Comprovante enviado. Aguardando aprovação, aguarde um momento."
+                      );
+                      router.refresh();
+                    })
                   }
-                })
-              }
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pending ? "Ativando..." : "Já enviei o comprovante"}
-            </button>
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pending ? "Enviando..." : "Enviar comprovante no painel"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -145,6 +203,12 @@ export function PlanPaywall({ organizationName }: { organizationName: string }) 
         <div className="mt-4 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           <CheckCircle2 className="h-4 w-4" />
           <span>{successMessage}</span>
+        </div>
+      )}
+      {errorMessage && (
+        <div className="mt-4 flex items-center gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+          <AlertCircle className="h-4 w-4" />
+          <span>{errorMessage}</span>
         </div>
       )}
     </div>
