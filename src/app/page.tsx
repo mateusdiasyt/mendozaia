@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
+import { AnimatedWhatsappSim } from "@/components/landing/animated-whatsapp-sim";
 
 export default async function HomePage() {
   const session = await auth();
@@ -116,44 +117,7 @@ export default async function HomePage() {
               ))}
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-[#efeae2] p-4 shadow-sm">
-              <div className="rounded-xl border border-slate-200 bg-[#f0f2f5] px-3 py-2 text-xs font-semibold text-slate-600">
-                Simulação de conversa (Oficina)
-              </div>
-              <div className="mt-3 space-y-2">
-                <div className="max-w-[82%] rounded-xl rounded-bl-sm bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
-                  Oi! Meu carro está fazendo um barulho estranho.
-                </div>
-                <div className="ml-auto max-w-[82%] rounded-xl rounded-br-sm bg-[#d9fdd3] px-3 py-2 text-sm text-slate-800 shadow-sm">
-                  Entendi! Vou te ajudar. Qual é o modelo do veículo?
-                </div>
-                <div className="max-w-[82%] rounded-xl rounded-bl-sm bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
-                  Onix 2022
-                </div>
-                <div className="ml-auto max-w-[82%] rounded-xl rounded-br-sm bg-[#d9fdd3] px-3 py-2 text-sm text-slate-800 shadow-sm">
-                  Perfeito, Onix 2022 registrado. Se souber, me manda a km.
-                </div>
-                <div className="max-w-[82%] rounded-xl rounded-bl-sm bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
-                  Não sei a km agora
-                </div>
-                <div className="ml-auto max-w-[82%] rounded-xl rounded-br-sm bg-[#d9fdd3] px-3 py-2 text-sm text-slate-800 shadow-sm">
-                  Sem problemas. Vou te encaminhar para um mecânico técnico agora.
-                </div>
-                <div className="max-w-28 rounded-xl rounded-bl-sm bg-white px-3 py-2 shadow-sm">
-                  <div className="flex items-center gap-1">
-                    <span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />
-                    <span
-                      className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
-                      style={{ animationDelay: "150ms" }}
-                    />
-                    <span
-                      className="h-2 w-2 animate-pulse rounded-full bg-slate-400"
-                      style={{ animationDelay: "300ms" }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AnimatedWhatsappSim />
           </div>
         </div>
       </section>
