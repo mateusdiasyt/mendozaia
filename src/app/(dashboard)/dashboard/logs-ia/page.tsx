@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
-import { getCurrentOrganization } from "@/lib/auth-utils";
+import { getCurrentMembership, getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { orchestrationLogs } from "@/lib/db/schema";
 import { CopyTextButton } from "./copy-text-button";
+import { notFound } from "next/navigation";
 
 type LogMetadata = Record<string, unknown> | null;
 
@@ -93,6 +94,11 @@ function formatLogLineForClipboard(log: {
 }
 
 export default async function LogsIAPage() {
+  const membership = await getCurrentMembership();
+  if (!membership || membership.role !== "admin") {
+    notFound();
+  }
+
   const org = await getCurrentOrganization();
   if (!org) return null;
 

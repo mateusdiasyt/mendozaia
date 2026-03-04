@@ -75,7 +75,7 @@ export function Sidebar({
                 },
               ]
             : []),
-          { href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity },
+          ...(isAdmin ? [{ href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity }] : []),
           ...(isAdmin
             ? [{ href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck }]
             : []),
