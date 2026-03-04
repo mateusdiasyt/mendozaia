@@ -259,6 +259,8 @@ function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
     /\b(barulho|ruido|ruído|batendo|vibrando|tremendo)\b/.test(t) ||
     /\b(falha|falhando|engasgando|engasgo)\b/.test(t) ||
     /\b(bico|vela|bobina|inje[cç][aã]o)\b/.test(t) ||
+    /\b(diagnostico|diagnóstico)\b/.test(t) ||
+    /\b(perdeu potencia|perdeu potência|sem forca|sem força|falta forca|falta força|fraco|fraca)\b/.test(t) ||
     /\b(fumaca|fumaça|fumacando|fumaciando)\b/.test(t) ||
     /\b(superaquecendo|esquentando demais|ferveu|motor aquecendo)\b/.test(t) ||
     /\b(nao liga|não liga|apagou|perdeu forca|perdeu força)\b/.test(t) ||
