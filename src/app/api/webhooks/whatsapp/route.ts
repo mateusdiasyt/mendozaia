@@ -65,6 +65,32 @@ interface WebhookPayload {
 
 const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
 
+/** Antes de enviar: aguarda até 3s se o contato estiver digitando (evita interromper) */
+const SEND_BEFORE_TYPING_WAIT_MS = 3_000;
+const SEND_TYPING_POLL_MS = 400;
+
+async function waitIfContactTyping(
+  conversationId: string,
+  maxWaitMs: number = SEND_BEFORE_TYPING_WAIT_MS
+): Promise<void> {
+  let elapsed = 0;
+  while (elapsed < maxWaitMs) {
+    const [conv] = await db
+      .select({ contactTypingAt: conversations.contactTypingAt })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    const typingAt = conv?.contactTypingAt;
+    const isTyping =
+      !!typingAt &&
+      Date.now() - new Date(typingAt).getTime() < 5_000;
+
+    if (!isTyping) return;
+    await new Promise((r) => setTimeout(r, SEND_TYPING_POLL_MS));
+    elapsed += SEND_TYPING_POLL_MS;
+  }
+}
+
 function parsePresenceUpdate(body: WebhookPayload): {
   sessionId: string;
   remoteJid: string;
@@ -461,6 +487,7 @@ export async function POST(request: NextRequest) {
 
     const executor = {
       sendMessage: async (convId: string, message: string) => {
+        await waitIfContactTyping(convId);
         const apiUrl = process.env.WHATSAPP_API_URL;
         const apiKey = process.env.EVOLUTION_API_KEY;
         if (!apiUrl) {

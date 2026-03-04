@@ -9,9 +9,11 @@ import type { ConversationEngineInput, ConversationEngineResult } from "./types"
 const INBOUND_DEBOUNCE_DEFAULT_MS = 6000;
 const INBOUND_DEBOUNCE_SHORT_BURST_MS = 8000;
 const INBOUND_DEBOUNCE_CLEAR_INTENT_MS = 4500;
-const CONTACT_TYPING_IDLE_WAIT_MS = 3_000;
-const CONTACT_TYPING_POLL_MS = 700;
-const CONTACT_TYPING_MAX_PAUSE_MS = 20_000;
+/** Considera "digitando" se o último presence foi há menos que isso (presence pode ser esparso) */
+const CONTACT_TYPING_IDLE_WAIT_MS = 5_000;
+const CONTACT_TYPING_POLL_MS = 600;
+/** Máximo de espera quando contato está digitando (evita delay excessivo) */
+const CONTACT_TYPING_MAX_PAUSE_MS = 12_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,46 +113,7 @@ export async function runConversationEngine(
     input.messageContent.trim() &&
     input.inboundMessageId
   ) {
-    const debounceMs = getInboundDebounceMs(input.messageContent);
-    await sleep(debounceMs);
-    const [latestInbound] = await db
-      .select({ id: messages.id })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, input.conversationId),
-          eq(messages.direction, "inbound")
-        )
-      )
-      .orderBy(desc(messages.createdAt))
-      .limit(1);
-
-    if (
-      latestInbound?.id &&
-      latestInbound.id !== input.inboundMessageId
-    ) {
-      await logOrchestration({
-        conversationId: input.conversationId,
-        organizationId: input.organizationId,
-        event: "conversation_engine_debounced",
-        decision: "tool_then_ai",
-        reason: "Mensagem inbound mais nova detectada; aguardando composição",
-        traceId: input.traceId,
-        stage: "conversation_engine.debounce",
-        decisionCode: "ENGINE_DEBOUNCED",
-        metadata: {
-          debounceMs,
-        },
-      });
-      return {
-        mode: "debounced",
-        replies,
-        automationDidReply: false,
-        orchestratorDidReply: false,
-        silence: true,
-      };
-    }
-
+    // 1. PRIMEIRO: aguardar contato parar de digitar (evita interromper enquanto está escrevendo)
     let typingPauseElapsedMs = 0;
     let [conversationTypingState] = await db
       .select({ contactTypingAt: conversations.contactTypingAt })
@@ -164,12 +127,13 @@ export async function runConversationEngine(
         organizationId: input.organizationId,
         event: "conversation_engine_typing_pause",
         decision: "tool_then_ai",
-        reason: "Contato digitando; aguardando 3s de inatividade",
+        reason: "Contato digitando; aguardando inatividade antes de processar",
         traceId: input.traceId,
         stage: "conversation_engine.typing_pause",
         decisionCode: "ENGINE_TYPING_PAUSE",
         metadata: {
           idleWaitMs: CONTACT_TYPING_IDLE_WAIT_MS,
+          maxPauseMs: CONTACT_TYPING_MAX_PAUSE_MS,
         },
       });
       while (
@@ -210,9 +174,7 @@ export async function runConversationEngine(
           traceId: input.traceId,
           stage: "conversation_engine.typing_pause",
           decisionCode: "ENGINE_DEBOUNCED_TYPING",
-          metadata: {
-              pauseElapsedMs: typingPauseElapsedMs,
-          },
+          metadata: { pauseElapsedMs: typingPauseElapsedMs },
         });
         return {
           mode: "debounced",
@@ -222,6 +184,45 @@ export async function runConversationEngine(
           silence: true,
         };
       }
+    }
+
+    // 2. DEPOIS: debounce para capturar mensagens em sequência
+    const debounceMs = getInboundDebounceMs(input.messageContent);
+    await sleep(debounceMs);
+    const [latestInbound] = await db
+      .select({ id: messages.id })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, input.conversationId),
+          eq(messages.direction, "inbound")
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+
+    if (
+      latestInbound?.id &&
+      latestInbound.id !== input.inboundMessageId
+    ) {
+      await logOrchestration({
+        conversationId: input.conversationId,
+        organizationId: input.organizationId,
+        event: "conversation_engine_debounced",
+        decision: "tool_then_ai",
+        reason: "Mensagem inbound mais nova detectada; aguardando composição",
+        traceId: input.traceId,
+        stage: "conversation_engine.debounce",
+        decisionCode: "ENGINE_DEBOUNCED",
+        metadata: { debounceMs },
+      });
+      return {
+        mode: "debounced",
+        replies,
+        automationDidReply: false,
+        orchestratorDidReply: false,
+        silence: true,
+      };
     }
   }
 
