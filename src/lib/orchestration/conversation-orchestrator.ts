@@ -347,6 +347,97 @@ function normalizeVehicleModelKey(value: string | undefined | null): string {
     .trim();
 }
 
+const KNOWN_BRANDS = [
+  "fiat",
+  "ford",
+  "chevrolet",
+  "gm",
+  "volkswagen",
+  "vw",
+  "toyota",
+  "honda",
+  "hyundai",
+  "renault",
+  "peugeot",
+  "citroen",
+  "nissan",
+  "jeep",
+  "mitsubishi",
+  "kia",
+  "bmw",
+  "audi",
+  "mercedes",
+];
+
+function prettifyVehicleLabel(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function looksLikeVehicleCoverageQuestion(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return (
+    /\b(voces|você|vc|vocês)\b.*\b(atende|atendem|aceita|aceitam)\b/.test(t) ||
+    /\b(atende|atendem|aceita|aceitam)\b.*\b(carro|veiculo|modelo|marca)\b/.test(t) ||
+    /\b(quais|qual)\b.*\b(carros|modelos|anos)\b.*\b(atende|atendem|aceita|aceitam)\b/.test(t)
+  );
+}
+
+function extractBrandMention(text: string): string | null {
+  const t = normalizeForSearch(text);
+  for (const brand of KNOWN_BRANDS) {
+    const regex = new RegExp(`\\b${brand}\\b`, "i");
+    if (regex.test(t)) {
+      return brand;
+    }
+  }
+  return null;
+}
+
+function buildVehiclePolicySummaryText(policy: {
+  minAllowedYear?: number | null;
+  blockedModels?: string[];
+  blockedModelYears?: Array<{ model: string; year?: number | null }>;
+}): string {
+  const chunks: string[] = [];
+  if (policy.minAllowedYear) {
+    chunks.push(`Atendemos veículos a partir de *${policy.minAllowedYear}*.`);
+  } else {
+    chunks.push("Atendemos veículos de diferentes anos, conforme avaliação da oficina.");
+  }
+
+  const blockedModels = (policy.blockedModels ?? [])
+    .map((model) => normalizeVehicleModelKey(model))
+    .filter(Boolean);
+  if (blockedModels.length > 0) {
+    const preview = blockedModels.slice(0, 6).map((model) => prettifyVehicleLabel(model));
+    const moreCount = blockedModels.length - preview.length;
+    const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
+    chunks.push(`Exceções por modelo: *${preview.join(", ")}*${suffix}.`);
+  }
+
+  const blockedModelYears = (policy.blockedModelYears ?? [])
+    .map((item) => ({
+      model: normalizeVehicleModelKey(item.model),
+      year: typeof item.year === "number" ? item.year : null,
+    }))
+    .filter((item) => !!item.model && !!item.year);
+  if (blockedModelYears.length > 0) {
+    const preview = blockedModelYears
+      .slice(0, 4)
+      .map((item) => `${prettifyVehicleLabel(item.model)} ${item.year}`);
+    const moreCount = blockedModelYears.length - preview.length;
+    const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
+    chunks.push(`Exceções por ano/modelo: *${preview.join(", ")}*${suffix}.`);
+  }
+
+  chunks.push("Se quiser, me diga *modelo e ano* que eu confirmo na hora pra você.");
+  return chunks.join("\n");
+}
+
 function evaluateVehicleServicePolicy(
   policy:
     | {
@@ -2941,6 +3032,54 @@ export async function processInboundMessage(
     ctx.conversationId,
     ctx.messageContent
   );
+  if (ctx.usesVehicleSlots && looksLikeVehicleCoverageQuestion(intentProbeText)) {
+    const extractedQuestionSlots = extractVehicleSlotsFromText(intentProbeText);
+    const askedYear = extractedQuestionSlots.ano ?? null;
+    const askedModelRaw = extractedQuestionSlots.modelo ?? extractBrandMention(intentProbeText);
+    const askedModel = askedModelRaw ? normalizeVehicleModelKey(askedModelRaw) : "";
+    const policy = ctx.vehicleServicePolicy ?? {};
+
+    if (askedModel && !askedYear) {
+      await options.sendMessage(
+        ctx.conversationId,
+        `Consigo te confirmar sim. Me informa o *ano* do ${prettifyVehicleLabel(askedModel)} para eu validar certinho na nossa política de atendimento.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Pergunta de cobertura por modelo sem ano; solicitando ano",
+        silence: false,
+      };
+    }
+
+    if (askedYear || askedModel) {
+      const decision = evaluateVehicleServicePolicy(policy, {
+        modelo: askedModel || undefined,
+        ano: askedYear || undefined,
+      });
+      const response = decision.blocked
+        ? `${decision.reason}\n\nSe preferir, me passe outro veículo (modelo e ano) que eu verifico na hora.`
+        : "Sim, esse veículo está dentro da nossa política de atendimento.";
+      await options.sendMessage(ctx.conversationId, response);
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Pergunta de cobertura por modelo/ano respondida",
+        silence: false,
+      };
+    }
+
+    await options.sendMessage(
+      ctx.conversationId,
+      buildVehiclePolicySummaryText(policy)
+    );
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Pergunta geral sobre veículos atendidos",
+      silence: false,
+    };
+  }
   const isReservationProfileCollection =
     ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
   const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
