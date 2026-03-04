@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type SimMessage = {
   id: string;
@@ -9,144 +9,116 @@ type SimMessage = {
   delayMs: number;
 };
 
-type SimScenario = {
-  id: string;
-  title: string;
-  messages: SimMessage[];
-};
-
-const SCENARIOS: SimScenario[] = [
+const SCRIPT: SimMessage[] = [
   {
-    id: "oficina-tecnico",
-    title: "Simulacao de conversa (Oficina - Caso tecnico)",
-    messages: [
-      {
-        id: "a1",
-        sender: "client",
-        text: "Oi! Meu carro esta com cheiro de queimado e perdeu potencia.",
-        delayMs: 1200,
-      },
-      {
-        id: "a2",
-        sender: "bot",
-        text: "Entendi. Isso parece um caso tecnico. Qual e o modelo e ano do veiculo?",
-        delayMs: 2500,
-      },
-      {
-        id: "a3",
-        sender: "client",
-        text: "Peugeot 206 2010",
-        delayMs: 1300,
-      },
-      {
-        id: "a4",
-        sender: "bot",
-        text: "Perfeito, vou encaminhar agora para um mecanico tecnico.",
-        delayMs: 2600,
-      },
-    ],
+    id: "s1",
+    sender: "client",
+    text: "Oi! Quero agendar uma revisao do meu carro.",
+    delayMs: 1200,
   },
   {
-    id: "oficina-oleo",
-    title: "Simulacao de conversa (Oficina - Orcamento)",
-    messages: [
-      {
-        id: "b1",
-        sender: "client",
-        text: "Quero trocar o oleo do meu carro.",
-        delayMs: 1100,
-      },
-      {
-        id: "b2",
-        sender: "bot",
-        text: "Claro! Me passa modelo, ano e km para eu te orientar melhor.",
-        delayMs: 2300,
-      },
-      {
-        id: "b3",
-        sender: "client",
-        text: "Onix 2022 com 78 mil km",
-        delayMs: 1200,
-      },
-      {
-        id: "b4",
-        sender: "bot",
-        text: "Perfeito. Vou buscar a opcao ideal de oleo para seu veiculo.",
-        delayMs: 2400,
-      },
-    ],
+    id: "s2",
+    sender: "bot",
+    text: "Perfeito! Me informa seu nome, modelo, ano e km do veiculo.",
+    delayMs: 2300,
   },
   {
-    id: "restaurante-reserva",
-    title: "Simulacao de conversa (Restaurante - Reserva)",
-    messages: [
-      {
-        id: "c1",
-        sender: "client",
-        text: "Oi, queria reservar uma mesa para hoje.",
-        delayMs: 1200,
-      },
-      {
-        id: "c2",
-        sender: "bot",
-        text: "Perfeito! Para quantas pessoas e qual horario voce prefere?",
-        delayMs: 2500,
-      },
-      {
-        id: "c3",
-        sender: "client",
-        text: "4 pessoas, as 20h",
-        delayMs: 1200,
-      },
-      {
-        id: "c4",
-        sender: "bot",
-        text: "Reserva confirmada para 4 pessoas, hoje as 20h. Te espero!",
-        delayMs: 2600,
-      },
-    ],
+    id: "s3",
+    sender: "client",
+    text: "Mateus, Onix 2022, 78 mil km.",
+    delayMs: 1300,
+  },
+  {
+    id: "s4",
+    sender: "bot",
+    text: "Show, dados registrados. Qual dia voce prefere?",
+    delayMs: 2100,
+  },
+  {
+    id: "s5",
+    sender: "client",
+    text: "Quinta-feira.",
+    delayMs: 1100,
+  },
+  {
+    id: "s6",
+    sender: "bot",
+    text: "Perfeito. Tenho 10:00, 14:00 e 16:00. Qual horario?",
+    delayMs: 2200,
+  },
+  {
+    id: "s7",
+    sender: "client",
+    text: "14:00",
+    delayMs: 1000,
+  },
+  {
+    id: "s8",
+    sender: "bot",
+    text: "Confirmando: revisao do Onix 2022 na quinta as 14:00. Posso confirmar?",
+    delayMs: 2300,
+  },
+  {
+    id: "s9",
+    sender: "client",
+    text: "Pode confirmar.",
+    delayMs: 1100,
+  },
+  {
+    id: "s10",
+    sender: "bot",
+    text: "Reserva confirmada. Te espero na quinta as 14:00.",
+    delayMs: 2200,
   },
 ];
 
 export function AnimatedWhatsappSim() {
-  const [scenarioIdx, setScenarioIdx] = useState(0);
   const [visibleCount, setVisibleCount] = useState(0);
-  const currentScenario = SCENARIOS[scenarioIdx] ?? SCENARIOS[0];
-  const messages = currentScenario.messages;
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
 
   const visibleMessages = useMemo(
-    () => messages.slice(0, visibleCount),
-    [messages, visibleCount]
+    () => SCRIPT.slice(0, visibleCount),
+    [visibleCount]
   );
 
-  const nextMessage = messages[visibleCount];
+  const nextMessage = SCRIPT[visibleCount];
   const showTyping = !!nextMessage && nextMessage.sender === "bot";
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
 
-    if (visibleCount >= messages.length) {
+    if (visibleCount >= SCRIPT.length) {
       timeout = setTimeout(() => {
         setVisibleCount(0);
-        setScenarioIdx((prev) => (prev + 1) % SCENARIOS.length);
-      }, 3200);
+        if (scrollerRef.current) {
+          scrollerRef.current.scrollTo({ top: 0, behavior: "auto" });
+        }
+      }, 3600);
       return () => timeout && clearTimeout(timeout);
     }
 
-    const delay = messages[visibleCount]?.delayMs ?? 1400;
+    const delay = SCRIPT[visibleCount]?.delayMs ?? 1500;
     timeout = setTimeout(() => {
       setVisibleCount((prev) => prev + 1);
     }, delay);
 
     return () => timeout && clearTimeout(timeout);
-  }, [messages, visibleCount]);
+  }, [visibleCount]);
+
+  useEffect(() => {
+    if (!scrollerRef.current) return;
+    scrollerRef.current.scrollTo({
+      top: scrollerRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [visibleMessages.length, showTyping]);
 
   return (
     <div className="h-[360px] rounded-2xl border border-slate-200 bg-[#efeae2] p-4 shadow-sm">
       <div className="rounded-xl border border-slate-200 bg-[#f0f2f5] px-3 py-2 text-xs font-semibold text-slate-600">
-        {currentScenario.title}
+        Simulacao de conversa (Agendamento completo)
       </div>
-      <div className="mt-3 h-[292px] space-y-2 overflow-y-hidden">
+      <div ref={scrollerRef} className="mt-3 h-[292px] space-y-2 overflow-y-auto pr-1">
         {visibleMessages.map((message) => {
           const isBot = message.sender === "bot";
           return (
