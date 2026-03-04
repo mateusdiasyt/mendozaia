@@ -296,6 +296,34 @@ const INTENT_STITCH_MAX_MESSAGES = 3;
 const INTENT_STITCH_MAX_CHARS = 280;
 const NAME_PROMPT_REPEAT_WINDOW_MS = 45 * 1000; // 45s
 const FLOW_RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 45min
+const INVALID_NAME_TERMS = new Set([
+  "oi",
+  "ola",
+  "ok",
+  "sim",
+  "nao",
+  "não",
+  "quero",
+  "confirmo",
+  "amanha",
+  "hoje",
+  "entao",
+  "então",
+  "tipo",
+  "pirulito",
+  "carro",
+  "veiculo",
+  "veículo",
+  "modelo",
+  "ano",
+  "km",
+  "quilometragem",
+  "onix",
+  "gol",
+  "hb20",
+  "civic",
+  "corolla",
+]);
 
 function isSimpleAffirmative(text: string): boolean {
   const t = text
@@ -1306,30 +1334,7 @@ function isLikelySingleWordHumanName(text: string): boolean {
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (words.length !== 1) return false;
   const normalized = normalizePlainText(trimmed);
-  if (
-    [
-      "oi",
-      "ola",
-      "ok",
-      "sim",
-      "quero",
-      "confirmo",
-      "onix",
-      "gol",
-      "hb20",
-      "civic",
-      "corolla",
-      "palio",
-      "uno",
-      "ka",
-      "fox",
-      "sandero",
-      "prisma",
-      "tracker",
-      "compass",
-      "renegade",
-    ].includes(normalized)
-  ) {
+  if (INVALID_NAME_TERMS.has(normalized)) {
     return false;
   }
   if (/\b\d{1,2}\s*w\s*\d{2}\b/i.test(normalized)) return false;
@@ -1367,9 +1372,7 @@ function extractCustomerName(
   ) {
     const normalizedLeading = normalizePlainText(leadingSegment);
     if (
-      !["sim", "ok", "quero", "confirmo", "amanha", "hoje", "ola", "oi"].includes(
-        normalizedLeading
-      ) &&
+      !INVALID_NAME_TERMS.has(normalizedLeading) &&
       !((options?.blockedValues ?? []).map(normalizePlainText).includes(normalizedLeading))
     ) {
       return leadingSegment.replace(/\s+/g, " ").trim();
@@ -1380,23 +1383,7 @@ function extractCustomerName(
     const normalized = normalizePlainText(trimmed);
     const wordsCount = normalized.split(" ").filter(Boolean).length;
     if (wordsCount === 1 && !options?.allowSingleWord) return null;
-    if (
-      [
-        "sim",
-        "ok",
-        "quero",
-        "confirmo",
-        "amanha",
-        "hoje",
-        "ola",
-        "oi",
-        "onix",
-        "gol",
-        "hb20",
-        "civic",
-        "corolla",
-      ].includes(normalized)
-    ) {
+    if (INVALID_NAME_TERMS.has(normalized)) {
       return null;
     }
     if ((options?.blockedValues ?? []).map(normalizePlainText).includes(normalized)) {
@@ -1406,6 +1393,14 @@ function extractCustomerName(
   }
 
   return null;
+}
+
+function looksLikeInvalidNameAnswer(text: string): boolean {
+  const normalized = normalizePlainText(text);
+  if (!normalized) return true;
+  if (INVALID_NAME_TERMS.has(normalized)) return true;
+  if (/\d/.test(normalized)) return true;
+  return false;
 }
 
 function buildMissingReservationProfileReply(
@@ -2901,6 +2896,33 @@ export async function processInboundMessage(
         decision: "tool_then_ai",
         reason: "Pergunta de nome suprimida para evitar repetição",
         silence: true,
+      };
+    }
+
+    if (!justCapturedName && looksLikeInvalidNameAnswer(ctx.messageContent)) {
+      await options.sendMessage(
+        ctx.conversationId,
+        "Não consegui identificar seu nome. Pode me informar seu *nome*, por favor?"
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "invalid_name_answer",
+        decision: "tool_then_ai",
+        reason: "Resposta inválida durante coleta de nome",
+        traceId: params.traceId,
+        stage: "orchestrator.profile",
+        decisionCode: "INVALID_NAME_ANSWER",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Solicitando nome após resposta inválida",
+        silence: false,
       };
     }
   }
