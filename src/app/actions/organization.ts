@@ -41,6 +41,15 @@ export interface BotPersonalizationConfig {
   useAIFallback?: boolean;
 }
 
+export interface VehicleServicePolicyConfig {
+  minAllowedYear?: number | null;
+  blockedModels?: string[];
+  blockedModelYears?: Array<{
+    model: string;
+    year?: number | null;
+  }>;
+}
+
 const BILLING_PIX_KEY = "113.673.289-69";
 const BILLING_PROOF_CONTACT = "45999287669";
 const ALLOWED_PAID_PLANS = new Set(["starter", "pro", "scale"]);
@@ -226,6 +235,85 @@ export async function updateBotPersonalizationConfig(
     })
     .where(eq(organizations.id, org.id));
 
+  return { success: true };
+}
+
+export async function updateVehicleServicePolicyConfig(
+  config: VehicleServicePolicyConfig
+) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+
+  const minAllowedYearRaw =
+    typeof config.minAllowedYear === "number" && Number.isFinite(config.minAllowedYear)
+      ? Math.trunc(config.minAllowedYear)
+      : null;
+  const minAllowedYear =
+    minAllowedYearRaw && minAllowedYearRaw >= 1980 && minAllowedYearRaw <= 2035
+      ? minAllowedYearRaw
+      : null;
+
+  const blockedModels = Array.isArray(config.blockedModels)
+    ? Array.from(
+        new Set(
+          config.blockedModels
+            .filter((m): m is string => typeof m === "string")
+            .map((m) => m.trim())
+            .filter((m) => m.length >= 2 && m.length <= 60)
+            .map((m) => m.toLowerCase())
+        )
+      )
+    : [];
+
+  const blockedModelYears = Array.isArray(config.blockedModelYears)
+    ? Array.from(
+        new Map(
+          config.blockedModelYears
+            .filter((item): item is { model: string; year?: number | null } => !!item)
+            .map((item) => {
+              const model = String(item.model ?? "")
+                .trim()
+                .toLowerCase();
+              const yearRaw =
+                typeof item.year === "number" && Number.isFinite(item.year)
+                  ? Math.trunc(item.year)
+                  : null;
+              const year =
+                yearRaw && yearRaw >= 1980 && yearRaw <= 2035 ? yearRaw : null;
+              return { model, year };
+            })
+            .filter((item) => item.model.length >= 2 && item.model.length <= 60)
+            .map((item) => [`${item.model}|${item.year ?? ""}`, item] as const)
+        ).values()
+      )
+    : [];
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        vehicleServicePolicy: {
+          minAllowedYear,
+          blockedModels,
+          blockedModelYears,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard");
   return { success: true };
 }
 

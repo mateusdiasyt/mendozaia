@@ -5,6 +5,7 @@ import { ReservationsToggle } from "@/components/configuracoes/reservations-togg
 import { ReservationScheduleForm } from "@/components/configuracoes/reservation-schedule-form";
 import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
 import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
+import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
 import { Lock } from "lucide-react";
 
 export default async function ConfiguracoesPage() {
@@ -17,6 +18,8 @@ export default async function ConfiguracoesPage() {
   const businessProfile =
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const vehicleServicePolicy =
+    (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
   const reservationSchedule =
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
@@ -125,6 +128,32 @@ export default async function ConfiguracoesPage() {
               instagram: (businessProfile.instagram as string | undefined) ?? "",
               address: (businessProfile.address as string | undefined) ?? "",
               mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
+            }}
+          />
+          {!isPlanActive && <LockedOverlay />}
+        </div>
+
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <VehicleServicePolicyForm
+            initialConfig={{
+              minAllowedYear:
+                typeof vehicleServicePolicy.minAllowedYear === "number"
+                  ? vehicleServicePolicy.minAllowedYear
+                  : null,
+              blockedModels: Array.isArray(vehicleServicePolicy.blockedModels)
+                ? (vehicleServicePolicy.blockedModels as string[])
+                : [],
+              blockedModelYears: Array.isArray(vehicleServicePolicy.blockedModelYears)
+                ? ((vehicleServicePolicy.blockedModelYears as Array<Record<string, unknown>>)
+                    .map((item) => ({
+                      model: String(item.model ?? "").trim().toLowerCase(),
+                      year:
+                        typeof item.year === "number" && Number.isFinite(item.year)
+                          ? item.year
+                          : null,
+                    }))
+                    .filter((item) => item.model.length >= 2))
+                : [],
             }}
           />
           {!isPlanActive && <LockedOverlay />}

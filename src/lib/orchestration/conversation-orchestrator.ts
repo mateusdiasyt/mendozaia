@@ -336,6 +336,68 @@ function buildVehicleSignature(slots: VehicleSlots | undefined): string {
   return `${modelo}|${ano}|${km}`;
 }
 
+function normalizeVehicleModelKey(value: string | undefined | null): string {
+  if (!value) return "";
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function evaluateVehicleServicePolicy(
+  policy:
+    | {
+        minAllowedYear?: number | null;
+        blockedModels?: string[];
+        blockedModelYears?: Array<{ model: string; year?: number | null }>;
+      }
+    | undefined,
+  slots: VehicleSlots | undefined
+): { blocked: boolean; reason: string | null } {
+  if (!policy || !slots) return { blocked: false, reason: null };
+
+  const minAllowedYear =
+    typeof policy.minAllowedYear === "number" ? policy.minAllowedYear : null;
+  const normalizedModel = normalizeVehicleModelKey(slots.modelo);
+
+  if (minAllowedYear && slots.ano && slots.ano < minAllowedYear) {
+    return {
+      blocked: true,
+      reason: `No momento, atendemos veículos a partir do ano *${minAllowedYear}*.`,
+    };
+  }
+
+  const blockedModelsNormalized = new Set(
+    (policy.blockedModels ?? []).map((model) => normalizeVehicleModelKey(model))
+  );
+  if (normalizedModel && blockedModelsNormalized.has(normalizedModel)) {
+    return {
+      blocked: true,
+      reason: `No momento, não atendemos o modelo *${slots.modelo}*.`,
+    };
+  }
+
+  const blockedModelYears = policy.blockedModelYears ?? [];
+  if (normalizedModel && slots.ano) {
+    const matchedModelYear = blockedModelYears.find((item) => {
+      const itemModel = normalizeVehicleModelKey(item.model);
+      const itemYear = typeof item.year === "number" ? item.year : null;
+      return itemModel === normalizedModel && itemYear === slots.ano;
+    });
+    if (matchedModelYear) {
+      return {
+        blocked: true,
+        reason: `No momento, não atendemos *${slots.modelo} ${slots.ano}*.`,
+      };
+    }
+  }
+
+  return { blocked: false, reason: null };
+}
+
 const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
 const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
 const INTENT_STITCH_MAX_MESSAGES = 3;
@@ -2051,6 +2113,8 @@ export async function loadConversationContext(
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const botConfigSettings =
     (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const vehicleServicePolicySettings =
+    (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const configuredSegment =
     (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     undefined;
@@ -2177,6 +2241,21 @@ export async function loadConversationContext(
         (botConfigSettings.tone as "formal" | "neutro" | "casual" | undefined) ??
         "neutro",
       language: (botConfigSettings.language as string | undefined) ?? "pt-BR",
+    },
+    vehicleServicePolicy: {
+      minAllowedYear:
+        typeof vehicleServicePolicySettings.minAllowedYear === "number"
+          ? vehicleServicePolicySettings.minAllowedYear
+          : null,
+      blockedModels: Array.isArray(vehicleServicePolicySettings.blockedModels)
+        ? (vehicleServicePolicySettings.blockedModels as string[])
+        : [],
+      blockedModelYears: Array.isArray(vehicleServicePolicySettings.blockedModelYears)
+        ? (vehicleServicePolicySettings.blockedModelYears as Array<{
+            model: string;
+            year?: number | null;
+          }>)
+        : [],
     },
   };
 }
@@ -2940,6 +3019,51 @@ export async function processInboundMessage(
       vehicleSlotsFromCurrentMessage.ano ||
       vehicleSlotsFromCurrentMessage.km
   );
+  const hasAutomotiveIntentNow =
+    looksLikeReservationIntent(intentProbeText) ||
+    looksLikeCatalogIntent(intentProbeText) ||
+    looksLikeCarProblemOrRepairIntent(intentProbeText) ||
+    looksLikeDirectHumanMechanicalIssue(intentProbeText) ||
+    isRevisionServiceIntent(intentProbeText) ||
+    shouldAskOilQualification(intentProbeText);
+  const vehiclePolicyCandidateSlots = mergeVehicleSlots(
+    ctx.vehicleSlots ?? {},
+    vehicleSlotsFromCurrentMessage
+  );
+  const shouldEvaluateVehiclePolicy =
+    !!ctx.usesVehicleSlots && (hasVehicleInfoInCurrentMessage || hasAutomotiveIntentNow);
+  const vehiclePolicyDecision = shouldEvaluateVehiclePolicy
+    ? evaluateVehicleServicePolicy(
+        ctx.vehicleServicePolicy,
+        vehiclePolicyCandidateSlots
+      )
+    : { blocked: false, reason: null as string | null };
+  if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
+    const policyReply = `${vehiclePolicyDecision.reason}\n\nSe quiser, posso te direcionar para confirmar opções de atendimento humano.`;
+    await options.sendMessage(ctx.conversationId, policyReply);
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "vehicle_policy_blocked",
+      decision: "tool_then_ai",
+      reason: "Veículo bloqueado pela política da organização",
+      traceId: params.traceId,
+      stage: "orchestrator.vehicle_policy",
+      decisionCode: "VEHICLE_POLICY_BLOCKED",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        model: vehiclePolicyCandidateSlots.modelo ?? null,
+        year: vehiclePolicyCandidateSlots.ano ?? null,
+        minAllowedYear: ctx.vehicleServicePolicy?.minAllowedYear ?? null,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Veículo bloqueado pela política de atendimento",
+      silence: false,
+    };
+  }
   const rawVehicleSlotsUpdatedAt =
     typeof conversationMetadata.vehicleSlotsUpdatedAt === "string"
       ? conversationMetadata.vehicleSlotsUpdatedAt

@@ -70,6 +70,14 @@ export interface OrchestrationContext {
     tone?: "formal" | "neutro" | "casual";
     language?: string;
   };
+  vehicleServicePolicy?: {
+    minAllowedYear?: number | null;
+    blockedModels?: string[];
+    blockedModelYears?: Array<{
+      model: string;
+      year?: number | null;
+    }>;
+  };
 }
 
 export interface OrchestratorResult {
