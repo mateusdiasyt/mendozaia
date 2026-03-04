@@ -3,9 +3,83 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { AnimatedWhatsappSim } from "@/components/landing/animated-whatsapp-sim";
+import {
+  Wrench,
+  UtensilsCrossed,
+  Stethoscope,
+  Smile,
+  Sparkles,
+  Dumbbell,
+  Building2,
+  CarFront,
+  Laptop2,
+  GraduationCap,
+} from "lucide-react";
 
 export default async function HomePage() {
   const session = await auth();
+  const niches = [
+    {
+      label: "Oficinas mecânicas",
+      subtitle: "Triagem técnica e agendamentos",
+      icon: Wrench,
+      accent: "from-indigo-100 to-indigo-50 text-indigo-700",
+    },
+    {
+      label: "Restaurantes",
+      subtitle: "Reservas e confirmação automática",
+      icon: UtensilsCrossed,
+      accent: "from-emerald-100 to-emerald-50 text-emerald-700",
+    },
+    {
+      label: "Clínicas e consultórios",
+      subtitle: "Agenda e lembretes de atendimento",
+      icon: Stethoscope,
+      accent: "from-cyan-100 to-cyan-50 text-cyan-700",
+    },
+    {
+      label: "Odontologia",
+      subtitle: "Pré-triagem e retorno de pacientes",
+      icon: Smile,
+      accent: "from-sky-100 to-sky-50 text-sky-700",
+    },
+    {
+      label: "Estética e beleza",
+      subtitle: "Captação e recorrência de clientes",
+      icon: Sparkles,
+      accent: "from-pink-100 to-pink-50 text-pink-700",
+    },
+    {
+      label: "Academias",
+      subtitle: "Follow-up de leads e planos",
+      icon: Dumbbell,
+      accent: "from-orange-100 to-orange-50 text-orange-700",
+    },
+    {
+      label: "Imobiliárias",
+      subtitle: "Qualificação e distribuição de leads",
+      icon: Building2,
+      accent: "from-violet-100 to-violet-50 text-violet-700",
+    },
+    {
+      label: "Autoescolas",
+      subtitle: "Atendimento e matrículas",
+      icon: CarFront,
+      accent: "from-amber-100 to-amber-50 text-amber-700",
+    },
+    {
+      label: "Assistência técnica",
+      subtitle: "Diagnóstico e status de serviço",
+      icon: Laptop2,
+      accent: "from-teal-100 to-teal-50 text-teal-700",
+    },
+    {
+      label: "Educação e cursos",
+      subtitle: "Conversão de interesse em matrícula",
+      icon: GraduationCap,
+      accent: "from-fuchsia-100 to-fuchsia-50 text-fuchsia-700",
+    },
+  ] as const;
 
   if (session) {
     redirect("/dashboard");
@@ -115,25 +189,31 @@ export default async function HomePage() {
           por nicho.
         </p>
         <div className="mt-8 grid gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
-          {[
-            "Oficinas mecânicas",
-            "Restaurantes",
-            "Clínicas e consultórios",
-            "Odontologia",
-            "Estética e beleza",
-            "Academias",
-            "Imobiliárias",
-            "Autoescolas",
-            "Assistência técnica",
-            "Educação e cursos",
-          ].map((niche) => (
-            <div
-              key={niche}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm"
-            >
-              {niche}
-            </div>
-          ))}
+          {niches.map((niche) => {
+            const Icon = niche.icon;
+            return (
+              <article
+                key={niche.label}
+                className="group rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`rounded-lg bg-gradient-to-br p-2 ${niche.accent}`}
+                  >
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-semibold text-slate-800">
+                      {niche.label}
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {niche.subtitle}
+                    </p>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
