@@ -2918,6 +2918,77 @@ export async function processInboundMessage(
   }
 
   if (isAwaitingNameStage && justCapturedName && contactName) {
+    if (reservationContext.serviceName === "Verificação" && ctx.usesVehicleSlots) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+
+      if (hasModelAndYearProfile && ctx.vehicleSlots?.km) {
+        const vehicleLabel = [
+          ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
+          ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        await options.sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName}*. Já salvei seus dados e o veículo *${vehicleLabel}*. Vou encaminhar agora para um mecânico técnico verificar seu caso.`
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Cliente descreveu problema no carro; nome confirmado e dados completos coletados"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Nome capturado com verificação e dados completos; handoff técnico",
+          silence: false,
+        };
+      }
+
+      if (hasModelAndYearProfile) {
+        const vehicleLabel = [
+          ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
+          ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        await options.sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName}*. Registrei seu veículo como *${vehicleLabel}*.`
+        );
+        await options.sendMessage(
+          ctx.conversationId,
+          "Você consegue me mandar a *km* do seu carro? Se não souber, tudo bem que eu continuo seu atendimento."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Nome capturado com verificação; aguardando km para encaminhamento",
+          silence: false,
+        };
+      }
+
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, *${contactName}*. Agora me informe o *modelo* e o *ano* do veículo. Se souber, me passe também a *km*.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Nome capturado com verificação; solicitando dados do veículo",
+        silence: false,
+      };
+    }
+
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
     await options.sendMessage(
       ctx.conversationId,
