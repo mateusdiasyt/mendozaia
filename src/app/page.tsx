@@ -162,8 +162,8 @@ export default async function HomePage() {
       <section id="como-funciona" className="scroll-mt-28 border-y border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-14">
           <h2 className="text-3xl font-bold">Como funciona</h2>
-          <div className="mt-8 grid gap-6 lg:grid-cols-2">
-            <div className="grid gap-4 sm:grid-cols-2">
+          <div className="mt-8 grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-1">
               {[
                 ["1. Conecte o WhatsApp", "Conecte seu número diretamente no nosso painel em minutos."],
                 ["2. Configure seu nicho", "Escolha segmento, tom e regras do atendimento."],
@@ -177,7 +177,9 @@ export default async function HomePage() {
               ))}
             </div>
 
-            <AnimatedWhatsappSim />
+            <div className="lg:col-span-2">
+              <AnimatedWhatsappSim />
+            </div>
           </div>
         </div>
       </section>
