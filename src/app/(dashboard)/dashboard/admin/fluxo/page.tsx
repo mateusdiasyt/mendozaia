@@ -151,6 +151,17 @@ function percent(value: number, total: number): number {
 export default async function AdminFluxoPage() {
   const membership = await getCurrentMembership();
   if (!membership) return null;
+  if (membership.role === "platform_admin") {
+    return (
+      <div className="p-8">
+        <h1 className="text-2xl font-semibold text-slate-900">Admin - Fluxo de Atendimento</h1>
+        <p className="mt-2 text-slate-600">
+          Conta de plataforma em modo administrativo. Dados operacionais por organização não são
+          exibidos neste perfil.
+        </p>
+      </div>
+    );
+  }
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const raw = await db

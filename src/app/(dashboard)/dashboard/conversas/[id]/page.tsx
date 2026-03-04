@@ -49,7 +49,9 @@ export default async function ConversaPage({
     .where(
       and(
         eq(conversations.id, id),
-        eq(conversations.organizationId, org.id)
+        eq(conversations.organizationId, org.id),
+        eq(contacts.organizationId, org.id),
+        eq(whatsappSessions.organizationId, org.id)
       )
     )
     .limit(1);
@@ -57,9 +59,15 @@ export default async function ConversaPage({
   if (!conv) notFound();
 
   const msgList = await db
-    .select()
+    .select({ message: messages })
     .from(messages)
-    .where(eq(messages.conversationId, id))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(messages.conversationId, id),
+        eq(conversations.organizationId, org.id)
+      )
+    )
     .orderBy(asc(messages.createdAt));
 
   const memories = usesVehicleSlots
@@ -177,10 +185,7 @@ export default async function ConversaPage({
 
       <div className="flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#efeae2]">
-          <ChatView
-            conversationId={id}
-            initialMessages={msgList}
-          />
+          <ChatView conversationId={id} initialMessages={msgList.map((item) => item.message)} />
         </div>
         <AIControlSidebar
           conversationId={id}

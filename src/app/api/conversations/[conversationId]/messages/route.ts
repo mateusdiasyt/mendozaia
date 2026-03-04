@@ -44,9 +44,15 @@ export async function GET(
   }
 
   const msgList = await db
-    .select()
+    .select({ message: messages })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
     .orderBy(asc(messages.createdAt));
 
   const typingAt = (conv as { contactTypingAt?: Date | null })?.contactTypingAt;
@@ -56,7 +62,7 @@ export async function GET(
     Date.now() - new Date(typingAt).getTime() < TYPING_TIMEOUT_MS;
 
   return NextResponse.json({
-    messages: msgList,
+    messages: msgList.map((item) => item.message),
     typing: !!isTyping,
   });
 }

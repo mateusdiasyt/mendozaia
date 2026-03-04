@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-import { getCurrentOrganization } from "@/lib/auth-utils";
+import { getCurrentMembership, getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { conversations, contacts } from "@/lib/db/schema";
 import { eq, sql } from "drizzle-orm";
@@ -8,7 +8,33 @@ import { MessageSquare, Users, MessageCircle, ArrowRight } from "lucide-react";
 
 export default async function DashboardPage() {
   const session = await auth();
+  const membership = await getCurrentMembership();
   const org = await getCurrentOrganization();
+
+  if (membership?.role === "platform_admin") {
+    return (
+      <div className="p-8">
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-slate-900">
+            Painel Administrativo
+          </h1>
+          <p className="mt-1 text-slate-500">
+            Esta conta possui escopo administrativo da plataforma e não acessa conversas de clientes.
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="font-medium text-slate-900">Acesso disponível</h2>
+          <ul className="mt-4 space-y-3 text-sm text-slate-600">
+            <li>• Monitoramento administrativo em `Admin Fluxo`</li>
+            <li>• Gestão de configurações globais da plataforma</li>
+            <li>• Sem acesso a dados operacionais por organização</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
   if (!org) {
     return (
       <div className="flex h-full items-center justify-center">

@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { OrganizationSwitcher } from "@/components/ui/organization-switcher";
 import {
   MessageSquare,
   Users,
@@ -31,41 +32,55 @@ const baseNavItems = [
 export function Sidebar({
   reservationsEnabled = false,
   isAdmin = false,
+  isPlatformAdmin = false,
   segment = "mecanica",
+  organizations = [],
+  activeOrganizationId = null,
 }: {
   reservationsEnabled?: boolean;
   isAdmin?: boolean;
+  isPlatformAdmin?: boolean;
   segment?: "mecanica" | "restaurante" | "geral";
+  organizations?: { id: string; name: string }[];
+  activeOrganizationId?: string | null;
 }) {
   const servicesLabel =
     segment === "restaurante" ? "Reservas de mesa" : "Serviços";
   const productsLabel = segment === "restaurante" ? "Cardápio" : "Produtos";
+  const adminNavItems = [
+    { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck },
+  ];
   const navItems = [
-    ...baseNavItems.slice(0, 4),
-    ...(reservationsEnabled
-      ? [
-          {
-            href: "/dashboard/reservas",
-            label: "Reservas",
-            icon: Calendar,
-          },
-          {
-            href: "/dashboard/produtos",
-            label: productsLabel,
-            icon: Package,
-          },
-          {
-            href: "/dashboard/servicos",
-            label: servicesLabel,
-            icon: Wrench,
-          },
-        ]
-      : []),
-    { href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity },
-    ...(isAdmin
-      ? [{ href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck }]
-      : []),
-    ...baseNavItems.slice(4),
+    ...(isPlatformAdmin
+      ? adminNavItems
+      : [
+          ...baseNavItems.slice(0, 4),
+          ...(reservationsEnabled
+            ? [
+                {
+                  href: "/dashboard/reservas",
+                  label: "Reservas",
+                  icon: Calendar,
+                },
+                {
+                  href: "/dashboard/produtos",
+                  label: productsLabel,
+                  icon: Package,
+                },
+                {
+                  href: "/dashboard/servicos",
+                  label: servicesLabel,
+                  icon: Wrench,
+                },
+              ]
+            : []),
+          { href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity },
+          ...(isAdmin
+            ? [{ href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck }]
+            : []),
+          ...baseNavItems.slice(4),
+        ]),
   ];
   const pathname = usePathname();
 
@@ -85,6 +100,12 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-0.5 p-3">
+        {!isPlatformAdmin && (
+          <OrganizationSwitcher
+            organizations={organizations}
+            activeOrganizationId={activeOrganizationId}
+          />
+        )}
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive =

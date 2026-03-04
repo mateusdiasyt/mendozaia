@@ -35,6 +35,8 @@ export default async function ConversasLayout({
     .where(
       and(
         eq(conversations.organizationId, org.id),
+        eq(contacts.organizationId, org.id),
+        eq(whatsappSessions.organizationId, org.id),
         eq(conversations.isArchived, false)
       )
     )

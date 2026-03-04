@@ -7,7 +7,10 @@ export default async function AdminLayout({
   children: React.ReactNode;
 }) {
   const membership = await getCurrentMembership();
-  if (!membership || membership.role !== "admin") {
+  if (
+    !membership ||
+    (membership.role !== "admin" && membership.role !== "platform_admin")
+  ) {
     notFound();
   }
 

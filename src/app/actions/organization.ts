@@ -1,9 +1,13 @@
 "use server";
 
 import { getCurrentOrganization } from "@/lib/auth-utils";
+import { ACTIVE_ORG_COOKIE } from "@/lib/auth-utils";
+import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { organizations } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { organizations, memberships } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { cookies } from "next/headers";
+import { revalidatePath } from "next/cache";
 
 export interface AiAgentConfig {
   enabled?: boolean;
@@ -252,4 +256,43 @@ export async function testAiAgentConnection() {
     }
     return { error: msg };
   }
+}
+
+export async function setActiveOrganization(organizationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return { error: "Não autorizado" };
+  }
+
+  const [membership] = await db
+    .select({ organizationId: memberships.organizationId, role: memberships.role })
+    .from(memberships)
+    .innerJoin(organizations, eq(organizations.id, memberships.organizationId))
+    .where(
+      and(
+        eq(memberships.userId, session.user.id),
+        eq(memberships.organizationId, organizationId),
+        eq(organizations.status, "active")
+      )
+    )
+    .limit(1);
+
+  if (!membership) {
+    return { error: "Organização inválida para este usuário" };
+  }
+
+  if (membership.role === "platform_admin") {
+    return { error: "Conta de plataforma não possui escopo operacional por organização" };
+  }
+
+  (await cookies()).set(ACTIVE_ORG_COOKIE, organizationId, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+
+  revalidatePath("/dashboard");
+  return { success: true };
 }
