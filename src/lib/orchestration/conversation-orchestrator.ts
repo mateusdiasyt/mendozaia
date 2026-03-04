@@ -1423,19 +1423,20 @@ function buildMissingReservationProfileReply(
   missingName: boolean,
   missingVehicle: ("modelo" | "ano" | "km")[]
 ): string {
-  const parts: string[] = [];
-  if (missingName) parts.push("*nome do cliente*");
-  if (missingVehicle.includes("modelo")) parts.push("*modelo do veículo*");
-  if (missingVehicle.includes("ano")) parts.push("*ano do veículo*");
-  if (missingVehicle.includes("km")) parts.push("*quilometragem (km)*");
-
-  if (parts.length === 0) {
-    return "Perfeito. Pode me confirmar a reserva?";
+  // Coleta sequencial para não sobrecarregar o cliente com múltiplos campos.
+  if (missingName) {
+    return "Antes de confirmar, me informe o *nome do cliente*.";
   }
-  if (parts.length === 1) {
-    return `Antes de confirmar, me informe ${parts[0]}.`;
+  if (missingVehicle.includes("modelo")) {
+    return "Perfeito. Agora me informe o *modelo do veículo*.";
   }
-  return `Antes de confirmar, me informe ${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
+  if (missingVehicle.includes("ano")) {
+    return "Ótimo. Agora me informe o *ano do veículo*.";
+  }
+  if (missingVehicle.includes("km")) {
+    return "Perfeito. Agora me informe a *quilometragem (km)* do veículo. Se não souber, pode me avisar.";
+  }
+  return "Perfeito. Pode me confirmar a reserva?";
 }
 
 type SlotConfidence = "none" | "low" | "medium" | "high";
@@ -1503,10 +1504,8 @@ function buildSmartMissingReservationProfileReply(
 ): string {
   const base = buildMissingReservationProfileReply(missingName, missingVehicle);
   if (repeatCount <= 0) return base;
-  if (repeatCount === 1) {
-    return `${base}\n\nExemplo: *Mateus, Onix 2019, 80 mil km*.`;
-  }
-  return `${base}\n\nPara evitar erro, envie em uma única mensagem: *Nome, Modelo, Ano e KM*.\nExemplo: *Mateus, Onix 2019, 80 mil km*.`;
+  if (repeatCount === 1) return `${base}\n\nPode enviar só esse dado, por favor.`;
+  return `${base}\n\nMe manda apenas esse dado para eu seguir certinho.`;
 }
 
 function buildVehicleFollowUpForOilQuote(slots: VehicleSlots | undefined): string {
