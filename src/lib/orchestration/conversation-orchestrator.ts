@@ -1257,25 +1257,14 @@ function buildMissingVehicleInfoReply(missing: ("modelo" | "ano" | "km")[]): str
     return "Perfeito. Para seguir com o agendamento, me diga a data e o horário que prefere.";
   }
 
-  if (missing.length === 1) {
-    const only = missing[0];
-    if (only === "km") {
-      return "Perfeito. Para consultar o agendamento, só falta a *quilometragem* do veículo.";
-    }
-    if (only === "ano") {
-      return "Perfeito. Para consultar o agendamento, só falta o *ano* do veículo.";
-    }
-    return "Perfeito. Para consultar o agendamento, só falta o *modelo* do veículo.";
+  // Coleta sequencial: sempre um dado por vez.
+  if (missing.includes("modelo")) {
+    return "Perfeito. Para eu consultar a disponibilidade e te ajudar com a reserva, me informe o *modelo* do veículo.";
   }
-
-  if (missing.length === 2) {
-    const labels = missing.map((m) =>
-      m === "km" ? "quilometragem" : m
-    );
-    return `Perfeito. Para consultar o agendamento, preciso de *${labels[0]}* e *${labels[1]}* do veículo.`;
+  if (missing.includes("ano")) {
+    return "Ótimo. Agora me informe o *ano* do veículo.";
   }
-
-  return "Para eu consultar a disponibilidade e já te ajudar com a reserva, me informe *modelo, ano e quilometragem* do veículo.";
+  return "Perfeito. Agora me informe a *quilometragem (km)* do veículo. Se não souber, tudo bem.";
 }
 
 function buildMissingVehicleRequiredReply(missing: ("modelo" | "ano" | "km")[]): string {
