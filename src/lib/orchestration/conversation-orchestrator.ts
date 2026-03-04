@@ -257,6 +257,8 @@ function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
     .replace(/[\u0300-\u036f]/g, "");
   return (
     /\b(barulho|ruido|ruído|batendo|vibrando|tremendo)\b/.test(t) ||
+    /\b(falha|falhando|engasgando|engasgo)\b/.test(t) ||
+    /\b(bico|vela|bobina|inje[cç][aã]o)\b/.test(t) ||
     /\b(fumaca|fumaça|fumacando|fumaciando)\b/.test(t) ||
     /\b(superaquecendo|esquentando demais|ferveu|motor aquecendo)\b/.test(t) ||
     /\b(nao liga|não liga|apagou|perdeu forca|perdeu força)\b/.test(t) ||
@@ -3903,6 +3905,75 @@ export async function processInboundMessage(
   }
 
   if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(intentProbeText)) {
+    if (looksLikeDirectHumanMechanicalIssue(intentProbeText) && ctx.usesVehicleSlots) {
+      const safeContactName = (contactName ?? "cliente").trim();
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Verificação",
+        productName: reservationContext.productName,
+      });
+
+      const missingRequiredVehicle = getMissingSlots(ctx.vehicleSlots ?? {}).filter(
+        (slot) => slot !== "km"
+      );
+      const missingName = !contactName;
+
+      if (missingName) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+        await options.sendMessage(
+          ctx.conversationId,
+          "Entendi seu caso. Antes de eu te encaminhar para um mecânico técnico, qual é o seu *nome*?"
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Caso técnico em awaiting_need; coletando nome antes do handoff",
+          silence: false,
+        };
+      }
+
+      if (missingRequiredVehicle.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await options.sendMessage(
+          ctx.conversationId,
+          `Entendi, *${safeContactName}*. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleRequiredReply(
+            getMissingSlots(ctx.vehicleSlots ?? {})
+          )}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Caso técnico em awaiting_need; coletando dados mínimos do veículo",
+          silence: false,
+        };
+      }
+
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      await options.sendMessage(
+        ctx.conversationId,
+        `Perfeito, *${safeContactName}*. Vou encaminhar agora seu atendimento para um mecânico técnico analisar esse problema.`
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Cliente descreveu falha/problema complexo; encaminhado para mecânico técnico"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Caso técnico complexo com dados mínimos coletados; handoff",
+        silence: false,
+      };
+    }
+
     if (
       looksLikeCarProblemOrRepairIntent(intentProbeText) &&
       ctx.usesVehicleSlots &&
