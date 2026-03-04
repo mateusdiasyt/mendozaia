@@ -100,6 +100,9 @@ export default async function HomePage() {
             />
           </div>
           <nav className="hidden items-center gap-6 text-sm text-slate-600 md:flex">
+            <a href="#interface" className="hover:text-slate-900">
+              Interface
+            </a>
             <a href="#como-funciona" className="hover:text-slate-900">
               Como funciona
             </a>
@@ -159,6 +162,20 @@ export default async function HomePage() {
         </div>
       </section>
 
+      <section id="interface" className="scroll-mt-28 border-y border-slate-200 bg-white">
+        <div className="mx-auto w-full max-w-6xl px-4 py-14">
+          <h2 className="text-3xl font-bold">Interface</h2>
+          <p className="mt-2 text-slate-600">
+            Visualização completa da experiência: conversa simulada + painel de
+            estado da IA atualizado em tempo real. Dados fictícios, sem
+            confirmação real de reserva.
+          </p>
+          <div className="mt-6">
+            <AnimatedWhatsappSim variant="full" />
+          </div>
+        </div>
+      </section>
+
       <section id="como-funciona" className="scroll-mt-28 border-y border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-14">
           <h2 className="text-3xl font-bold">Como funciona</h2>
@@ -178,7 +195,7 @@ export default async function HomePage() {
             </div>
 
             <div className="lg:col-span-2">
-              <AnimatedWhatsappSim />
+              <AnimatedWhatsappSim variant="compact" />
             </div>
           </div>
         </div>

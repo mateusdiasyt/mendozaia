@@ -183,7 +183,13 @@ const SCRIPT: SimMessage[] = [
   },
 ];
 
-export function AnimatedWhatsappSim() {
+type AnimatedWhatsappSimProps = {
+  variant?: "compact" | "full";
+};
+
+export function AnimatedWhatsappSim({
+  variant = "compact",
+}: AnimatedWhatsappSimProps) {
   const [visibleCount, setVisibleCount] = useState(0);
   const [highlightedKeys, setHighlightedKeys] = useState<string[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(false);
@@ -206,6 +212,9 @@ export function AnimatedWhatsappSim() {
 
   const nextMessage = SCRIPT[visibleCount];
   const showTyping = !!nextMessage && nextMessage.sender === "bot";
+  const isFull = variant === "full";
+  const panelHeightClass = isFull ? "h-[520px]" : "h-[360px]";
+  const contentHeightClass = isFull ? "h-[452px]" : "h-[292px]";
 
   const isHighlighted = (key: keyof SimRuntimeState) =>
     highlightedKeys.includes(key);
@@ -297,13 +306,15 @@ export function AnimatedWhatsappSim() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <div className="h-[360px] rounded-2xl border border-slate-200 bg-[#efeae2] p-4 shadow-sm">
+      <div
+        className={`${panelHeightClass} rounded-2xl border border-slate-200 bg-[#efeae2] p-4 shadow-sm`}
+      >
         <div className="rounded-xl border border-slate-200 bg-[#f0f2f5] px-3 py-2 text-xs font-semibold text-slate-600">
-          Simulação de conversa (Agendamento completo)
+          Simulação de conversa (sem ação real)
         </div>
         <div
           ref={scrollerRef}
-          className="mt-3 h-[292px] space-y-2 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pointer-events-none"
+          className={`${contentHeightClass} mt-3 space-y-2 overflow-y-auto pr-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden pointer-events-none`}
         >
           {visibleMessages.map((message) => {
             const isBot = message.sender === "bot";
@@ -340,11 +351,13 @@ export function AnimatedWhatsappSim() {
         </div>
       </div>
 
-      <div className="h-[360px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className={`${panelHeightClass} rounded-2xl border border-slate-200 bg-white p-4 shadow-sm`}>
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">
           Estado da IA (tempo real)
         </div>
-        <div className="mt-3 h-[292px] space-y-3 overflow-hidden">
+        <div
+          className={`${contentHeightClass} mt-3 space-y-3 overflow-y-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden`}
+        >
           <div
             className={[
               "rounded-xl border border-slate-200 bg-slate-50 p-3 transition-all duration-300",
