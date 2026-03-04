@@ -241,12 +241,23 @@ function looksLikeCarProblemOrRepairIntent(text: string): boolean {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+  const hasVehicleHint =
+    /\b(carro|veiculo|motor|suspensao|freio|direcao|embreagem|injecao)\b/.test(t) ||
+    /\b(19[89]\d|20[0-3]\d)\b/.test(t) ||
+    /\b(ford|fiat|gm|chevrolet|vw|volkswagen|toyota|honda|hyundai|renault|peugeot|citroen|nissan|jeep)\b/.test(
+      t
+    );
+  const hasSymptom =
+    /\b(barulho|ruido|ruído|estranho|problema|defeito|falha|vibrando|tremendo|rangendo)\b/.test(
+      t
+    );
   return (
     /\b(barulho|ruido|ruído|estranho|problema|defeito)\b.*\b(carro|veiculo)\b/.test(t) ||
     /\b(carro|veiculo)\b.*\b(barulho|ruido|ruído|estranho|problema|defeito)\b/.test(t) ||
     /\b(verificar|verificacao|verificação|checar|checagem)\b.*\b(carro|veiculo)\b/.test(t) ||
     /\b(quero fazer verificar|preciso verificar|gostaria de verificar)\b/.test(t) ||
-    /\b(fazer|levar)\b.*\b(verificar|checar)\b/.test(t)
+    /\b(fazer|levar)\b.*\b(verificar|checar)\b/.test(t) ||
+    (hasVehicleHint && hasSymptom)
   );
 }
 
@@ -261,6 +272,10 @@ function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
 
   const hasVehicleContext =
     /\b(carro|veiculo|motor|freio|embreagem|direcao|suspensao|radiador|injecao|bateria|painel)\b/.test(
+      t
+    ) ||
+    /\b(19[89]\d|20[0-3]\d)\b/.test(t) ||
+    /\b(ford|fiat|gm|chevrolet|vw|volkswagen|toyota|honda|hyundai|renault|peugeot|citroen|nissan|jeep)\b/.test(
       t
     );
 
@@ -582,6 +597,42 @@ async function wasRecentNamePrompt(conversationId: string): Promise<boolean> {
     /qual\s+(?:e|é)\s+o\s+seu\s+nome\??/i.test(lastOutbound.content) ||
     /qual\s+seria\s+o\s+seu\s+nome\??/i.test(lastOutbound.content)
   );
+}
+
+async function shouldSuppressRepeatedNeedPrompt(
+  conversationId: string,
+  nextPrompt: string,
+  windowMs: number = 45_000
+): Promise<boolean> {
+  const [lastOutbound] = await db
+    .select({
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (!lastOutbound?.content || !lastOutbound?.createdAt) return false;
+  const isRecent = Date.now() - lastOutbound.createdAt.getTime() <= windowMs;
+  if (!isRecent) return false;
+
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  return normalize(lastOutbound.content) === normalize(nextPrompt);
 }
 
 function looksLikeVehicleCorrectionDuringOilFlow(
@@ -4149,6 +4200,18 @@ export async function processInboundMessage(
     ) {
       const followUpNeed =
         "Perfeito, agora que tenho os dados necessários, qual seria a sua dúvida?";
+      const suppressRepeatNeedPrompt = await shouldSuppressRepeatedNeedPrompt(
+        ctx.conversationId,
+        followUpNeed
+      );
+      if (suppressRepeatNeedPrompt) {
+        return {
+          didReply: false,
+          decision: "tool_then_ai",
+          reason: "Pergunta de dúvida repetida recentemente; suprimindo duplicação",
+          silence: true,
+        };
+      }
       await options.sendMessage(ctx.conversationId, followUpNeed);
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
       await logOrchestration({

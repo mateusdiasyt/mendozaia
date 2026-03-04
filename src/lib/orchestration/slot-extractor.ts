@@ -137,8 +137,11 @@ function extractModelo(text: string): string | undefined {
     candidate = candidate
       .replace(/\b\d{1,2}\s*w\s*\d{2}\b/gi, " ")
       .replace(/\b(?:e|é)\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\btenho\s+um[a]?\s+/gi, " ")
-      .replace(/\bestou\s+com\s+um[a]?\s+/gi, " ")
+      .replace(/\btenho\s+(?:um[a]?\s+)?/gi, " ")
+      .replace(/\bestou\s+com\s+(?:um[a]?\s+)?/gi, " ")
+      .replace(/\best[áa]\s+com\s+(?:um[a]?\s+)?/gi, " ")
+      .replace(/\bto\s+com\s+(?:um[a]?\s+)?/gi, " ")
+      .replace(/\bt[oô]\s+com\s+(?:um[a]?\s+)?/gi, " ")
       .replace(/\b(?:meu\s+)?carro\s+(?:e|é|eh)\s+um[a]?\s+/gi, " ")
       .replace(/\bve[ií]culo\s+(?:e|é|eh)\s+um[a]?\s+/gi, " ")
       .replace(/\s*(?:,|\.|;)\s*$/, "")
