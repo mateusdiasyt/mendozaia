@@ -2,6 +2,7 @@
 
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { ACTIVE_ORG_COOKIE } from "@/lib/auth-utils";
+import { getCurrentMembership } from "@/lib/auth-utils";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { organizations, memberships } from "@/lib/db/schema";
@@ -39,6 +40,10 @@ export interface BotPersonalizationConfig {
   language?: string;
   useAIFallback?: boolean;
 }
+
+const BILLING_PIX_KEY = "113.673.289-69";
+const BILLING_PROOF_CONTACT = "45999287669";
+const ALLOWED_PAID_PLANS = new Set(["starter", "pro", "scale"]);
 
 export async function updateAiAgentConfig(config: AiAgentConfig) {
   const org = await getCurrentOrganization();
@@ -293,6 +298,93 @@ export async function setActiveOrganization(organizationId: string) {
     maxAge: 60 * 60 * 24 * 30,
   });
 
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function submitPaymentAndActivatePlan(plan: string) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+  if (!ALLOWED_PAID_PLANS.has(plan)) {
+    return { error: "Plano inválido" };
+  }
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
+
+  await db
+    .update(organizations)
+    .set({
+      plan,
+      settings: {
+        ...settings,
+        billing: {
+          ...billing,
+          status: "active",
+          paymentMethod: "pix",
+          pixKey: BILLING_PIX_KEY,
+          proofContact: BILLING_PROOF_CONTACT,
+          proofSentAt: new Date().toISOString(),
+          activatedAt: new Date().toISOString(),
+          activatedBy: "customer_self_service",
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/configuracoes");
+  return { success: true };
+}
+
+export async function adminSetOrganizationPlan(
+  organizationId: string,
+  plan: "free" | "starter" | "pro" | "scale"
+) {
+  const membership = await getCurrentMembership();
+  if (!membership || membership.role !== "platform_admin") {
+    return { error: "Sem permissão" };
+  }
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+
+  if (!current) {
+    return { error: "Organização não encontrada" };
+  }
+
+  const settings = (current.settings as Record<string, unknown>) ?? {};
+  const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
+  const isPaidPlan = plan !== "free";
+
+  await db
+    .update(organizations)
+    .set({
+      plan,
+      settings: {
+        ...settings,
+        billing: {
+          ...billing,
+          status: isPaidPlan ? "active" : "inactive",
+          activatedAt: isPaidPlan ? new Date().toISOString() : null,
+          activatedBy: "platform_admin_manual",
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, organizationId));
+
+  revalidatePath("/dashboard/admin/usuarios");
   revalidatePath("/dashboard");
   return { success: true };
 }

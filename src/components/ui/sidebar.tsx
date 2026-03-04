@@ -18,6 +18,7 @@ import {
   Package,
   Wrench,
   ShieldCheck,
+  UserCog,
 } from "lucide-react";
 
 const baseNavItems = [
@@ -33,6 +34,7 @@ export function Sidebar({
   reservationsEnabled = false,
   isAdmin = false,
   isPlatformAdmin = false,
+  isPlanActive = true,
   segment = "mecanica",
   organizations = [],
   activeOrganizationId = null,
@@ -40,6 +42,7 @@ export function Sidebar({
   reservationsEnabled?: boolean;
   isAdmin?: boolean;
   isPlatformAdmin?: boolean;
+  isPlanActive?: boolean;
   segment?: "mecanica" | "restaurante" | "geral";
   organizations?: { id: string; name: string }[];
   activeOrganizationId?: string | null;
@@ -50,10 +53,17 @@ export function Sidebar({
   const adminNavItems = [
     { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck },
+    { href: "/dashboard/admin/usuarios", label: "Usuários", icon: UserCog },
+  ];
+  const lockedNavItems = [
+    { href: "/dashboard", label: "Assinar plano", icon: LayoutDashboard },
+    { href: "/dashboard/configuracoes", label: "Configurações", icon: Settings },
   ];
   const navItems = [
     ...(isPlatformAdmin
       ? adminNavItems
+      : !isPlanActive
+        ? lockedNavItems
       : [
           ...baseNavItems.slice(0, 4),
           ...(reservationsEnabled
@@ -100,7 +110,7 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 space-y-0.5 p-3">
-        {!isPlatformAdmin && (
+        {!isPlatformAdmin && isPlanActive && (
           <OrganizationSwitcher
             organizations={organizations}
             activeOrganizationId={activeOrganizationId}

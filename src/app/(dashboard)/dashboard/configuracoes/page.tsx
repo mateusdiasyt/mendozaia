@@ -39,6 +39,16 @@ export default async function ConfiguracoesPage() {
   const scheduleBlockedDates = Array.isArray(reservationSchedule.blockedDates)
     ? (reservationSchedule.blockedDates as string[])
     : [];
+  const planLabel =
+    org.plan === "free"
+      ? "Sem plano ativo"
+      : org.plan === "starter"
+        ? "Starter"
+        : org.plan === "pro"
+          ? "Pro"
+          : org.plan === "scale"
+            ? "Scale"
+            : org.plan;
 
   return (
     <div className="p-8">
@@ -73,7 +83,7 @@ export default async function ConfiguracoesPage() {
             </div>
             <div>
               <dt className="text-slate-500">Plano</dt>
-              <dd className="font-medium capitalize text-slate-900">{org.plan}</dd>
+              <dd className="font-medium text-slate-900">{planLabel}</dd>
             </div>
           </dl>
         </div>
