@@ -6,6 +6,7 @@ import { ReservationScheduleForm } from "@/components/configuracoes/reservation-
 import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
 import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
 import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
+import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
 import { Lock } from "lucide-react";
 
 export default async function ConfiguracoesPage() {
@@ -18,6 +19,8 @@ export default async function ConfiguracoesPage() {
   const businessProfile =
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+  const offeredServicesConfig =
+    (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
   const vehicleServicePolicy =
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
@@ -155,6 +158,15 @@ export default async function ConfiguracoesPage() {
                     .filter((item) => item.model.length >= 2))
                 : [],
             }}
+          />
+          {!isPlanActive && <LockedOverlay />}
+        </div>
+
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <OfferedServicesForm
+            initialSelectedServices={Array.isArray(offeredServicesConfig.selectedServices)
+              ? (offeredServicesConfig.selectedServices as string[])
+              : []}
           />
           {!isPlanActive && <LockedOverlay />}
         </div>

@@ -78,6 +78,7 @@ export interface OrchestrationContext {
       year?: number | null;
     }>;
   };
+  offeredServices?: string[];
 }
 
 export interface OrchestratorResult {

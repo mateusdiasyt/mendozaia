@@ -50,6 +50,10 @@ export interface VehicleServicePolicyConfig {
   }>;
 }
 
+export interface OfferedServicesConfig {
+  selectedServices?: string[];
+}
+
 const BILLING_PIX_KEY = "113.673.289-69";
 const BILLING_PROOF_CONTACT = "45999287669";
 const ALLOWED_PAID_PLANS = new Set(["starter", "pro", "scale"]);
@@ -305,6 +309,48 @@ export async function updateVehicleServicePolicyConfig(
           minAllowedYear,
           blockedModels,
           blockedModelYears,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+export async function updateOfferedServicesConfig(config: OfferedServicesConfig) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const selectedServices = Array.isArray(config.selectedServices)
+    ? Array.from(
+        new Set(
+          config.selectedServices
+            .filter((item): item is string => typeof item === "string")
+            .map((item) => item.trim())
+            .filter((item) => item.length >= 2 && item.length <= 80)
+            .map((item) => item.toLowerCase())
+        )
+      )
+    : [];
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        offeredServicesConfig: {
+          selectedServices,
           updatedAt: new Date().toISOString(),
         },
       },

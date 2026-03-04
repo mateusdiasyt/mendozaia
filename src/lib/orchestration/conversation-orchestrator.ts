@@ -387,6 +387,62 @@ function looksLikeVehicleCoverageQuestion(text: string): boolean {
   );
 }
 
+function looksLikeServiceCoverageQuestion(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return (
+    /\b(voces|você|vc|vocês)\b.*\b(faz|fazem|trabalha|trabalham|atende|atendem)\b/.test(t) ||
+    /\b(faz|fazem|trabalha|trabalham|atende|atendem)\b.*\b(isso|esse|servico|serviço|parte)\b/.test(
+      t
+    )
+  );
+}
+
+function normalizeServiceLabel(value: string): string {
+  return normalizeForSearch(value)
+    .replace(/\b(servico|serviço|de|do|da|para|pra)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectAskedOfferedService(
+  text: string,
+  offeredServices: string[]
+): string | null {
+  const normalizedText = normalizeForSearch(text);
+  if (!normalizedText) return null;
+
+  const sorted = [...offeredServices].sort((a, b) => b.length - a.length);
+  for (const service of sorted) {
+    const normalizedService = normalizeServiceLabel(service);
+    if (!normalizedService) continue;
+    if (normalizedText.includes(normalizedService)) {
+      return service;
+    }
+  }
+
+  const tokens = normalizedText
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 4);
+  if (tokens.length === 0) return null;
+
+  let best: { service: string; score: number } | null = null;
+  for (const service of sorted) {
+    const normalizedService = normalizeServiceLabel(service);
+    if (!normalizedService) continue;
+    const score = tokens.reduce(
+      (acc, token) => (normalizedService.includes(token) ? acc + 1 : acc),
+      0
+    );
+    if (score >= 2 || (tokens.length === 1 && score >= 1)) {
+      if (!best || score > best.score) {
+        best = { service, score };
+      }
+    }
+  }
+  return best?.service ?? null;
+}
+
 function extractBrandMention(text: string): string | null {
   const t = normalizeForSearch(text);
   for (const brand of KNOWN_BRANDS) {
@@ -2254,6 +2310,8 @@ export async function loadConversationContext(
     (settings.botConfig as Record<string, unknown> | undefined) ?? {};
   const vehicleServicePolicySettings =
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
+  const offeredServicesSettings =
+    (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
   const configuredSegment =
     (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     undefined;
@@ -2381,6 +2439,9 @@ export async function loadConversationContext(
         "neutro",
       language: (botConfigSettings.language as string | undefined) ?? "pt-BR",
     },
+    offeredServices: Array.isArray(offeredServicesSettings.selectedServices)
+      ? (offeredServicesSettings.selectedServices as string[])
+      : [],
     vehicleServicePolicy: {
       minAllowedYear:
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
@@ -3080,6 +3141,49 @@ export async function processInboundMessage(
     ctx.conversationId,
     ctx.messageContent
   );
+  if (ctx.usesVehicleSlots && looksLikeServiceCoverageQuestion(intentProbeText)) {
+    const offeredServices = (ctx.offeredServices ?? []).map((service) => service.trim()).filter(Boolean);
+    if (offeredServices.length > 0) {
+      const askedService = detectAskedOfferedService(intentProbeText, offeredServices);
+      if (askedService) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Sim, trabalhamos com *${askedService}*.\n\nVou te encaminhar agora para o atendimento humano para te passar o orçamento certinho.`
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          `Cliente perguntou sobre serviço (${askedService}); direcionado para orçamento humano`
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Serviço oferecido confirmado; handoff para orçamento",
+          silence: false,
+        };
+      }
+
+      await options.sendMessage(
+        ctx.conversationId,
+        "No momento não identificamos esse serviço na nossa lista de atendimento. Se quiser, me diga o serviço exato que você precisa que eu confirmo com o time."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Serviço consultado não está na lista configurada",
+        silence: false,
+      };
+    }
+  }
   if (ctx.usesVehicleSlots && looksLikeVehicleCoverageQuestion(intentProbeText)) {
     const extractedQuestionSlots = extractVehicleSlotsFromText(intentProbeText);
     const askedYear = extractedQuestionSlots.ano ?? null;
