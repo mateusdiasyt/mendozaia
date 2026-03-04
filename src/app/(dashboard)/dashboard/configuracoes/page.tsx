@@ -131,6 +131,7 @@ export default async function ConfiguracoesPage() {
               instagram: (businessProfile.instagram as string | undefined) ?? "",
               address: (businessProfile.address as string | undefined) ?? "",
               mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
+              about: (businessProfile.about as string | undefined) ?? "",
             }}
           />
           {!isPlanActive && <LockedOverlay />}

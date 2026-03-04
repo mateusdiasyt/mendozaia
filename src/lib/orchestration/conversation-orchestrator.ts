@@ -168,6 +168,24 @@ function applyToneToText(
   return text;
 }
 
+function looksLikeAboutQuestion(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /\b(voces|voce|vc)\s+(sao|são|e)\s+(uma?\s+)?(mecanica|oficina|restaurante|empresa)\b/.test(t) ||
+    /\b(sao|são|e)\s+(uma?\s+)?(mecanica|oficina|restaurante)\b/.test(t) ||
+    /\bo\s+que\s+(voces|voce|vc)\s+faz(em)?\b/.test(t) ||
+    /\b(o\s+que|qual)\s+e\s+(esse|este)\s+(lugar|negocio|negócio)\b/.test(t) ||
+    /\b(o\s+que|qual)\s+e\s+o\s+(negocio|negócio)\b/.test(t) ||
+    /\bque\s+tipo\s+de\s+(empresa|negocio|negócio|estabelecimento)\b/.test(t)
+  );
+}
+
 function looksLikeAskKnownName(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -2431,6 +2449,7 @@ export async function loadConversationContext(
         (businessProfileSettings.instagram as string | undefined) ?? null,
       address: (businessProfileSettings.address as string | undefined) ?? null,
       mapsLink: (businessProfileSettings.mapsLink as string | undefined) ?? null,
+      about: (businessProfileSettings.about as string | undefined) ?? null,
     },
     botConfig: {
       segment: configuredSegment ?? (isRestauranteSegment ? "restaurante" : "mecanica"),
@@ -3141,6 +3160,44 @@ export async function processInboundMessage(
     ctx.conversationId,
     ctx.messageContent
   );
+
+  if (looksLikeAboutQuestion(intentProbeText)) {
+    const aboutText = ctx.businessProfile?.about?.trim();
+    if (aboutText) {
+      let continuationPrompt = "Agora me diga: qual é a sua dúvida?";
+      if (intakeStage === "awaiting_name" || (!contactName && !intakeStage)) {
+        continuationPrompt = "Para continuarmos, qual é o seu nome?";
+      } else if (intakeStage === "awaiting_vehicle") {
+        continuationPrompt = "Me informe o *modelo*, *ano* e *quilometragem* do veículo.";
+      } else if (intakeStage === "awaiting_issue") {
+        continuationPrompt = "Pode me explicar qual é a sua dúvida/situação do veículo?";
+      }
+      const reply = applyToneToText(
+        `${aboutText}\n\n${continuationPrompt}`,
+        ctx.botConfig?.tone
+      );
+      await options.sendMessage(ctx.conversationId, reply);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "about_question_replied",
+        decision: "tool_then_ai",
+        reason: "Pergunta sobre a empresa respondida com texto configurado em Sobre",
+        traceId: params.traceId,
+        stage: "orchestrator.about",
+        decisionCode: "ABOUT_QUESTION_REPLIED",
+        durationMs: Date.now() - startedAt,
+        metadata: { messageContent: ctx.messageContent },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Resposta com texto Sobre e continuação do fluxo",
+        silence: false,
+      };
+    }
+  }
+
   if (ctx.usesVehicleSlots && looksLikeServiceCoverageQuestion(intentProbeText)) {
     const offeredServices = (ctx.offeredServices ?? []).map((service) => service.trim()).filter(Boolean);
     if (offeredServices.length > 0) {

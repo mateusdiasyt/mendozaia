@@ -32,6 +32,7 @@ export interface BusinessProfileConfig {
   instagram?: string;
   address?: string;
   mapsLink?: string;
+  about?: string;
 }
 
 export interface BotPersonalizationConfig {
@@ -186,6 +187,7 @@ export async function updateBusinessProfileConfig(config: BusinessProfileConfig)
     instagram: (config.instagram ?? "").trim() || null,
     address: (config.address ?? "").trim() || null,
     mapsLink: (config.mapsLink ?? "").trim() || null,
+    about: (config.about ?? "").trim() || null,
   };
 
   await db

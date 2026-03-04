@@ -9,6 +9,7 @@ interface BusinessProfileFormProps {
     instagram: string;
     address: string;
     mapsLink: string;
+    about: string;
   };
 }
 
@@ -17,6 +18,7 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
   const [instagram, setInstagram] = useState(initialConfig.instagram);
   const [address, setAddress] = useState(initialConfig.address);
   const [mapsLink, setMapsLink] = useState(initialConfig.mapsLink);
+  const [about, setAbout] = useState(initialConfig.about);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
@@ -33,6 +35,7 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
       instagram,
       address,
       mapsLink,
+      about,
     });
 
     setSaving(false);
@@ -54,7 +57,7 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
       <div>
         <h3 className="font-medium text-slate-900">Dados da empresa</h3>
         <p className="mt-1 text-sm text-slate-500">
-          O bot usa estes dados para responder perguntas de contato e localização.
+          O bot usa estes dados para responder perguntas de contato, localização e sobre a empresa (ex: &quot;Vocês são uma mecânica?&quot;).
         </p>
       </div>
 
@@ -111,6 +114,17 @@ export function BusinessProfileForm({ initialConfig }: BusinessProfileFormProps)
           onChange={(e) => setMapsLink(e.target.value)}
           className={inputClass}
           placeholder="https://maps.google.com/..."
+        />
+      </label>
+
+      <label className="block text-sm font-medium text-slate-700">
+        Sobre
+        <textarea
+          value={about}
+          onChange={(e) => setAbout(e.target.value)}
+          rows={4}
+          className={inputClass}
+          placeholder="Ex: Somos uma oficina mecânica especializada em carros populares e importados. Atendemos há mais de 15 anos na região."
         />
       </label>
 

@@ -64,6 +64,7 @@ export interface OrchestrationContext {
     instagram?: string | null;
     address?: string | null;
     mapsLink?: string | null;
+    about?: string | null;
   };
   botConfig?: {
     segment?: "mecanica" | "restaurante" | "geral";
