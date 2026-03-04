@@ -65,6 +65,7 @@ export default async function AdminUsuariosPage() {
                 typeof billing.proofFileName === "string" ? billing.proofFileName : null;
               const proofFileDataUrl =
                 typeof billing.proofFileDataUrl === "string" ? billing.proofFileDataUrl : null;
+              const hasProofFile = !!proofFileName && !!proofFileDataUrl;
 
               return (
                 <tr key={org.id}>
@@ -79,40 +80,41 @@ export default async function AdminUsuariosPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs text-slate-700">
-                    {billingStatus === "pending_approval" ? (
-                      <div className="space-y-1">
-                        <p className="font-semibold text-amber-700">Aguardando aprovação</p>
-                        <p>Plano solicitado: {requestedPlan?.toUpperCase() ?? "-"}</p>
-                        {proofFileName ? (
-                          proofFileDataUrl ? (
-                            <a
-                              href={proofFileDataUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-indigo-600 hover:underline"
-                            >
-                              Ver comprovante ({proofFileName})
-                            </a>
-                          ) : (
-                            <p className="text-slate-700">Comprovante: {proofFileName}</p>
-                          )
-                        ) : (
-                          <p className="text-slate-500">Comprovante não enviado</p>
-                        )}
-                      </div>
-                    ) : billingStatus === "rejected" ? (
-                      <span className="rounded-full bg-rose-100 px-2 py-1 font-medium text-rose-700">
-                        Pagamento negado
-                      </span>
-                    ) : billingStatus === "active" ? (
-                      <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-700">
-                        Plano ativo
-                      </span>
-                    ) : (
-                      <span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">
-                        Sem solicitação
-                      </span>
-                    )}
+                    <div className="space-y-1">
+                      {billingStatus === "pending_approval" ? (
+                        <>
+                          <p className="font-semibold text-amber-700">Aguardando aprovação</p>
+                          <p>Plano solicitado: {requestedPlan?.toUpperCase() ?? "-"}</p>
+                        </>
+                      ) : billingStatus === "rejected" ? (
+                        <span className="rounded-full bg-rose-100 px-2 py-1 font-medium text-rose-700">
+                          Pagamento negado
+                        </span>
+                      ) : billingStatus === "active" ? (
+                        <span className="rounded-full bg-emerald-100 px-2 py-1 font-medium text-emerald-700">
+                          Plano ativo
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-2 py-1 font-medium text-slate-700">
+                          Sem solicitação
+                        </span>
+                      )}
+
+                      {hasProofFile ? (
+                        <a
+                          href={proofFileDataUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block text-indigo-600 hover:underline"
+                        >
+                          Ver comprovante ({proofFileName})
+                        </a>
+                      ) : proofFileName ? (
+                        <p className="text-slate-700">Comprovante: {proofFileName}</p>
+                      ) : (
+                        <p className="text-slate-500">Comprovante não enviado</p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <PlanActivationActions
