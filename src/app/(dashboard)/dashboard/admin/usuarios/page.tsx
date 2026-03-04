@@ -61,10 +61,10 @@ export default async function AdminUsuariosPage() {
                 typeof billing.status === "string" ? billing.status : null;
               const requestedPlan =
                 typeof billing.requestedPlan === "string" ? billing.requestedPlan : null;
-              const proofReference =
-                typeof billing.proofReference === "string" ? billing.proofReference : null;
-              const proofLooksLikeUrl =
-                !!proofReference && /^https?:\/\//i.test(proofReference);
+              const proofFileName =
+                typeof billing.proofFileName === "string" ? billing.proofFileName : null;
+              const proofFileDataUrl =
+                typeof billing.proofFileDataUrl === "string" ? billing.proofFileDataUrl : null;
 
               return (
                 <tr key={org.id}>
@@ -83,21 +83,21 @@ export default async function AdminUsuariosPage() {
                       <div className="space-y-1">
                         <p className="font-semibold text-amber-700">Aguardando aprovação</p>
                         <p>Plano solicitado: {requestedPlan?.toUpperCase() ?? "-"}</p>
-                        {proofReference ? (
-                          proofLooksLikeUrl ? (
+                        {proofFileName ? (
+                          proofFileDataUrl ? (
                             <a
-                              href={proofReference}
+                              href={proofFileDataUrl}
                               target="_blank"
                               rel="noreferrer"
                               className="text-indigo-600 hover:underline"
                             >
-                              Ver comprovante
+                              Ver comprovante ({proofFileName})
                             </a>
                           ) : (
-                            <p className="text-slate-700">Comprovante: {proofReference}</p>
+                            <p className="text-slate-700">Comprovante: {proofFileName}</p>
                           )
                         ) : (
-                          <p className="text-slate-500">Comprovante sem link</p>
+                          <p className="text-slate-500">Comprovante não enviado</p>
                         )}
                       </div>
                     ) : billingStatus === "rejected" ? (

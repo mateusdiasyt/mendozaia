@@ -344,16 +344,32 @@ export async function submitPaymentAndActivatePlan(plan: string) {
   return { success: true };
 }
 
-export async function submitPaymentProof(
-  plan: "starter" | "pro" | "scale",
-  proofReference: string
-) {
+export async function submitPaymentProof(formData: FormData) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
+  const plan = String(formData.get("plan") ?? "").trim();
   if (!ALLOWED_PAID_PLANS.has(plan)) return { error: "Plano inválido" };
 
-  const trimmedProof = proofReference.trim();
-  if (!trimmedProof) return { error: "Envie o comprovante para análise" };
+  const proofFile = formData.get("proofFile");
+  if (!(proofFile instanceof File) || proofFile.size <= 0) {
+    return { error: "Envie um arquivo de comprovante" };
+  }
+
+  const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+  if (proofFile.size > MAX_FILE_SIZE_BYTES) {
+    return { error: "Arquivo muito grande. Use até 5MB." };
+  }
+
+  const mimeType = proofFile.type || "application/octet-stream";
+  const isSupported =
+    mimeType.startsWith("image/") || mimeType === "application/pdf";
+  if (!isSupported) {
+    return { error: "Formato inválido. Envie imagem ou PDF." };
+  }
+
+  const bytes = Buffer.from(await proofFile.arrayBuffer());
+  const base64 = bytes.toString("base64");
+  const proofFileDataUrl = `data:${mimeType};base64,${base64}`;
 
   const [current] = await db
     .select({ settings: organizations.settings })
@@ -376,7 +392,9 @@ export async function submitPaymentProof(
           paymentMethod: "pix",
           pixKey: BILLING_PIX_KEY,
           proofContact: BILLING_PROOF_CONTACT,
-          proofReference: trimmedProof,
+          proofFileName: proofFile.name || "comprovante",
+          proofFileMimeType: mimeType,
+          proofFileDataUrl,
           proofSubmittedAt: new Date().toISOString(),
         },
       },

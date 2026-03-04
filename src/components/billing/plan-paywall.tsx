@@ -44,17 +44,17 @@ export function PlanPaywall({
   organizationName,
   billingStatus,
   requestedPlan,
-  proofReferenceInitial,
+  proofFileNameInitial,
 }: {
   organizationName: string;
   billingStatus?: string | null;
   requestedPlan?: string | null;
-  proofReferenceInitial?: string | null;
+  proofFileNameInitial?: string | null;
 }) {
   const router = useRouter();
   const [selectedPlan, setSelectedPlan] = useState<PlanId | null>(null);
   const [step, setStep] = useState<"select" | "proof">("select");
-  const [proofReference, setProofReference] = useState("");
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -83,7 +83,7 @@ export function PlanPaywall({
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Aguardando aprovação, aguarde um momento.
           {requestedPlan ? ` Plano solicitado: ${requestedPlan.toUpperCase()}.` : ""}
-          {proofReferenceInitial ? " Comprovante recebido no painel." : ""}
+          {proofFileNameInitial ? ` Comprovante recebido: ${proofFileNameInitial}.` : ""}
         </div>
       )}
 
@@ -151,6 +151,7 @@ export function PlanPaywall({
                   setStep("proof");
                   setSuccessMessage(null);
                   setErrorMessage(null);
+                  setProofFile(null);
                 }}
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -159,26 +160,31 @@ export function PlanPaywall({
             ) : (
               <div className="w-full space-y-3">
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  Agora envie o comprovante de pagamento (link do print, arquivo no drive ou
-                  referência do envio).
+                  Agora envie o arquivo do comprovante (print ou PDF) no painel.
                 </div>
                 <input
-                  type="text"
-                  value={proofReference}
-                  onChange={(event) => setProofReference(event.target.value)}
-                  placeholder="Cole aqui o link/referência do comprovante"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(event) => setProofFile(event.target.files?.[0] ?? null)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 />
+                {proofFile && (
+                  <p className="text-xs text-slate-500">Arquivo selecionado: {proofFile.name}</p>
+                )}
                 <button
                   type="button"
                   disabled={pending}
                   onClick={() =>
                     startTransition(async () => {
                       setErrorMessage(null);
-                      const result = await submitPaymentProof(
-                        selectedPlanData.id,
-                        proofReference
-                      );
+                      if (!proofFile) {
+                        setErrorMessage("Selecione o arquivo do comprovante.");
+                        return;
+                      }
+                      const formData = new FormData();
+                      formData.set("plan", selectedPlanData.id);
+                      formData.set("proofFile", proofFile);
+                      const result = await submitPaymentProof(formData);
                       if (result?.error) {
                         setErrorMessage(result.error);
                         return;

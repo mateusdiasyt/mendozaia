@@ -102,14 +102,14 @@ export default async function DashboardPage() {
       typeof billing.status === "string" ? billing.status : null;
     const requestedPlan =
       typeof billing.requestedPlan === "string" ? billing.requestedPlan : null;
-    const proofReferenceInitial =
-      typeof billing.proofReference === "string" ? billing.proofReference : null;
+    const proofFileNameInitial =
+      typeof billing.proofFileName === "string" ? billing.proofFileName : null;
     return (
       <PlanPaywall
         organizationName={org.name}
         billingStatus={billingStatus}
         requestedPlan={requestedPlan}
-        proofReferenceInitial={proofReferenceInitial}
+        proofFileNameInitial={proofFileNameInitial}
       />
     );
   }
