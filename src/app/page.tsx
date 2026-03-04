@@ -159,7 +159,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="como-funciona" className="border-y border-slate-200 bg-white">
+      <section id="como-funciona" className="scroll-mt-28 border-y border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-14">
           <h2 className="text-3xl font-bold">Como funciona</h2>
           <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -182,7 +182,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="nichos" className="mx-auto w-full max-w-6xl px-4 py-14">
+      <section id="nichos" className="scroll-mt-28 mx-auto w-full max-w-6xl px-4 py-14">
         <h2 className="text-3xl font-bold">Segmentos com alta demanda</h2>
         <p className="mt-2 text-slate-600">
           A plataforma foi pensada para diferentes operações e pode ser adaptada
@@ -217,7 +217,7 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section id="planos" className="border-y border-slate-200 bg-white">
+      <section id="planos" className="scroll-mt-28 border-y border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-14">
           <h2 className="text-3xl font-bold">Planos e valores</h2>
           <p className="mt-2 text-slate-600">
