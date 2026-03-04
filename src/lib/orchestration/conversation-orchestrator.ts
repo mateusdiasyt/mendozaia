@@ -1150,7 +1150,7 @@ function isGenericBudgetRequest(text: string): boolean {
   const t = normalizeForSearch(text);
   const asksBudget = /\b(orcamento|preco|valor|quanto)\b/.test(t);
   const hasSpecificNeed =
-    /\b(oleo|filtro|troca|revisao|freio|alinhamento|balanceamento|suspensao|embreagem|bateria|pneu|motor)\b/.test(
+    /\b(oleo|filtro|troca|trocar|revisao|freio|alinhamento|balanceamento|suspensao|embreagem|bateria|pneu|motor|correia|correia dentada|amortecedor|pastilha|disco|vela|inje[cç][aã]o)\b/.test(
       t
     );
   return asksBudget && !hasSpecificNeed;
