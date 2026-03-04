@@ -40,9 +40,9 @@ export default async function ConfiguracoesPage() {
   const scheduleBlockedDates = Array.isArray(reservationSchedule.blockedDates)
     ? (reservationSchedule.blockedDates as string[])
     : [];
-  const isPlanActive = org.plan !== "free";
+  const isPlanActive = org.plan !== "free" && org.plan !== "none";
   const planLabel =
-    org.plan === "free"
+    org.plan === "free" || org.plan === "none"
       ? "Sem plano ativo"
       : org.plan === "starter"
         ? "Starter"

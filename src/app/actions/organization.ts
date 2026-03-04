@@ -346,7 +346,7 @@ export async function submitPaymentAndActivatePlan(plan: string) {
 
 export async function adminSetOrganizationPlan(
   organizationId: string,
-  plan: "free" | "starter" | "pro" | "scale"
+  plan: "none" | "starter" | "pro" | "scale"
 ) {
   const membership = await getCurrentMembership();
   if (!membership || membership.role !== "platform_admin") {
@@ -365,12 +365,13 @@ export async function adminSetOrganizationPlan(
 
   const settings = (current.settings as Record<string, unknown>) ?? {};
   const billing = (settings.billing as Record<string, unknown> | undefined) ?? {};
-  const isPaidPlan = plan !== "free";
+  const normalizedPlan = plan === "none" ? "none" : plan;
+  const isPaidPlan = normalizedPlan !== "none";
 
   await db
     .update(organizations)
     .set({
-      plan,
+      plan: normalizedPlan,
       settings: {
         ...settings,
         billing: {

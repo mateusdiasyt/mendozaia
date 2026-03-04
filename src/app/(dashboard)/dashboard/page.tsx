@@ -53,7 +53,7 @@ export default async function DashboardPage() {
     );
   }
 
-  if (org.plan === "free") {
+  if (org.plan === "free" || org.plan === "none") {
     return <PlanPaywall organizationName={org.name} />;
   }
 

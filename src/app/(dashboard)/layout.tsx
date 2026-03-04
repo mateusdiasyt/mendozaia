@@ -24,7 +24,7 @@ export default async function DashboardLayout({
     }));
   const settings = (org?.settings as Record<string, unknown>) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
-  const isPlanActive = !org ? false : org.plan !== "free";
+  const isPlanActive = !org ? false : org.plan !== "free" && org.plan !== "none";
   const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
   const segment =
     (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??

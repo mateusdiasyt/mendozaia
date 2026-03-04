@@ -6,7 +6,7 @@ import { organizations } from "@/lib/db/schema";
 import { PlanActivationActions } from "./plan-activation-actions";
 
 function planLabel(plan: string): string {
-  if (plan === "free") return "Sem plano";
+  if (plan === "free" || plan === "none") return "Sem plano";
   if (plan === "starter") return "Starter";
   if (plan === "pro") return "Pro";
   if (plan === "scale") return "Scale";
