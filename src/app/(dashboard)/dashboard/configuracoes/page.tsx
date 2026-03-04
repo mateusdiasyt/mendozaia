@@ -5,6 +5,7 @@ import { ReservationsToggle } from "@/components/configuracoes/reservations-togg
 import { ReservationScheduleForm } from "@/components/configuracoes/reservation-schedule-form";
 import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
 import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
+import { Lock } from "lucide-react";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -39,6 +40,7 @@ export default async function ConfiguracoesPage() {
   const scheduleBlockedDates = Array.isArray(reservationSchedule.blockedDates)
     ? (reservationSchedule.blockedDates as string[])
     : [];
+  const isPlanActive = org.plan !== "free";
   const planLabel =
     org.plan === "free"
       ? "Sem plano ativo"
@@ -60,6 +62,13 @@ export default async function ConfiguracoesPage() {
       </div>
 
       <div className="space-y-6 max-w-2xl">
+        {!isPlanActive && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Seu plano ainda não está ativo. As configurações estão visíveis, mas bloqueadas com
+            cadeado até a liberação do pagamento.
+          </div>
+        )}
+
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="font-medium text-slate-900">Sua conta</h3>
           <dl className="mt-4 space-y-3 text-sm">
@@ -88,11 +97,12 @@ export default async function ConfiguracoesPage() {
           </dl>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <ReservationsToggle initialEnabled={reservationsEnabled} />
+          {!isPlanActive && <LockedOverlay />}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <BotPersonalizationForm
             initialConfig={{
               segment:
@@ -105,9 +115,10 @@ export default async function ConfiguracoesPage() {
               useAIFallback: aiAgent.useAsFallback !== false,
             }}
           />
+          {!isPlanActive && <LockedOverlay />}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <BusinessProfileForm
             initialConfig={{
               botName: (businessProfile.botName as string | undefined) ?? "",
@@ -116,9 +127,10 @@ export default async function ConfiguracoesPage() {
               mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
             }}
           />
+          {!isPlanActive && <LockedOverlay />}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <ReservationScheduleForm
             initialConfig={{
               start: scheduleStart,
@@ -128,9 +140,10 @@ export default async function ConfiguracoesPage() {
               blockedDates: scheduleBlockedDates,
             }}
           />
+          {!isPlanActive && <LockedOverlay />}
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <AiAgentForm
             initialConfig={{
               enabled: aiAgent.enabled as boolean | undefined,
@@ -140,7 +153,19 @@ export default async function ConfiguracoesPage() {
               hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
             }}
           />
+          {!isPlanActive && <LockedOverlay />}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LockedOverlay() {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/75 backdrop-blur-[1px]">
+      <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
+        <Lock className="h-3.5 w-3.5" />
+        Plano não ativo
       </div>
     </div>
   );

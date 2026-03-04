@@ -2,7 +2,6 @@ import { auth } from "@/auth";
 import { getCurrentMembership } from "@/lib/auth-utils";
 import { getUserOrganizations } from "@/lib/auth-utils";
 import { Sidebar } from "@/components/ui/sidebar";
-import { PlanPaywall } from "@/components/billing/plan-paywall";
 
 export default async function DashboardLayout({
   children,
@@ -43,11 +42,7 @@ export default async function DashboardLayout({
         activeOrganizationId={org?.id ?? null}
       />
       <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/80">
-        {!isPlatformAdmin && org && !isPlanActive ? (
-          <PlanPaywall organizationName={org.name} />
-        ) : (
-          children
-        )}
+        {children}
       </main>
     </div>
   );
