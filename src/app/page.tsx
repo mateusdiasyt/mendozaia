@@ -179,24 +179,18 @@ export default async function HomePage() {
       <section id="como-funciona" className="scroll-mt-28 border-y border-slate-200 bg-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-14">
           <h2 className="text-3xl font-bold">Como funciona</h2>
-          <div className="mt-8 grid gap-6 lg:grid-cols-3">
-            <div className="grid gap-4 sm:grid-cols-2 lg:col-span-1">
-              {[
-                ["1. Conecte o WhatsApp", "Conecte seu número diretamente no nosso painel em minutos."],
-                ["2. Configure seu nicho", "Escolha segmento, tom e regras do atendimento."],
-                ["3. Ative automações", "Fluxos inteligentes para orçamento, agendamento e triagem."],
-                ["4. Escale com controle", "IA responde, humano assume casos técnicos quando necessário."],
-              ].map(([title, desc]) => (
-                <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <h3 className="font-semibold text-slate-900">{title}</h3>
-                  <p className="mt-2 text-sm text-slate-600">{desc}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="lg:col-span-2">
-              <AnimatedWhatsappSim variant="compact" />
-            </div>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["1. Conecte o WhatsApp", "Conecte seu número diretamente no nosso painel em minutos."],
+              ["2. Configure seu nicho", "Escolha segmento, tom e regras do atendimento."],
+              ["3. Ative automações", "Fluxos inteligentes para orçamento, agendamento e triagem."],
+              ["4. Escale com controle", "IA responde, humano assume casos técnicos quando necessário."],
+            ].map(([title, desc]) => (
+              <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <h3 className="font-semibold text-slate-900">{title}</h3>
+                <p className="mt-2 text-sm text-slate-600">{desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
