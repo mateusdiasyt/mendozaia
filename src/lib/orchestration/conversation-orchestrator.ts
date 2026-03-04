@@ -1425,7 +1425,7 @@ function buildMissingReservationProfileReply(
 ): string {
   // Coleta sequencial para não sobrecarregar o cliente com múltiplos campos.
   if (missingName) {
-    return "Antes de confirmar, me informe o *nome do cliente*.";
+    return "Antes de confirmar, qual é o seu *nome*?";
   }
   if (missingVehicle.includes("modelo")) {
     return "Perfeito. Agora me informe o *modelo do veículo*.";
