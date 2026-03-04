@@ -13,7 +13,7 @@ import {
   products,
   services,
 } from "@/lib/db/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gt, asc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
@@ -296,6 +296,7 @@ function looksLikeDirectHumanMechanicalIssue(text: string): boolean {
     /\b(barulho|ruido|batendo|vibrando|tremendo)\b/,
     /\b(falha|falhando|engasgando|engasgo)\b/,
     /\b(bico|vela|bobina|injecao)\b/,
+    /\b(parte de motor|motor|cabecote|retifica|cambio)\b/,
     /\b(cheiro estranho|cheiro forte|cheiro de queimado)\b/,
     /\b(luz do painel|luz de injecao|check engine|alerta no painel)\b/,
     /\b(defeito|problema mecanico|problema tecnico)\b/,
@@ -493,6 +494,8 @@ const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
 const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
 const INTENT_STITCH_MAX_MESSAGES = 3;
 const INTENT_STITCH_MAX_CHARS = 280;
+const INBOUND_BLOCK_MAX_MESSAGES = 12;
+const INBOUND_BLOCK_MAX_CHARS = 700;
 const NAME_PROMPT_REPEAT_WINDOW_MS = 45 * 1000; // 45s
 const FLOW_RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 45min
 const INVALID_NAME_TERMS = new Set([
@@ -634,6 +637,51 @@ async function buildIntentProbeText(
 ): Promise<string> {
   const fallback = currentMessage.trim();
   if (!fallback) return currentMessage;
+
+  const [lastOutbound] = await db
+    .select({
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (lastOutbound?.createdAt) {
+    const inboundSinceLastReply = await db
+      .select({
+        content: messages.content,
+        createdAt: messages.createdAt,
+      })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.direction, "inbound"),
+          gt(messages.createdAt, lastOutbound.createdAt)
+        )
+      )
+      .orderBy(asc(messages.createdAt))
+      .limit(INBOUND_BLOCK_MAX_MESSAGES);
+
+    const stitchedBlock = inboundSinceLastReply
+      .map((m) => (m.content ?? "").trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (stitchedBlock) {
+      return stitchedBlock.length > INBOUND_BLOCK_MAX_CHARS
+        ? stitchedBlock.slice(-INBOUND_BLOCK_MAX_CHARS)
+        : stitchedBlock;
+    }
+  }
 
   const recent = await db
     .select({
