@@ -52,6 +52,8 @@ export interface GenerateAIReplyOptions {
   /** Slots extraídos pelo orquestrador - injetados no prompt para a IA não re-perguntar */
   vehicleSlots?: VehicleSlots;
   usesVehicleSlots?: boolean;
+  /** Texto "Sobre" da empresa - a IA usa como contexto para responder naturalmente perguntas como "vocês são uma mecânica?" */
+  businessAbout?: string | null;
 }
 
 /** Retry com backoff ao receber 429 (rate limit). */
@@ -193,6 +195,13 @@ ${NATURAL_BEHAVIOR_INSTRUCTIONS}`
 ${memoryInstruction}
 
 ${NATURAL_BEHAVIOR_INSTRUCTIONS}`;
+
+  if (options?.businessAbout?.trim()) {
+    basePrompt += `
+
+[SOBRE A EMPRESA - use como contexto para responder perguntas como "vocês são uma mecânica?", "o que vocês fazem?", "o que é esse lugar?". Responda de forma natural, resumindo ou adaptando as informações conforme a pergunta. NÃO copie o texto literalmente; entenda e responda como um atendente humano.]
+${options.businessAbout.trim()}`;
+  }
 
   if (useReservationTools) {
     basePrompt += `\n${RESERVATIONS_SYSTEM_ADDON}`;
