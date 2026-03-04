@@ -1,10 +1,19 @@
 import { auth } from "@/auth";
 import { getCurrentMembership, getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
-import { conversations, contacts } from "@/lib/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { conversations, contacts, messages } from "@/lib/db/schema";
+import { and, eq, gte, sql } from "drizzle-orm";
 import Link from "next/link";
-import { MessageSquare, Users, MessageCircle, ArrowRight } from "lucide-react";
+import {
+  MessageSquare,
+  Users,
+  MessageCircle,
+  ArrowRight,
+  Clock3,
+  TrendingUp,
+  AlertTriangle,
+  BarChart3,
+} from "lucide-react";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -43,6 +52,9 @@ export default async function DashboardPage() {
     );
   }
 
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
   const [conversationsCount] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(conversations)
@@ -53,6 +65,81 @@ export default async function DashboardPage() {
     .from(contacts)
     .where(eq(contacts.organizationId, org.id));
 
+  const [startedTodayCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        gte(conversations.createdAt, startOfToday)
+      )
+    );
+
+  const [inboundTodayCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(messages)
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        eq(messages.direction, "inbound"),
+        gte(messages.createdAt, startOfToday)
+      )
+    );
+
+  const [outboundTodayCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(messages)
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        eq(messages.direction, "outbound"),
+        gte(messages.createdAt, startOfToday)
+      )
+    );
+
+  const [waitingHumanCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        sql`${conversations.conversationState} in ('waiting_human', 'human_active') or ${conversations.isPriority} = true`
+      )
+    );
+
+  const waitingRows = await db
+    .select({
+      lastMessageAt: conversations.lastMessageAt,
+      updatedAt: conversations.updatedAt,
+    })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        sql`${conversations.conversationState} in ('waiting_human', 'human_active') or ${conversations.isPriority} = true`
+      )
+    )
+    .limit(200);
+
+  const avgQueueMinutes = (() => {
+    if (waitingRows.length === 0) return 0;
+    const now = Date.now();
+    const minutes = waitingRows.map((row) => {
+      const baseTime = row.lastMessageAt ?? row.updatedAt ?? startOfToday;
+      return Math.max(0, Math.round((now - baseTime.getTime()) / 60000));
+    });
+    return Math.round(minutes.reduce((acc, cur) => acc + cur, 0) / minutes.length);
+  })();
+
+  const serviceRate = (() => {
+    const inbound = inboundTodayCount?.count ?? 0;
+    const outbound = outboundTodayCount?.count ?? 0;
+    if (inbound === 0) return 0;
+    return Math.min(100, Math.round((outbound / inbound) * 100));
+  })();
+
   return (
     <div className="p-8">
       <div className="mb-10">
@@ -62,7 +149,54 @@ export default async function DashboardPage() {
         <p className="mt-1 text-slate-500">{org.name}</p>
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Iniciadas hoje</p>
+            <BarChart3 className="h-4 w-4 text-indigo-500" />
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{startedTodayCount?.count ?? 0}</p>
+          <p className="mt-1 text-xs text-slate-500">Novas conversas no dia</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Mensagens recebidas</p>
+            <MessageSquare className="h-4 w-4 text-emerald-500" />
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{inboundTodayCount?.count ?? 0}</p>
+          <p className="mt-1 text-xs text-slate-500">Entradas de hoje</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Aguardando humano</p>
+            <AlertTriangle className="h-4 w-4 text-amber-500" />
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{waitingHumanCount?.count ?? 0}</p>
+          <p className="mt-1 text-xs text-slate-500">Fila de atendimento técnico</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Tempo médio em fila</p>
+            <Clock3 className="h-4 w-4 text-rose-500" />
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{avgQueueMinutes} min</p>
+          <p className="mt-1 text-xs text-slate-500">Conversas aguardando humano</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <p className="text-xs uppercase tracking-wide text-slate-500">Taxa de atendimento</p>
+            <TrendingUp className="h-4 w-4 text-indigo-500" />
+          </div>
+          <p className="mt-2 text-3xl font-semibold text-slate-900">{serviceRate}%</p>
+          <p className="mt-1 text-xs text-slate-500">Saídas x entradas de hoje</p>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/dashboard/conversas"
           className="group rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition-all hover:border-indigo-200 hover:shadow-md"
