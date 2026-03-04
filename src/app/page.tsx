@@ -242,7 +242,7 @@ export default async function HomePage() {
               <p className="mt-2 text-3xl font-bold">R$ 599/mês</p>
               <p className="mt-1 text-sm text-slate-500">até 3.000 conversas/mês</p>
               <ul className="mt-4 space-y-2 text-sm text-slate-700">
-                <li>- até 2 números WhatsApp</li>
+                <li>- 1 número WhatsApp</li>
                 <li>- Fluxos avançados por segmento</li>
                 <li>- Suporte prioritário</li>
               </ul>
@@ -252,7 +252,7 @@ export default async function HomePage() {
               <p className="mt-2 text-3xl font-bold">Sob consulta</p>
               <p className="mt-1 text-sm text-slate-500">operações com múltiplas unidades</p>
               <ul className="mt-4 space-y-2 text-sm text-slate-700">
-                <li>- multiunidade / multiatendente</li>
+                <li>- 1 número WhatsApp</li>
                 <li>- SLA e onboarding dedicado</li>
                 <li>- personalização completa</li>
               </ul>
