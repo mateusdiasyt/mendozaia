@@ -185,7 +185,10 @@ const SCRIPT: SimMessage[] = [
 
 export function AnimatedWhatsappSim() {
   const [visibleCount, setVisibleCount] = useState(0);
+  const [highlightedKeys, setHighlightedKeys] = useState<string[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const visibleMessages = useMemo(
     () => SCRIPT.slice(0, visibleCount),
@@ -203,6 +206,52 @@ export function AnimatedWhatsappSim() {
 
   const nextMessage = SCRIPT[visibleCount];
   const showTyping = !!nextMessage && nextMessage.sender === "bot";
+
+  const isHighlighted = (key: keyof SimRuntimeState) =>
+    highlightedKeys.includes(key);
+
+  const playTick = () => {
+    if (!soundEnabled || typeof window === "undefined") return;
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new window.AudioContext();
+      }
+      const audioCtx = audioContextRef.current;
+      if (audioCtx.state === "suspended") {
+        void audioCtx.resume();
+      }
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.value = 920;
+      gain.gain.value = 0.0001;
+      gain.gain.exponentialRampToValueAtTime(0.05, audioCtx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.16);
+    } catch {
+      // Ignora falhas de áudio por política do navegador.
+    }
+  };
+
+  useEffect(() => {
+    const enableSound = () => {
+      setSoundEnabled(true);
+      window.removeEventListener("pointerdown", enableSound);
+      window.removeEventListener("keydown", enableSound);
+    };
+
+    window.addEventListener("pointerdown", enableSound);
+    window.addEventListener("keydown", enableSound);
+    return () => {
+      window.removeEventListener("pointerdown", enableSound);
+      window.removeEventListener("keydown", enableSound);
+    };
+  }, []);
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -232,6 +281,19 @@ export function AnimatedWhatsappSim() {
       behavior: "smooth",
     });
   }, [visibleMessages.length, showTyping]);
+
+  useEffect(() => {
+    const lastMessage = visibleMessages[visibleMessages.length - 1];
+    const patchKeys = Object.keys(lastMessage?.statePatch ?? {}) as Array<
+      keyof SimRuntimeState
+    >;
+    if (patchKeys.length === 0) return;
+
+    setHighlightedKeys(patchKeys);
+    playTick();
+    const timeout = setTimeout(() => setHighlightedKeys([]), 850);
+    return () => clearTimeout(timeout);
+  }, [visibleMessages, soundEnabled]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -283,32 +345,85 @@ export function AnimatedWhatsappSim() {
           Estado da IA (tempo real)
         </div>
         <div className="mt-3 h-[292px] space-y-3 overflow-hidden">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div
+            className={[
+              "rounded-xl border border-slate-200 bg-slate-50 p-3 transition-all duration-300",
+              (isHighlighted("contactName") ||
+                isHighlighted("carModel") ||
+                isHighlighted("carYear") ||
+                isHighlighted("carKm")) &&
+              "border-indigo-300 bg-indigo-50/80 shadow-sm animate-pulse",
+            ].join(" ")}
+          >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
               Veículo do contato
             </p>
             <p className="mt-1 text-sm text-slate-700">
-              Nome: <span className="font-medium text-slate-900">{runtimeState.contactName}</span>
+              Nome:{" "}
+              <span
+                className={[
+                  "font-medium text-slate-900 transition-all duration-300",
+                  isHighlighted("contactName") && "rounded bg-indigo-100 px-1",
+                ].join(" ")}
+              >
+                {runtimeState.contactName}
+              </span>
             </p>
             <p className="text-sm text-slate-700">
-              Modelo: <span className="font-medium text-slate-900">{runtimeState.carModel}</span>
+              Modelo:{" "}
+              <span
+                className={[
+                  "font-medium text-slate-900 transition-all duration-300",
+                  isHighlighted("carModel") && "rounded bg-indigo-100 px-1",
+                ].join(" ")}
+              >
+                {runtimeState.carModel}
+              </span>
             </p>
             <p className="text-sm text-slate-700">
-              Ano: <span className="font-medium text-slate-900">{runtimeState.carYear}</span>
+              Ano:{" "}
+              <span
+                className={[
+                  "font-medium text-slate-900 transition-all duration-300",
+                  isHighlighted("carYear") && "rounded bg-indigo-100 px-1",
+                ].join(" ")}
+              >
+                {runtimeState.carYear}
+              </span>
             </p>
             <p className="text-sm text-slate-700">
-              KM: <span className="font-medium text-slate-900">{runtimeState.carKm}</span>
+              KM:{" "}
+              <span
+                className={[
+                  "font-medium text-slate-900 transition-all duration-300",
+                  isHighlighted("carKm") && "rounded bg-indigo-100 px-1",
+                ].join(" ")}
+              >
+                {runtimeState.carKm}
+              </span>
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div
+              className={[
+                "rounded-xl border border-slate-200 bg-slate-50 p-3 transition-all duration-300",
+                isHighlighted("waitingHuman") &&
+                  "border-indigo-300 bg-indigo-50/80 shadow-sm animate-pulse",
+              ].join(" ")}
+            >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Atendimento humano
               </p>
               <p className="mt-1 text-sm font-medium text-slate-900">{runtimeState.waitingHuman}</p>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div
+              className={[
+                "rounded-xl border border-slate-200 bg-slate-50 p-3 transition-all duration-300",
+                isHighlighted("carInShop") &&
+                  "border-indigo-300 bg-indigo-50/80 shadow-sm animate-pulse",
+              ].join(" ")}
+            >
               <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                 Carro na mecânica
               </p>
@@ -322,12 +437,18 @@ export function AnimatedWhatsappSim() {
               runtimeState.aiStatus === "Ativa"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                 : "border-amber-200 bg-amber-50 text-amber-800",
+              isHighlighted("aiStatus") && "animate-pulse",
             ].join(" ")}
           >
             IA: <span className="font-semibold">{runtimeState.aiStatus}</span>
           </div>
 
-          <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+          <div
+            className={[
+              "rounded-xl border border-indigo-200 bg-indigo-50 p-3 transition-all duration-300",
+              isHighlighted("stageLabel") && "ring-2 ring-indigo-200 animate-pulse",
+            ].join(" ")}
+          >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
               Etapa atual do fluxo
             </p>
@@ -336,6 +457,11 @@ export function AnimatedWhatsappSim() {
           {showTyping && (
             <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
               A IA está processando a próxima resposta...
+            </div>
+          )}
+          {!soundEnabled && (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+              Toque ou clique na página para ativar o som da simulação.
             </div>
           )}
         </div>
