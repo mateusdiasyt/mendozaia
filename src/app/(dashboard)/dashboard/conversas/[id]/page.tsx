@@ -36,7 +36,6 @@ export default async function ConversaPage({
       contactId: conversations.contactId,
       contactName: contacts.name,
       contactPhone: contacts.phone,
-      sessionName: whatsappSessions.name,
       sessionId: whatsappSessions.sessionId,
       aiDisabledUntil: conversations.aiDisabledUntil,
       conversationState: conversations.conversationState,
@@ -137,10 +136,6 @@ export default async function ConversaPage({
             <h1 className="font-medium text-[#111b21]">
               {displayName}
             </h1>
-            <p className="text-xs text-[#667781]">
-              {conv.contactPhone}
-              {conv.sessionName && ` · ${conv.sessionName}`}
-            </p>
           </div>
         </div>
         <div className="flex items-center gap-1">

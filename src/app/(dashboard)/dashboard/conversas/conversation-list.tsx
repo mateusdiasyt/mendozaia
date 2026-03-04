@@ -13,7 +13,6 @@ interface Conv {
   unreadCount: number;
   contactName: string | null;
   contactPhone: string;
-  sessionName: string | null;
   sessionId: string;
   isWaitingHuman: boolean;
 }

@@ -26,7 +26,6 @@ export default async function ConversasLayout({
       isPriority: conversations.isPriority,
       contactName: contacts.name,
       contactPhone: contacts.phone,
-      sessionName: whatsappSessions.name,
       sessionId: whatsappSessions.sessionId,
     })
     .from(conversations)
