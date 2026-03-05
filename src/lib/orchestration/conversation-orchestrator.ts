@@ -1861,6 +1861,24 @@ function buildMissingVehicleRequiredReply(missing: ("modelo" | "ano" | "km")[]):
   return "Perfeito, já anotei o modelo. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também.";
 }
 
+function getMandatoryVehicleMissing(slots: VehicleSlots | undefined): ("modelo" | "ano" | "km")[] {
+  const missing: ("modelo" | "ano" | "km")[] = [];
+  if (!slots?.modelo) missing.push("modelo");
+  if (!slots?.ano) missing.push("ano");
+  if (!slots?.km) missing.push("km");
+  return missing;
+}
+
+function buildMissingVehicleMandatoryReply(missing: ("modelo" | "ano" | "km")[]): string {
+  if (missing.includes("modelo")) {
+    return "me informe o *modelo* do veículo.";
+  }
+  if (missing.includes("ano")) {
+    return "agora me informe o *ano* do veículo.";
+  }
+  return "agora me informe também a *quilometragem (km)* do veículo (obrigatório para abrir o atendimento técnico).";
+}
+
 function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, available: boolean): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
   return available
@@ -2963,6 +2981,7 @@ export async function processInboundMessage(
   const profileUpdateFlow = getProfileUpdateFlowState(conversationMetadata);
   const resumeChoiceFlow = getResumeChoiceFlowState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
+  const mechanicalIssuePendingHandoff = conversationMetadata.mechanicalIssuePendingHandoff === true;
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   const isImplicitAwaitingName =
     intakeStage !== "awaiting_name" &&
@@ -2998,6 +3017,71 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation" ||
     hasRestaurantActiveFlow;
+
+  // Regra de negócio: em caso mecânico, após nome+dúvida deve coletar modelo+ano+km antes de encaminhar ao técnico.
+  if (ctx.usesVehicleSlots && mechanicalIssuePendingHandoff) {
+    const mergedVehicle = mergeVehicleSlots(
+      ctx.vehicleSlots ?? {},
+      extractVehicleSlotsFromText(ctx.messageContent)
+    );
+    const mandatoryMissing = getMandatoryVehicleMissing(mergedVehicle);
+
+    await db
+      .update(conversations)
+      .set({
+        conversationStateMetadata: {
+          ...conversationMetadata,
+          vehicleSlots: mergedVehicle,
+          vehicleSlotsUpdatedAt: new Date().toISOString(),
+          mechanicalIssuePendingHandoff: mandatoryMissing.length > 0,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(conversations.id, ctx.conversationId));
+
+    if (mergedVehicle.modelo) await saveContactMemory(ctx.contactId, "vehicle_model", mergedVehicle.modelo);
+    if (mergedVehicle.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(mergedVehicle.ano));
+    if (mergedVehicle.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(mergedVehicle.km));
+
+    if (mandatoryMissing.length > 0) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleMandatoryReply(mandatoryMissing)}`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Caso mecânico pendente; coletando modelo/ano/km obrigatórios antes do handoff",
+        silence: false,
+      };
+    }
+
+    await sendMessage(
+      ctx.conversationId,
+      "Perfeito, anotei modelo, ano e km. Vou te encaminhar agora para um mecânico técnico continuar o atendimento."
+    );
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      "Dados do veículo completos no caso mecânico; handoff técnico"
+    );
+    if (handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: "Dados obrigatórios coletados; encaminhado para técnico humano",
+      silence: false,
+    };
+  }
 
   const buildActiveFlowContinuationReply = (intentProbeForNeed?: string): string | null => {
     if (intakeStage === "awaiting_name") {
@@ -3146,6 +3230,43 @@ export async function processInboundMessage(
     (isOilExchangeIntent(intentProbeText) || hasActiveOilFlow)
   ) {
     if (shouldEscalateMechanicalIssue(intentProbeText)) {
+      const mergedVehicleForIssue = mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        extractVehicleSlotsFromText(ctx.messageContent)
+      );
+      const mandatoryMissing = getMandatoryVehicleMissing(mergedVehicleForIssue);
+
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: {
+            ...conversationMetadata,
+            vehicleSlots: mergedVehicleForIssue,
+            vehicleSlotsUpdatedAt: new Date().toISOString(),
+            mechanicalIssuePendingHandoff: mandatoryMissing.length > 0,
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+
+      if (mergedVehicleForIssue.modelo) await saveContactMemory(ctx.contactId, "vehicle_model", mergedVehicleForIssue.modelo);
+      if (mergedVehicleForIssue.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(mergedVehicleForIssue.ano));
+      if (mergedVehicleForIssue.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(mergedVehicleForIssue.km));
+
+      if (mandatoryMissing.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await sendMessage(
+          ctx.conversationId,
+          `Entendi o problema. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleMandatoryReply(mandatoryMissing)}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Problema mecânico detectado; coletando modelo/ano/km obrigatórios antes do handoff",
+          silence: false,
+        };
+      }
+
       await sendMessage(
         ctx.conversationId,
         "Entendi. Como você relatou um problema mecânico (ex.: vazamento), o ideal é um mecânico técnico avaliar seu carro agora. Vou te encaminhar para atendimento humano especializado."
