@@ -119,19 +119,23 @@ export const tags = pgTable("tags", {
 
 // ==================== CONTATOS ====================
 
-export const contacts = pgTable("contacts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  phone: text("phone").notNull(),
-  name: text("name"),
-  email: text("email"),
-  customFields: jsonb("custom_fields").$type<Record<string, string>>(),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const contacts = pgTable(
+  "contacts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    phone: text("phone").notNull(),
+    name: text("name"),
+    email: text("email"),
+    customFields: jsonb("custom_fields").$type<Record<string, string>>(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("contacts_org_phone_idx").on(t.organizationId, t.phone)]
+);
 
 /** Memórias extraídas pela IA sobre o contato (nome, preferências, etc.) */
 export const contactMemories = pgTable(
@@ -184,42 +188,46 @@ export const whatsappSessions = pgTable("whatsapp_sessions", {
 
 // ==================== CONVERSAS E MENSAGENS ====================
 
-export const conversations = pgTable("conversations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  organizationId: uuid("organization_id")
-    .notNull()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  contactId: uuid("contact_id")
-    .notNull()
-    .references(() => contacts.id, { onDelete: "cascade" }),
-  whatsappSessionId: uuid("whatsapp_session_id")
-    .notNull()
-    .references(() => whatsappSessions.id, { onDelete: "cascade" }),
-  pipelineStage: text("pipeline_stage").default("inbox"), // inbox, qualified, proposal, negotiation, closed_won, closed_lost
-  assignedToId: text("assigned_to_id").references(() => users.id, {
-    onDelete: "set null",
-  }),
-  lastMessageAt: timestamp("last_message_at"),
-  lastMessagePreview: text("last_message_preview"),
-  unreadCount: integer("unread_count").default(0).notNull(),
-  isArchived: boolean("is_archived").default(false).notNull(),
-  /** Quando preenchido, a IA não responde nesta conversa até esta data/hora */
-  aiDisabledUntil: timestamp("ai_disabled_until", { mode: "date" }),
-  /** Última vez que o contato estava digitando (para mostrar "digitando...") */
-  contactTypingAt: timestamp("contact_typing_at", { mode: "date" }),
-  /** Estado da conversa para orquestração: init, collecting_info, awaiting_system, ready_to_confirm, waiting_human, human_active, closed */
-  conversationState: text("conversation_state").default("init"),
-  /** Motivo do handoff para humano */
-  handoffReason: text("handoff_reason"),
-  /** Quando foi feito o handoff */
-  handoffAt: timestamp("handoff_at", { mode: "date" }),
-  /** Prioridade (conversa aguardando humano) */
-  isPriority: boolean("is_priority").default(false).notNull(),
-  /** Metadados extras do estado (json) */
-  conversationStateMetadata: jsonb("conversation_state_metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    contactId: uuid("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    whatsappSessionId: uuid("whatsapp_session_id")
+      .notNull()
+      .references(() => whatsappSessions.id, { onDelete: "cascade" }),
+    pipelineStage: text("pipeline_stage").default("inbox"), // inbox, qualified, proposal, negotiation, closed_won, closed_lost
+    assignedToId: text("assigned_to_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    lastMessageAt: timestamp("last_message_at"),
+    lastMessagePreview: text("last_message_preview"),
+    unreadCount: integer("unread_count").default(0).notNull(),
+    isArchived: boolean("is_archived").default(false).notNull(),
+    /** Quando preenchido, a IA não responde nesta conversa até esta data/hora */
+    aiDisabledUntil: timestamp("ai_disabled_until", { mode: "date" }),
+    /** Última vez que o contato estava digitando (para mostrar "digitando...") */
+    contactTypingAt: timestamp("contact_typing_at", { mode: "date" }),
+    /** Estado da conversa para orquestração: init, collecting_info, awaiting_system, ready_to_confirm, waiting_human, human_active, closed */
+    conversationState: text("conversation_state").default("init"),
+    /** Motivo do handoff para humano */
+    handoffReason: text("handoff_reason"),
+    /** Quando foi feito o handoff */
+    handoffAt: timestamp("handoff_at", { mode: "date" }),
+    /** Prioridade (conversa aguardando humano) */
+    isPriority: boolean("is_priority").default(false).notNull(),
+    /** Metadados extras do estado (json) */
+    conversationStateMetadata: jsonb("conversation_state_metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("conversations_contact_session_unique_idx").on(t.contactId, t.whatsappSessionId)]
+);
 
 export const messages = pgTable("messages", {
   id: uuid("id").primaryKey().defaultRandom(),

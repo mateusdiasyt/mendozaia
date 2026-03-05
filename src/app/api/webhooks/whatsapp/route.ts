@@ -378,13 +378,30 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (!contact) {
-      [contact] = await db
+      const inserted = await db
         .insert(contacts)
         .values({
           organizationId: session.organizationId,
           phone,
         })
+        .onConflictDoNothing({
+          target: [contacts.organizationId, contacts.phone],
+        })
         .returning();
+      [contact] = inserted;
+      if (!contact) {
+        [contact] = await db
+          .select()
+          .from(contacts)
+          .where(
+            and(
+              eq(contacts.organizationId, session.organizationId),
+              eq(contacts.phone, phone)
+            )
+          )
+          .orderBy(desc(contacts.createdAt))
+          .limit(1);
+      }
     }
 
     if (!contact) {
@@ -412,7 +429,7 @@ export async function POST(request: NextRequest) {
         : `[${contentType}] ${messageText?.slice(0, 80) || ""}`.trim();
 
     if (!conversation) {
-      [conversation] = await db
+      const inserted = await db
         .insert(conversations)
         .values({
           organizationId: session.organizationId,
@@ -421,7 +438,24 @@ export async function POST(request: NextRequest) {
           lastMessageAt: new Date(),
           lastMessagePreview: messagePreview,
         })
+        .onConflictDoNothing({
+          target: [conversations.contactId, conversations.whatsappSessionId],
+        })
         .returning();
+      [conversation] = inserted;
+      if (!conversation) {
+        [conversation] = await db
+          .select()
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.contactId, contact.id),
+              eq(conversations.whatsappSessionId, session.id)
+            )
+          )
+          .orderBy(desc(conversations.createdAt))
+          .limit(1);
+      }
     }
 
     if (!conversation) {
