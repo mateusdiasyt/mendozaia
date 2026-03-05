@@ -4,9 +4,9 @@
 
 /** Fillers ocasionais (máx 1 a cada 3 respostas) */
 export const FILLERS = [
-  "Entendi.",
   "Deixa eu te explicar.",
   "Certo.",
+  "Perfeito.",
 ];
 
 /** Retorna filler ocasional com baixa frequência para não soar repetitivo */
@@ -65,7 +65,7 @@ const PHRASE_VARIATIONS: Record<string, string[]> = {
     "Beleza, vamos resolver isso.",
   ],
   "Claro!": ["Claro!", "Sim!", "Beleza!"],
-  "Entendi.": ["Entendi.", "Certo.", "Beleza."],
+  "Entendi.": ["Certo.", "Perfeito.", "Beleza."],
   "Perfeito!": ["Perfeito!", "Ótimo!", "Excelente!"],
   "De nada.": ["De nada.", "Por nada.", "Imagina."],
   "Obrigado.": ["Obrigado.", "Valeu.", "Obrigada."],
@@ -80,6 +80,16 @@ const PHRASE_VARIATIONS: Record<string, string[]> = {
 export function humanizeTextResponse(text: string): string {
   const trimmed = text.trim();
   if (!trimmed) return text;
+
+  // Evita abertura repetitiva com "Entendi." em mensagens longas.
+  // Ex.: "Entendi. ...", "Entendi, ..." -> varia para outra abertura.
+  const leadingEntendi = trimmed.match(/^Entendi([.,!])\s+/i);
+  if (leadingEntendi) {
+    const alternatives = ["Certo.", "Perfeito.", "Sem problemas."];
+    const idx = Math.floor(Math.random() * alternatives.length);
+    const prefix = alternatives[idx] ?? "Certo.";
+    return `${prefix} ${trimmed.replace(/^Entendi[.,!]\s+/i, "")}`.trim();
+  }
 
   for (const [phrase, variations] of Object.entries(PHRASE_VARIATIONS)) {
     if (trimmed === phrase || trimmed.startsWith(phrase + " ") || trimmed.endsWith(" " + phrase)) {
