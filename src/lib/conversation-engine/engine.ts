@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, asc, gte, isNull, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, asc, gte, isNull } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -691,13 +691,7 @@ export async function runConversationEngine(
     },
   });
 
-  // Marcar mensagens consumidas (evita processar duas vezes)
-  if (processedMessageIds.length > 0) {
-    await db
-      .update(messages)
-      .set({ processedAt: new Date() })
-      .where(inArray(messages.id, processedMessageIds));
-  }
+  // processedAt é marcado pelo debouncer apenas após envio bem-sucedido (evita marcar sem responder)
 
   // Atualizar perfil do cliente - Parte 1
   const isNewProfile = !customerProfile;

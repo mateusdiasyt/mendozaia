@@ -11,7 +11,7 @@ import {
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte } from "drizzle-orm";
 import {
   scheduleConversationProcessing,
   incrementFloodCount,
@@ -403,15 +403,36 @@ export async function POST(request: NextRequest) {
     }
     const traceId = crypto.randomUUID();
 
+    // Anti-flood: não inserir duplicata (mesma conversa + mesmo conteúdo nos últimos 60s)
+    const since60s = new Date(Date.now() - 60 * 1000);
+    if (messageText?.trim()) {
+      const [dupe] = await db
+        .select({ id: messages.id })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversation.id),
+            eq(messages.direction, "inbound"),
+            eq(messages.content, messageText.trim()),
+            gte(messages.createdAt, since60s)
+          )
+        )
+        .limit(1);
+      if (dupe) {
+        await scheduleConversationProcessing(conversation.id);
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
+    }
+
     // Salvar mensagem recebida (texto e mídia)
-    const [inboundMessage] = await db.insert(messages).values({
+    await db.insert(messages).values({
       conversationId: conversation.id,
       direction: "inbound",
       contentType,
       content: messageText || null,
       mediaUrl,
       metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-    }).returning({ id: messages.id, createdAt: messages.createdAt });
+    });
 
     await logOrchestration({
       conversationId: conversation.id,

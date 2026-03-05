@@ -17,6 +17,8 @@ const SEND_TYPING_POLL_MS = 400;
 const TYPING_DELAY_MIN_MS = 1_500;
 const TYPING_DELAY_MAX_MS = 3_000;
 const LAST_RESPONSE_TTL_S = 120;
+/** Só cancelar envio se nova mensagem chegou pelo menos N ms após início do engine (evita cancelar no mesmo burst) */
+const STALE_GRACE_MS = 2_500;
 
 function simpleHash(str: string): string {
   let h = 0;
@@ -93,7 +95,7 @@ export function createSendMessageExecutor(
   return async (convId: string, message: string, messageIndex = 0): Promise<boolean> => {
     await waitIfContactTyping(convId);
 
-    // Segurança: verificar se chegou nova mensagem após início do engine
+    // Segurança: só cancelar se nova mensagem chegou bem depois do início (evita cancelar no mesmo burst do cliente)
     if (engineStartTime) {
       const [latest] = await db
         .select({ createdAt: messages.createdAt })
@@ -106,11 +108,12 @@ export function createSendMessageExecutor(
         )
         .orderBy(desc(messages.createdAt))
         .limit(1);
-      if (latest?.createdAt && new Date(latest.createdAt) > engineStartTime) {
+      const graceTime = new Date(engineStartTime.getTime() + STALE_GRACE_MS);
+      if (latest?.createdAt && new Date(latest.createdAt) > graceTime) {
         console.log({
           stage: "stale_response_cancelled",
           conversationId: convId,
-          reason: "nova mensagem inbound após engine start",
+          reason: "nova mensagem inbound após janela de graça",
         });
         return false; // sinaliza para reprocessar
       }
@@ -120,7 +123,7 @@ export function createSendMessageExecutor(
     const apiKey = process.env.EVOLUTION_API_KEY;
     if (!apiUrl) {
       console.error("[executor] WHATSAPP_API_URL não configurada");
-      return true;
+      return false; // falha de config → reprocessar
     }
 
     // Humanize: variação leve na resposta
@@ -191,7 +194,7 @@ export function createSendMessageExecutor(
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       console.error("[executor] Evolution API sendText failed:", res.status, err);
-      return true;
+      return false; // falha no envio → reprocessar
     }
 
     await db.insert(messages).values({
