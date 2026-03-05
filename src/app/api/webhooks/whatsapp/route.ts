@@ -15,6 +15,7 @@ import { eq, and, desc, gte } from "drizzle-orm";
 import {
   scheduleConversationProcessing,
   incrementFloodCount,
+  processConversation,
 } from "@/lib/conversation-engine/debouncer";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
@@ -445,7 +446,12 @@ export async function POST(request: NextRequest) {
         )
         .limit(1);
       if (dupe) {
-        await scheduleConversationProcessing(conversation.id);
+        try {
+          await scheduleConversationProcessing(conversation.id);
+        } catch (scheduleErr) {
+          console.error("[webhook whatsapp] schedule failed (duplicate), fallback inline:", scheduleErr);
+          await processConversation(conversation.id);
+        }
         return NextResponse.json({ ok: true, duplicate: true });
       }
     }
@@ -489,7 +495,24 @@ export async function POST(request: NextRequest) {
     await incrementFloodCount(conversation.id);
 
     // Debounce distribuído (Redis + QStash): agenda processamento em 3s; nova mensagem cancela e reinicia.
-    await scheduleConversationProcessing(conversation.id);
+    try {
+      await scheduleConversationProcessing(conversation.id);
+    } catch (scheduleErr) {
+      console.error("[webhook whatsapp] schedule failed, fallback inline:", scheduleErr);
+      await logOrchestration({
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        event: "webhook_schedule_fallback_inline",
+        reason: "Falha no agendamento QStash; processando inline",
+        traceId,
+        stage: "webhook.schedule",
+        decisionCode: "WEBHOOK_SCHEDULE_FALLBACK_INLINE",
+        metadata: {
+          error: String(scheduleErr),
+        },
+      });
+      await processConversation(conversation.id);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {
