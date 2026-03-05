@@ -13,7 +13,7 @@ import {
   products,
   services,
 } from "@/lib/db/schema";
-import { eq, desc, and, gt, asc } from "drizzle-orm";
+import { eq, desc, and, gt, lt, asc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
@@ -733,6 +733,38 @@ async function buildIntentProbeText(
       .trim();
 
     if (stitchedBlock) {
+      // Se a resposta é curta (ex: só "Mateus") e pode ter perdido contexto (problema descrito antes do bot perguntar nome),
+      // incluir inbound dos últimos 2 min antes do último reply para preservar intenção
+      const SHORT_RESPONSE_THRESHOLD = 35;
+      const CONTEXT_LOOKBACK_MS = 2 * 60 * 1000;
+      if (stitchedBlock.length <= SHORT_RESPONSE_THRESHOLD) {
+        const cutoff = new Date(lastOutbound.createdAt.getTime() - CONTEXT_LOOKBACK_MS);
+        const inboundBeforeReply = await db
+          .select({ content: messages.content })
+          .from(messages)
+          .where(
+            and(
+              eq(messages.conversationId, conversationId),
+              eq(messages.direction, "inbound"),
+              gt(messages.createdAt, cutoff),
+              lt(messages.createdAt, lastOutbound.createdAt)
+            )
+          )
+          .orderBy(asc(messages.createdAt))
+          .limit(6);
+        const beforeBlock = inboundBeforeReply
+          .map((m) => (m.content ?? "").trim())
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (beforeBlock) {
+          const fullContext = `${beforeBlock} ${stitchedBlock}`.replace(/\s+/g, " ").trim();
+          return fullContext.length > INBOUND_BLOCK_MAX_CHARS
+            ? fullContext.slice(-INBOUND_BLOCK_MAX_CHARS)
+            : fullContext;
+        }
+      }
       return stitchedBlock.length > INBOUND_BLOCK_MAX_CHARS
         ? stitchedBlock.slice(-INBOUND_BLOCK_MAX_CHARS)
         : stitchedBlock;
@@ -1278,6 +1310,14 @@ function looksLikeReservationIntent(text: string): boolean {
   );
 }
 
+/** Mensagem para descoberta da necessidade: se o cliente já disse que quer agendar, pede o motivo/problema em vez de "qual a dúvida". */
+function buildNeedDiscoveryPrompt(intentProbeText: string): string {
+  if (looksLikeReservationIntent(intentProbeText)) {
+    return "Antes de agendar um horário, preciso entender melhor o seu problema ou serviço. Me diga o que precisa ser feito no veículo para que eu possa te direcionar da melhor forma possível.";
+  }
+  return "Qual é a sua dúvida?";
+}
+
 function looksLikeRestaurantReservationIntent(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1463,6 +1503,28 @@ function extractOilSpec(text: string): string | null {
   return match[1].replace(/\s+/g, "").toUpperCase();
 }
 
+/** Extrai código de motor (ex: ea111) para busca em produtos */
+function extractEngineCodeFromText(text: string): string | null {
+  const normalized = normalizeForSearch(text);
+  const match = normalized.match(/\b(ea\d{3}|tsi|tfsi|gdi|mpi|fsi)\b/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+function looksLikeScheduleAgreement(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /\b(vamos|vamos sim|quero|sim|pode|pode ser|confirmo)\s+(agendar|agendamento|reservar|reserva)\b/.test(t) ||
+    /\b(agendar|agendamento|reservar)\s+(sim|por favor|pode ser)\b/.test(t) ||
+    /^(vamos|sim|quero|pode)\s+(agendar|agendamento|reservar|reserva)/.test(t)
+  );
+}
+
 function isOilExchangeIntent(text: string): boolean {
   const t = normalizeForSearch(text);
   return /\b(oleo|troca de oleo|troca oleo|lubrificacao)\b/.test(t);
@@ -1592,6 +1654,53 @@ async function buildCatalogReply(
     selectedProductName: productMatches[0]?.name ?? null,
     selectedServiceName: serviceMatches[0]?.name ?? null,
   };
+}
+
+type OilAvailabilityResult =
+  | { status: "available"; reply: string; productMatches: number }
+  | { status: "out_of_stock"; productName: string; priceStr: string }
+  | null;
+
+/** Busca produtos de óleo. Retorna disponível, indisponível (sem estoque) ou null (não encontrado). */
+async function buildOilAvailabilityReply(
+  organizationId: string,
+  oilSpec: string | null,
+  engineCode: string | null,
+  fallbackSearchText?: string
+): Promise<OilAvailabilityResult> {
+  const [allProducts] = await Promise.all([
+    db.select().from(products).where(eq(products.organizationId, organizationId)),
+  ]);
+  const oilNorm = oilSpec ? normalizeForSearch(oilSpec) : "";
+  const engineNorm = engineCode ? normalizeForSearch(engineCode) : "";
+  const fallbackTokens = fallbackSearchText ? extractSearchTokens(fallbackSearchText) : [];
+  const matchesOil = (p: { name: string; model: string | null; description: string | null }) => {
+    const h = normalizeForSearch(`${p.name} ${p.model ?? ""} ${p.description ?? ""}`);
+    if (!h.includes("oleo") && !h.includes("óleo")) return false;
+    if (oilNorm && h.includes(oilNorm)) return true;
+    if (engineNorm && h.includes(engineNorm)) return true;
+    if (fallbackTokens.length > 0 && fallbackTokens.some((t) => t.length >= 3 && h.includes(t))) return true;
+    if (!oilNorm && !engineNorm && fallbackTokens.length === 0) return true;
+    return false;
+  };
+  const oilProductsInStock = allProducts
+    .filter((p) => p.isActive && p.isInStock && matchesOil(p))
+    .slice(0, 1);
+  const oilProductsOutOfStock = allProducts
+    .filter((p) => p.isActive && !p.isInStock && matchesOil(p))
+    .slice(0, 1);
+  const firstInStock = oilProductsInStock[0];
+  const firstOutOfStock = oilProductsOutOfStock[0];
+  if (firstInStock) {
+    const priceStr = formatCurrencyFromCents(firstInStock.priceCents);
+    const reply = `Temos disponível para troca! O valor do óleo é de *${priceStr}*. Vamos agendar sua visita?`;
+    return { status: "available", reply, productMatches: 1 };
+  }
+  if (firstOutOfStock) {
+    const priceStr = formatCurrencyFromCents(firstOutOfStock.priceCents);
+    return { status: "out_of_stock", productName: firstOutOfStock.name, priceStr };
+  }
+  return null;
 }
 
 async function findLatestInboundReservationDateTime(
@@ -1971,7 +2080,15 @@ type VehicleConfirmationState = {
 };
 
 type OilFlowState = {
-  awaitingUnknownOilConfirmation: boolean;
+  awaitingUnknownOilConfirmation?: boolean;
+  /** Perguntou "sabe o óleo? sim/não" e aguarda resposta */
+  awaitingOilYesNo?: boolean;
+  /** Perguntou "consegue me falar o óleo?" e aguarda resposta */
+  awaitingOilSpec?: boolean;
+  /** Tem óleo encontrado, pediu dados do veículo - ao completar, oferece "vamos agendar?" */
+  awaitingOilVehicle?: boolean;
+  /** Ofereceu preço e perguntou "vamos agendar?" - aguarda confirmação */
+  awaitingOilScheduleConfirmation?: boolean;
 };
 
 type WorkshopState = {
@@ -2027,6 +2144,10 @@ function getOilFlowState(metadata: Record<string, unknown>): OilFlowState {
   const flow = (metadata.oilFlow as Record<string, unknown> | undefined) ?? {};
   return {
     awaitingUnknownOilConfirmation: flow.awaitingUnknownOilConfirmation === true,
+    awaitingOilYesNo: flow.awaitingOilYesNo === true,
+    awaitingOilSpec: flow.awaitingOilSpec === true,
+    awaitingOilVehicle: flow.awaitingOilVehicle === true,
+    awaitingOilScheduleConfirmation: flow.awaitingOilScheduleConfirmation === true,
   };
 }
 
@@ -2738,13 +2859,17 @@ export async function processInboundMessage(
     !!ctx.pendingReservation ||
     vehicleConfirmation.pending ||
     oilFlowState.awaitingUnknownOilConfirmation ||
+    oilFlowState.awaitingOilYesNo ||
+    oilFlowState.awaitingOilSpec ||
+    oilFlowState.awaitingOilVehicle ||
+    oilFlowState.awaitingOilScheduleConfirmation ||
     workshopState.awaitingVehicleDetails ||
     reservationFlow.collectionStage === "collect_profile" ||
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation" ||
     hasRestaurantActiveFlow;
 
-  const buildActiveFlowContinuationReply = (): string | null => {
+  const buildActiveFlowContinuationReply = (intentProbeForNeed?: string): string | null => {
     if (intakeStage === "awaiting_name") {
       return "Para seguir, me diga seu *nome*, por favor.";
     }
@@ -2752,7 +2877,10 @@ export async function processInboundMessage(
       return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
     }
     if (intakeStage === "awaiting_need") {
-      return "Perfeito. Agora me diga qual é a sua dúvida principal para eu te orientar do jeito certo.";
+      const needPrompt = intentProbeForNeed
+        ? buildNeedDiscoveryPrompt(intentProbeForNeed)
+        : "Qual é a sua dúvida principal?";
+      return `Perfeito. ${needPrompt}`;
     }
     if (intakeStage === "awaiting_issue") {
       return "Me descreva o que está acontecendo com o veículo para eu direcionar o próximo passo.";
@@ -2769,6 +2897,18 @@ export async function processInboundMessage(
     }
     if (oilFlowState.awaitingUnknownOilConfirmation) {
       return "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
+    }
+    if (oilFlowState.awaitingOilYesNo) {
+      return "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*.";
+    }
+    if (oilFlowState.awaitingOilSpec) {
+      return "Consegue me falar o óleo?";
+    }
+    if (oilFlowState.awaitingOilVehicle) {
+      return "Para seguir com o agendamento, me informe o *modelo* e o *ano* do veículo.";
+    }
+    if (oilFlowState.awaitingOilScheduleConfirmation) {
+      return "Vamos agendar sua visita?";
     }
     if (vehicleConfirmation.pending && knownVehicleLabel) {
       return `Só confirmando antes de seguir: o veículo é *${knownVehicleLabel}*?`;
@@ -2854,9 +2994,215 @@ export async function processInboundMessage(
     }
   }
 
+  const intentProbeText = await buildIntentProbeText(
+    ctx.conversationId,
+    ctx.messageContent
+  );
+
+  // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo
+  if (ctx.usesVehicleSlots && isOilExchangeIntent(intentProbeText)) {
+    const detectedOilSpec = extractOilSpec(ctx.messageContent);
+    const engineCode = extractEngineCodeFromText(ctx.messageContent);
+
+    if (oilFlowState.awaitingOilVehicle) {
+      const mergedVehicle = mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        extractVehicleSlotsFromText(ctx.messageContent)
+      );
+      const missingAfterMerge = getMissingSlots(mergedVehicle);
+      const hasModelAndYearNow = !!(mergedVehicle.modelo && mergedVehicle.ano);
+      if (hasModelAndYearNow && missingAfterMerge.length <= 1) {
+        if (JSON.stringify(mergedVehicle) !== JSON.stringify(ctx.vehicleSlots ?? {})) {
+          await db
+            .update(conversations)
+            .set({
+              conversationStateMetadata: {
+                ...conversationMetadata,
+                vehicleSlots: mergedVehicle,
+                vehicleSlotsUpdatedAt: new Date().toISOString(),
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+          if (mergedVehicle.modelo) await saveContactMemory(ctx.contactId, "vehicle_model", mergedVehicle.modelo);
+          if (mergedVehicle.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(mergedVehicle.ano));
+          if (mergedVehicle.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(mergedVehicle.km));
+        }
+        const vehiclePolicyDecision = evaluateVehicleServicePolicy(
+          ctx.vehicleServicePolicy,
+          mergedVehicle
+        );
+        if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
+          await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+          await options.sendMessage(
+            ctx.conversationId,
+            `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
+          );
+          return { didReply: true, decision: "tool_then_ai", reason: "Veículo não atendido pela política", silence: false };
+        }
+        const oilReplyNow = await buildOilAvailabilityReply(
+          ctx.organizationId,
+          ctx.knownOilSpec ?? null,
+          extractEngineCodeFromText(ctx.messageContent),
+          ctx.messageContent
+        );
+        if (oilReplyNow?.status === "available") {
+          await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+            awaitingOilVehicle: false,
+            awaitingOilScheduleConfirmation: true,
+          });
+          await options.sendMessage(ctx.conversationId, oilReplyNow.reply);
+          return { didReply: true, decision: "tool_then_ai", reason: "Dados do veículo completos; oferecendo agendamento", silence: false };
+        }
+        if (oilReplyNow?.status === "out_of_stock") {
+          await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+          await options.sendMessage(
+            ctx.conversationId,
+            `No momento não temos o óleo *${oilReplyNow.productName}* disponível em estoque. Posso te encaminhar para um mecânico técnico verificar a disponibilidade e agendar?`
+          );
+          return { didReply: true, decision: "tool_then_ai", reason: "Óleo sem estoque; oferecendo encaminhamento", silence: false };
+        }
+      }
+      const stillMissing = getMissingSlots(mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)));
+      if (stillMissing.length > 0) {
+        await options.sendMessage(
+          ctx.conversationId,
+          `Para seguir com o agendamento, ${buildMissingVehicleRequiredReply(stillMissing)}`
+        );
+        return { didReply: true, decision: "tool_then_ai", reason: "Aguardando dados do veículo para óleo", silence: false };
+      }
+    }
+
+    if (oilFlowState.awaitingOilScheduleConfirmation && looksLikeScheduleAgreement(ctx.messageContent)) {
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
+      await options.sendMessage(
+        ctx.conversationId,
+        "Perfeito! Para agendar, me informe seu *nome*, *modelo* e *ano* do veículo."
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Cliente confirmou agendamento de troca de óleo",
+        silence: false,
+      };
+    }
+
+    if (oilFlowState.awaitingOilYesNo) {
+      if (isSimpleAffirmative(ctx.messageContent)) {
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingOilYesNo: false,
+          awaitingOilSpec: true,
+        });
+        await options.sendMessage(ctx.conversationId, "Consegue me falar o óleo?");
+        return { didReply: true, decision: "tool_then_ai", reason: "Cliente sabe o óleo; pedindo especificação", silence: false };
+      }
+      if (isSimpleNegative(ctx.messageContent) || looksLikeUnknownOilMessage(ctx.messageContent)) {
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
+        await options.sendMessage(
+          ctx.conversationId,
+          "Sem problema! Antes de te encaminhar para o mecânico técnico, preciso do seu *nome* e dados do veículo (*modelo, ano e km*). Me envie em uma mensagem, por favor."
+        );
+        return { didReply: true, decision: "tool_then_ai", reason: "Cliente não sabe o óleo; coletando nome/veículo", silence: false };
+      }
+    }
+
+    if (oilFlowState.awaitingOilSpec || detectedOilSpec || engineCode) {
+      const oilToSearch = detectedOilSpec ?? ctx.knownOilSpec ?? null;
+      const oilReply = await buildOilAvailabilityReply(
+        ctx.organizationId,
+        oilToSearch,
+        engineCode,
+        ctx.messageContent
+      );
+      if (oilReply?.status === "out_of_stock") {
+        if (oilToSearch) await saveContactMemory(ctx.contactId, "vehicle_oil_spec", oilToSearch);
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+        await options.sendMessage(
+          ctx.conversationId,
+          `No momento não temos o óleo *${oilReply.productName}* disponível em estoque. Posso te encaminhar para um mecânico técnico verificar a disponibilidade e agendar?`
+        );
+        return { didReply: true, decision: "tool_then_ai", reason: "Óleo sem estoque; oferecendo encaminhamento", silence: false };
+      }
+      if (oilReply?.status === "available") {
+        if (oilToSearch) await saveContactMemory(ctx.contactId, "vehicle_oil_spec", oilToSearch);
+        const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+        const hasModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+        if (hasModelAndYear && missingVehicle.length <= 1) {
+          const vehiclePolicyDecision = evaluateVehicleServicePolicy(
+            ctx.vehicleServicePolicy,
+            ctx.vehicleSlots ?? {}
+          );
+          if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
+            await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+            await options.sendMessage(
+              ctx.conversationId,
+              `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
+            );
+            return { didReply: true, decision: "tool_then_ai", reason: "Veículo não atendido pela política", silence: false };
+          }
+        }
+        if (!hasModelAndYear || missingVehicle.length > 0) {
+          await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+            awaitingOilYesNo: false,
+            awaitingOilSpec: false,
+            awaitingOilScheduleConfirmation: false,
+            awaitingOilVehicle: true,
+          });
+          await persistReservationContext(ctx.conversationId, conversationMetadata, {
+            serviceName: "Troca de Óleo",
+            productName: reservationContext.productName,
+          });
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+          const askVehicle = buildMissingVehicleRequiredReply(
+            missingVehicle.length > 0 ? missingVehicle : (["modelo", "ano"] as ("modelo" | "ano")[])
+          );
+          const pricePart = oilReply.reply.split("Vamos agendar")[0]?.trim() ?? oilReply.reply;
+          await options.sendMessage(
+            ctx.conversationId,
+            `${pricePart}. Para seguir com o agendamento, ${askVehicle}`
+          );
+          return { didReply: true, decision: "tool_then_ai", reason: "Óleo encontrado; coletando dados do veículo antes de agendamento", silence: false };
+        }
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingOilYesNo: false,
+          awaitingOilSpec: false,
+          awaitingOilScheduleConfirmation: true,
+        });
+        await options.sendMessage(ctx.conversationId, oilReply.reply);
+        return { didReply: true, decision: "tool_then_ai", reason: "Óleo encontrado; oferecendo agendamento", silence: false };
+      }
+      if (oilFlowState.awaitingOilSpec) {
+        await options.sendMessage(ctx.conversationId, "Não encontrei esse óleo no cadastro. Consegue me falar o tipo? (ex.: 5W30)?");
+        return { didReply: true, decision: "tool_then_ai", reason: "Óleo não encontrado; pedindo novamente", silence: false };
+      }
+    }
+
+    if (shouldAskOilQualification(intentProbeText) && !oilFlowState.awaitingUnknownOilConfirmation) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
+      await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+        awaitingOilYesNo: true,
+      });
+      await options.sendMessage(
+        ctx.conversationId,
+        "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*."
+      );
+      return { didReply: true, decision: "tool_then_ai", reason: "Troca de óleo; perguntando se sabe o tipo", silence: false };
+    }
+  }
+
   if (
     ctx.usesVehicleSlots &&
-    looksLikeDirectHumanMechanicalIssue(ctx.messageContent)
+    looksLikeDirectHumanMechanicalIssue(ctx.messageContent) &&
+    !isOilExchangeIntent(intentProbeText)
   ) {
     await persistReservationContext(ctx.conversationId, conversationMetadata, {
       serviceName: "Verificação",
@@ -3058,7 +3404,7 @@ export async function processInboundMessage(
       );
       let continuationPrompt = "Perfeito, confirmado. Como posso te ajudar agora?";
       if (intakeStage === "awaiting_need") {
-        continuationPrompt = "Perfeito, confirmado. Agora me diga: qual é a sua dúvida?";
+        continuationPrompt = `Perfeito, confirmado. ${buildNeedDiscoveryPrompt(intentProbeText)}`;
       } else if (intakeStage === "awaiting_issue") {
         continuationPrompt = "Perfeito, confirmado. Pode me explicar qual é a sua dúvida/situação do veículo?";
       }
@@ -3109,7 +3455,7 @@ export async function processInboundMessage(
   }
 
   if (hasActiveFlow && looksLikeGenericFlowMessage(ctx.messageContent)) {
-    const continuationReply = buildActiveFlowContinuationReply();
+    const continuationReply = buildActiveFlowContinuationReply(intentProbeText);
 
     if (continuationReply) {
       await options.sendMessage(ctx.conversationId, continuationReply);
@@ -3138,11 +3484,6 @@ export async function processInboundMessage(
       };
     }
   }
-
-  const intentProbeText = await buildIntentProbeText(
-    ctx.conversationId,
-    ctx.messageContent
-  );
 
   if (ctx.usesVehicleSlots && looksLikeServiceCoverageQuestion(intentProbeText)) {
     const offeredServices = (ctx.offeredServices ?? []).map((service) => service.trim()).filter(Boolean);
@@ -3499,10 +3840,61 @@ export async function processInboundMessage(
       };
     }
 
+    // Cliente já descreveu o problema antes de informar o nome (ex: "meu carro ta vazando óleo" + "Mateus")
+    if (
+      ctx.usesVehicleSlots &&
+      (looksLikeDirectHumanMechanicalIssue(intentProbeText) || looksLikeCarProblemOrRepairIntent(intentProbeText))
+    ) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: "Verificação",
+        productName: reservationContext.productName,
+      });
+      const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+      if (missingVehicle.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await options.sendMessage(
+          ctx.conversationId,
+          `Prazer, *${contactName}*! Entendi seu caso. Antes de te encaminhar para um mecânico técnico, ${buildMissingVehicleRequiredReply(missingVehicle)}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Problema já descrito; coletando dados do veículo para encaminhamento",
+          silence: false,
+        };
+      }
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+      await options.sendMessage(
+        ctx.conversationId,
+        `Prazer, *${contactName}*! Vou encaminhar agora seu atendimento para um mecânico técnico analisar esse problema.`
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Cliente descreveu problema (ex: vazando óleo); nome confirmado e dados do veículo completos"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Problema descrito antes do nome; handoff técnico",
+        silence: false,
+      };
+    }
+
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+    const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
     await options.sendMessage(
       ctx.conversationId,
-      `Prazer, *${contactName}*! Agora me diga: qual é a sua dúvida?`
+      `Prazer, *${contactName}*! ${needPrompt}`
     );
     await logOrchestration({
       conversationId: ctx.conversationId,
@@ -3681,9 +4073,10 @@ export async function processInboundMessage(
       }
 
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+      const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
       await options.sendMessage(
         ctx.conversationId,
-        `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\nAgora me diga: qual é a sua dúvida?`
+        `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\n${needPrompt}`
       );
       return {
         didReply: true,
@@ -4175,7 +4568,7 @@ export async function processInboundMessage(
       continuationPrompt =
         "Perfeito. Agora me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km*.";
     } else if (intakeStage === "awaiting_need") {
-      continuationPrompt = "Perfeito. Agora me diga: qual é a sua dúvida principal?";
+      continuationPrompt = `Perfeito. ${buildNeedDiscoveryPrompt(intentProbeText)}`;
     } else if (intakeStage === "awaiting_issue") {
       continuationPrompt = "Perfeito. Pode me explicar qual é a situação/dúvida do veículo?";
     }
@@ -4616,8 +5009,10 @@ export async function processInboundMessage(
       !looksLikeCarProblemOrRepairIntent(intentProbeText) &&
       !looksLikeDirectHumanMechanicalIssue(intentProbeText)
     ) {
-      const followUpNeed =
-        "Perfeito, agora que tenho os dados necessários, qual seria a sua dúvida?";
+      const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
+      const followUpNeed = looksLikeReservationIntent(intentProbeText)
+        ? `Perfeito, agora que tenho os dados necessários. ${needPrompt}`
+        : `Perfeito, agora que tenho os dados necessários, ${needPrompt.toLowerCase()}`;
       const suppressRepeatNeedPrompt = await shouldSuppressRepeatedNeedPrompt(
         ctx.conversationId,
         followUpNeed

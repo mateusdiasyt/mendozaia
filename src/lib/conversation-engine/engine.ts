@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gt, asc } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -6,9 +6,9 @@ import { processInboundMessage } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
 import type { ConversationEngineInput, ConversationEngineResult } from "./types";
 
-const INBOUND_DEBOUNCE_DEFAULT_MS = 6000;
-const INBOUND_DEBOUNCE_SHORT_BURST_MS = 8000;
-const INBOUND_DEBOUNCE_CLEAR_INTENT_MS = 4500;
+/** Debounce do buffer: aguarda N ms sem novas mensagens antes de processar (agrupa sequência) */
+const MESSAGE_BUFFER_DEBOUNCE_MS = 2000;
+const MESSAGE_BUFFER_MAX_CHARS = 2000;
 /** Considera "digitando" se o último presence foi há menos que isso (presence pode ser esparso) */
 const CONTACT_TYPING_IDLE_WAIT_MS = 5_000;
 const CONTACT_TYPING_POLL_MS = 600;
@@ -19,49 +19,52 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeText(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function looksLikeShortBurstMessage(text: string): boolean {
-  const t = normalizeText(text);
-  if (!t) return false;
-  if (t.length <= 8) return true;
-  return /^(oi|ola|e ai|eai|opa|beleza|blz|bom dia|boa tarde|boa noite|ein|ok)$/.test(t);
-}
-
-function looksLikeClearIntentMessage(text: string): boolean {
-  const t = normalizeText(text);
-  if (!t) return false;
-  if (t.length >= 70) return true;
-  return (
-    /\b(problema|barulho|fumaca|fumaca|orcamento|revisao|agendar|agendamento|reserva)\b/.test(t) ||
-    /\b(modelo|ano|km|quilometragem)\b/.test(t)
-  );
-}
-
-function getInboundDebounceMs(messageContent: string): number {
-  if (looksLikeShortBurstMessage(messageContent)) {
-    return INBOUND_DEBOUNCE_SHORT_BURST_MS;
-  }
-  if (looksLikeClearIntentMessage(messageContent)) {
-    return INBOUND_DEBOUNCE_CLEAR_INTENT_MS;
-  }
-  return INBOUND_DEBOUNCE_DEFAULT_MS;
-}
-
 function pushReply(replies: string[], text: string): void {
   const normalized = text.trim();
   if (!normalized) return;
   const lastReply = replies[replies.length - 1];
   if (lastReply === normalized) return;
   replies.push(normalized);
+}
+
+/** Busca e combina todas as mensagens inbound desde o último outbound (buffer da sequência do usuário). */
+async function fetchCombinedInboundContent(
+  conversationId: string,
+  contentType: string
+): Promise<string> {
+  const [lastOutbound] = await db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  const since = lastOutbound?.createdAt ?? new Date(0);
+  const inboundRows = await db
+    .select({ content: messages.content, contentType: messages.contentType })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "inbound"),
+        gt(messages.createdAt, since)
+      )
+    )
+    .orderBy(asc(messages.createdAt))
+    .limit(20);
+
+  const parts = inboundRows
+    .filter((m) => m.contentType === "text" && m.content?.trim())
+    .map((m) => (m.content ?? "").trim());
+  const combined = parts.join(" ").replace(/\s+/g, " ").trim();
+  return combined.length > MESSAGE_BUFFER_MAX_CHARS
+    ? combined.slice(-MESSAGE_BUFFER_MAX_CHARS)
+    : combined;
 }
 
 function isRecentTyping(typingAt: Date | null | undefined): boolean {
@@ -186,9 +189,8 @@ export async function runConversationEngine(
       }
     }
 
-    // 2. DEPOIS: debounce para capturar mensagens em sequência
-    const debounceMs = getInboundDebounceMs(input.messageContent);
-    await sleep(debounceMs);
+    // 2. BUFFER + DEBOUNCE: aguarda N ms sem novas mensagens para agrupar sequência
+    await sleep(MESSAGE_BUFFER_DEBOUNCE_MS);
     const [latestInbound] = await db
       .select({ id: messages.id })
       .from(messages)
@@ -210,11 +212,11 @@ export async function runConversationEngine(
         organizationId: input.organizationId,
         event: "conversation_engine_debounced",
         decision: "tool_then_ai",
-        reason: "Mensagem inbound mais nova detectada; aguardando composição",
+        reason: "Nova mensagem inbound durante buffer; webhook mais recente processará",
         traceId: input.traceId,
-        stage: "conversation_engine.debounce",
+        stage: "conversation_engine.buffer",
         decisionCode: "ENGINE_DEBOUNCED",
-        metadata: { debounceMs },
+        metadata: { debounceMs: MESSAGE_BUFFER_DEBOUNCE_MS },
       });
       return {
         mode: "debounced",
@@ -226,6 +228,36 @@ export async function runConversationEngine(
     }
   }
 
+  // 3. Contexto a processar: buffer combinado (inbound desde último outbound) ou mensagem original
+  let messageContentToProcess = input.messageContent;
+  if (
+    input.messageContentType === "text" &&
+    input.messageContent.trim() &&
+    input.inboundMessageId
+  ) {
+    const combined = await fetchCombinedInboundContent(
+      input.conversationId,
+      input.messageContentType
+    );
+    if (combined && combined !== input.messageContent.trim()) {
+      messageContentToProcess = combined;
+      await logOrchestration({
+        conversationId: input.conversationId,
+        organizationId: input.organizationId,
+        event: "conversation_engine_buffer_combined",
+        decision: "tool_then_ai",
+        reason: "Buffer: múltiplas mensagens combinadas para processamento",
+        traceId: input.traceId,
+        stage: "conversation_engine.buffer",
+        decisionCode: "ENGINE_BUFFER_COMBINED",
+        metadata: {
+          originalLength: input.messageContent.length,
+          combinedLength: combined.length,
+        },
+      });
+    }
+  }
+
   const automationStartedAt = Date.now();
   const { didReply: automationDidReply } = await processMessageReceivedRules(
     {
@@ -233,7 +265,7 @@ export async function runConversationEngine(
       conversationId: input.conversationId,
       contactId: input.contactId,
       contactPhone: input.contactPhone,
-      messageContent: input.messageContent,
+      messageContent: messageContentToProcess,
       messageDirection: "inbound",
       lastMessageAt: new Date(),
       assignedToId: input.assignedToId,
@@ -274,7 +306,7 @@ export async function runConversationEngine(
       organizationId: input.organizationId,
       contactId: input.contactId,
       contactPhone: input.contactPhone,
-      messageContent: input.messageContent,
+      messageContent: messageContentToProcess,
       messageContentType: input.messageContentType,
       traceId: input.traceId,
     },

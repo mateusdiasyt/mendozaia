@@ -29,6 +29,8 @@ export type { GeminiModel } from "./ai-agent-constants";
 
 const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
 
+const VEHICLE_MEMORY_KEYS = new Set(["vehicle_model", "vehicle_year", "vehicle_km", "vehicle_oil_spec"]);
+
 /** Detecta se a mensagem parece informar data e/ou horário para reserva */
 function seemsToContainDateTime(text: string): boolean {
   const t = text.toLowerCase().trim();
@@ -171,7 +173,10 @@ export async function generateAIReply(
       .limit(50),
   ]);
 
-  const memoriesBlock = formatMemoriesForPrompt(memories);
+  const memoriesForPrompt = Object.fromEntries(
+    Object.entries(memories).filter(([k]) => !VEHICLE_MEMORY_KEYS.has(k.toLowerCase().trim()))
+  );
+  const memoriesBlock = formatMemoriesForPrompt(memoriesForPrompt);
   const historyText = recentMessages
     .filter((m): m is { direction: string; content: string } => !!m.content)
     .map((m) =>
@@ -179,7 +184,12 @@ export async function generateAIReply(
     )
     .join("\n");
 
-  const memoryInstruction = `
+  const memoryInstruction = options?.usesVehicleSlots
+    ? `
+Quando o cliente informar algo importante (nome, email, preferências, etc.), adicione no FINAL da sua resposta: [MEMÓRIA:chave=valor]
+Exemplo: "meu nome é João" → [MEMÓRIA:name=João]
+NÃO salve modelo, ano ou quilometragem em [MEMÓRIA:...] — são dados do atendimento, não do contato. Use apenas uma linha por informação.`
+    : `
 Quando o cliente informar algo importante (nome, email, preferências, pedido, etc.), adicione no FINAL da sua resposta, em linhas separadas: [MEMÓRIA:chave=valor]
 Exemplo: se o cliente disser "meu nome é João", termine sua resposta com: [MEMÓRIA:name=João]
 Use apenas uma linha por informação. Não invente informações.`;
@@ -283,6 +293,7 @@ Atendente:`;
   const { cleanReply, memories: newMemories } = extractAndRemoveMemories(rawReply);
 
   for (const m of newMemories) {
+    if (VEHICLE_MEMORY_KEYS.has(m.key?.toLowerCase().trim() ?? "")) continue;
     try {
       await saveContactMemory(contactId, m.key, m.value);
     } catch (err) {

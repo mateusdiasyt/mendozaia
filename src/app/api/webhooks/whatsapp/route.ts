@@ -65,8 +65,8 @@ interface WebhookPayload {
 
 const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
 
-/** Antes de enviar: aguarda até 3s se o contato estiver digitando (evita interromper) */
-const SEND_BEFORE_TYPING_WAIT_MS = 3_000;
+/** Antes de enviar: aguarda até 5s se o contato estiver digitando (evita interromper) */
+const SEND_BEFORE_TYPING_WAIT_MS = 5_000;
 const SEND_TYPING_POLL_MS = 400;
 
 async function waitIfContactTyping(
