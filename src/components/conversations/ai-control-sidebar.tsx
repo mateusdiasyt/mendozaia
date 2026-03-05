@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import {
   Bot,
   BotOff,
@@ -402,6 +403,13 @@ export function AIControlSidebar({
           <Trash2 className="h-4 w-4" />
           Resetar conversa (teste)
         </button>
+
+        <Link
+          href={`/dashboard/logs-ia?conversationId=${conversationId}`}
+          className="flex w-full items-center justify-center rounded-lg border border-[#e9edef] bg-white px-3 py-2.5 text-sm font-medium text-[#111b21] transition-colors hover:bg-[#f5f6f6]"
+        >
+          Ver logs IA desta conversa
+        </Link>
 
         {/* Info */}
         <p className="mt-auto text-xs text-[#667781]">

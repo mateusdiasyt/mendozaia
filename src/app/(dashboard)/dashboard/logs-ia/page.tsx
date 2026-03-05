@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getCurrentMembership, getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { orchestrationLogs } from "@/lib/db/schema";
@@ -93,9 +93,14 @@ function formatLogLineForClipboard(log: {
   ].join(" | ");
 }
 
-export default async function LogsIAPage() {
+export default async function LogsIAPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ conversationId?: string }>;
+}) {
+  const { conversationId } = await searchParams;
   const membership = await getCurrentMembership();
-  if (!membership || membership.role !== "admin") {
+  if (!membership) {
     notFound();
   }
 
@@ -115,7 +120,14 @@ export default async function LogsIAPage() {
       createdAt: orchestrationLogs.createdAt,
     })
     .from(orchestrationLogs)
-    .where(eq(orchestrationLogs.organizationId, org.id))
+    .where(
+      conversationId
+        ? and(
+            eq(orchestrationLogs.organizationId, org.id),
+            eq(orchestrationLogs.conversationId, conversationId)
+          )
+        : eq(orchestrationLogs.organizationId, org.id)
+    )
     .orderBy(desc(orchestrationLogs.createdAt))
     .limit(200);
   const logsForClipboard = logs.map((log) => formatLogLineForClipboard(log)).join("\n");
@@ -128,15 +140,28 @@ export default async function LogsIAPage() {
           <p className="mt-1 text-slate-500">
             Timeline técnica da mensagem: webhook → automação → orquestrador → IA/ferramentas.
           </p>
+          {conversationId ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Filtro ativo: conversa <span className="font-mono">{conversationId}</span>
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <CopyTextButton text={logsForClipboard} label="Copiar últimos 200 logs" />
           <Link
-            href="/dashboard/logs-ia"
+            href={conversationId ? `/dashboard/logs-ia?conversationId=${conversationId}` : "/dashboard/logs-ia"}
             className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Atualizar
           </Link>
+          {conversationId ? (
+            <Link
+              href="/dashboard/logs-ia"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Remover filtro
+            </Link>
+          ) : null}
         </div>
       </div>
 
