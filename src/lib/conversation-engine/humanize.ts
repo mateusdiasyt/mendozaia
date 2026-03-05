@@ -5,15 +5,15 @@
 /** Fillers ocasionais (máx 1 a cada 3 respostas) */
 export const FILLERS = [
   "Entendi.",
-  "Boa pergunta.",
   "Deixa eu te explicar.",
   "Certo.",
-  "Beleza.",
 ];
 
-/** Retorna filler ocasional quando responseIndex % 3 === 0 */
+/** Retorna filler ocasional com baixa frequência para não soar repetitivo */
 export function maybeAddFiller(responseIndex: number): string | null {
-  if (responseIndex % 3 !== 0) return null;
+  // Só considera a 1a parte da resposta e apenas em parte das respostas
+  if (responseIndex !== 0) return null;
+  if (Math.random() > 0.18) return null;
   const idx = Math.floor(Math.random() * FILLERS.length);
   return FILLERS[idx] ?? null;
 }

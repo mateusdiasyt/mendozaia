@@ -1096,8 +1096,60 @@ function extractReservationDateTime(
   text: string,
   now: Date = new Date()
 ): { dateStr: string; timeStr: string } | null {
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   const date = extractDate(text, now);
   const time = extractTime(text);
+  if (date && time) {
+    return {
+      dateStr: toDateStr(date.year, date.month, date.day),
+      timeStr: toTimeStr(time.hour, time.minute),
+    };
+  }
+
+  // "agora" => tenta horário imediato (próximos 30 min, arredondado para 10 em 10)
+  if (/\bagora\b/.test(normalized)) {
+    const immediate = new Date(now.getTime() + 30 * 60 * 1000);
+    immediate.setSeconds(0, 0);
+    const rounded = Math.ceil(immediate.getMinutes() / 10) * 10;
+    if (rounded >= 60) {
+      immediate.setHours(immediate.getHours() + 1);
+      immediate.setMinutes(0);
+    } else {
+      immediate.setMinutes(rounded);
+    }
+    return {
+      dateStr: toDateStr(
+        immediate.getFullYear(),
+        immediate.getMonth() + 1,
+        immediate.getDate()
+      ),
+      timeStr: toTimeStr(immediate.getHours(), immediate.getMinutes()),
+    };
+  }
+
+  // Horário sem data explícita (ex.: "às 14h") -> assume hoje; se já passou, amanhã
+  if (!date && time) {
+    const tentative = new Date(now);
+    tentative.setHours(time.hour, time.minute, 0, 0);
+    if (tentative.getTime() <= now.getTime()) {
+      tentative.setDate(tentative.getDate() + 1);
+    }
+    return {
+      dateStr: toDateStr(
+        tentative.getFullYear(),
+        tentative.getMonth() + 1,
+        tentative.getDate()
+      ),
+      timeStr: toTimeStr(time.hour, time.minute),
+    };
+  }
+
   if (!date || !time) return null;
   return {
     dateStr: toDateStr(date.year, date.month, date.day),
@@ -1642,23 +1694,32 @@ async function buildCatalogReply(
   }
 
   const lines: string[] = [];
-  if (productMatches.length > 0) {
-    lines.push("*Produtos encontrados:*");
-    for (const p of productMatches) {
-      const stockText = p.isInStock ? "disponível" : "indisponível no momento";
-      const modelText = p.model ? ` - ${p.model}` : "";
-      lines.push(`- ${p.name}${modelText}: ${formatCurrencyFromCents(p.priceCents)} (${stockText})`);
-    }
+  const firstProduct = productMatches[0];
+  const firstService = serviceMatches[0];
+
+  if (firstProduct && firstService) {
+    const productLabel = firstProduct.model?.trim()
+      ? `${firstProduct.name} ${firstProduct.model}`
+      : firstProduct.name;
+    const productPrice = formatCurrencyFromCents(firstProduct.priceCents);
+    const servicePrice = formatCurrencyFromCents(firstService.priceCents);
+    lines.push(
+      `Temos ${productLabel} por ${productPrice}, e a ${firstService.name.toLowerCase()} fica em ${servicePrice} (${firstService.durationMinutes} min).`
+    );
+  } else if (firstProduct) {
+    const productLabel = firstProduct.model?.trim()
+      ? `${firstProduct.name} ${firstProduct.model}`
+      : firstProduct.name;
+    const productPrice = formatCurrencyFromCents(firstProduct.priceCents);
+    lines.push(`Temos ${productLabel} disponível por ${productPrice}.`);
+  } else if (firstService) {
+    const servicePrice = formatCurrencyFromCents(firstService.priceCents);
+    lines.push(
+      `A ${firstService.name.toLowerCase()} está saindo por ${servicePrice} e leva cerca de ${firstService.durationMinutes} min.`
+    );
   }
-  if (serviceMatches.length > 0) {
-    if (lines.length > 0) lines.push("");
-    lines.push("*Serviços encontrados:*");
-    for (const s of serviceMatches) {
-      lines.push(`- ${s.name}: ${formatCurrencyFromCents(s.priceCents)} (${s.durationMinutes} min)`);
-    }
-  }
-  lines.push("");
-  lines.push("Se você quiser, já deixo um horário reservado pra resolver isso. Qual dia e horário prefere?");
+
+  lines.push("Se você quiser, já consulto a disponibilidade e deixo um horário reservado. Qual dia e horário prefere?");
 
   return {
     reply: lines.join("\n"),
