@@ -233,6 +233,20 @@ export async function processConversation(
       return;
     }
 
+    // Só marcar como processadas quando de fato enviamos pelo menos uma resposta (evita "engolir" sem responder)
+    if (engineResult.replies.length === 0) {
+      console.log({
+        stage: "no_replies_skip_mark",
+        conversationId,
+        mode: engineResult.mode,
+      });
+      // Retry único após 5s em caso de falha transitória (ex.: Gemini timeout)
+      if (engineResult.mode === "processed") {
+        await scheduleConversationProcessing(conversationId, 5_000);
+      }
+      return;
+    }
+
     console.log({
       stage: "ai_multi_message_sent",
       conversationId,

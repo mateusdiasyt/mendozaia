@@ -185,7 +185,8 @@ export async function generateAIReply(
   apiKeyOverride?: string | null,
   options?: GenerateAIReplyOptions
 ): Promise<string> {
-  const apiKey = apiKeyOverride ?? process.env.GEMINI_API_KEY;
+  // Prioridade: chave da Configurações (Agente de IA) → variável de ambiente GEMINI_API_KEY
+  const apiKey = (apiKeyOverride?.trim() || process.env.GEMINI_API_KEY || "").trim() || null;
   if (!apiKey) {
     throw new Error("Chave da API Gemini não configurada. Defina em Configurações → Agente de IA ou na variável GEMINI_API_KEY.");
   }

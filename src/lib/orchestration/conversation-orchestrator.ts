@@ -2685,7 +2685,9 @@ export async function callAIWithContext(
   const aiAgent = (org?.settings as Record<string, unknown>)?.aiAgent as Record<string, unknown> | undefined;
   const systemPrompt = (aiAgent?.systemPrompt as string) || undefined;
   const model = (aiAgent?.model as string) || "gemini-2.0-flash";
-  const apiKey = (aiAgent?.apiKey as string) || undefined;
+  // Usar chave da aba Configurações (Agente de IA) primeiro; fallback para variável de ambiente
+  const orgApiKey = (aiAgent?.apiKey as string)?.trim();
+  const apiKey = orgApiKey || process.env.GEMINI_API_KEY || undefined;
 
   try {
     const trainingExamples = await findRelevantExamples(
