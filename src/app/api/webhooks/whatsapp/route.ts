@@ -16,6 +16,8 @@ import {
   scheduleConversationProcessing,
   incrementFloodCount,
   processConversation,
+  tryAcquireConversationLock,
+  releaseConversationLock,
 } from "@/lib/conversation-engine/debouncer";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
@@ -449,8 +451,11 @@ export async function POST(request: NextRequest) {
         try {
           await scheduleConversationProcessing(conversation.id);
         } catch (scheduleErr) {
-          console.error("[webhook whatsapp] schedule failed (duplicate), fallback inline:", scheduleErr);
-          await processConversation(conversation.id);
+          // Mensagem duplicada não precisa fallback inline: evita processamentos paralelos/repetidos
+          console.error(
+            "[webhook whatsapp] schedule failed (duplicate), skipping inline fallback:",
+            scheduleErr
+          );
         }
         return NextResponse.json({ ok: true, duplicate: true });
       }
@@ -511,7 +516,15 @@ export async function POST(request: NextRequest) {
           error: String(scheduleErr),
         },
       });
-      await processConversation(conversation.id);
+      const acquired = await tryAcquireConversationLock(conversation.id);
+      if (!acquired) {
+        return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
+      }
+      try {
+        await processConversation(conversation.id);
+      } finally {
+        await releaseConversationLock(conversation.id);
+      }
     }
 
     return NextResponse.json({ ok: true });
