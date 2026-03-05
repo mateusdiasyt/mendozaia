@@ -10,11 +10,9 @@ import {
   contacts,
   messages,
   whatsappSessions,
-  contactTags,
-  organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { runConversationEngine } from "@/lib/conversation-engine";
+import { scheduleConversationProcessing } from "@/lib/conversation-engine/debouncer";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
 // Formato esperado da Evolution API (texto e mídia)
@@ -61,34 +59,6 @@ interface WebhookPayload {
     state?: string;
     instance?: { state?: string };
   };
-}
-
-const DUPLICATE_REPLY_WINDOW_MS = 20 * 1000; // 20s
-
-/** Antes de enviar: aguarda até 5s se o contato estiver digitando (evita interromper) */
-const SEND_BEFORE_TYPING_WAIT_MS = 5_000;
-const SEND_TYPING_POLL_MS = 400;
-
-async function waitIfContactTyping(
-  conversationId: string,
-  maxWaitMs: number = SEND_BEFORE_TYPING_WAIT_MS
-): Promise<void> {
-  let elapsed = 0;
-  while (elapsed < maxWaitMs) {
-    const [conv] = await db
-      .select({ contactTypingAt: conversations.contactTypingAt })
-      .from(conversations)
-      .where(eq(conversations.id, conversationId))
-      .limit(1);
-    const typingAt = conv?.contactTypingAt;
-    const isTyping =
-      !!typingAt &&
-      Date.now() - new Date(typingAt).getTime() < 5_000;
-
-    if (!isTyping) return;
-    await new Promise((r) => setTimeout(r, SEND_TYPING_POLL_MS));
-    elapsed += SEND_TYPING_POLL_MS;
-  }
 }
 
 function parsePresenceUpdate(body: WebhookPayload): {
@@ -465,114 +435,8 @@ export async function POST(request: NextRequest) {
       })
       .where(eq(conversations.id, conversation.id));
 
-    // Buscar tags do contato
-    const contactTagRows = await db
-      .select({ tagId: contactTags.tagId })
-      .from(contactTags)
-      .where(eq(contactTags.contactId, contact.id));
-
-    // Horário comercial da organização (settings)
-    const [org] = await db
-      .select({ settings: organizations.settings })
-      .from(organizations)
-      .where(eq(organizations.id, session.organizationId))
-      .limit(1);
-
-    const settings = org?.settings as
-      | {
-          businessHours?: { start: string; end: string; timezone?: string };
-          aiAgent?: { enabled?: boolean; useAsFallback?: boolean; systemPrompt?: string; model?: string; apiKey?: string | null };
-        }
-      | undefined;
-
-    const executor = {
-      sendMessage: async (convId: string, message: string) => {
-        await waitIfContactTyping(convId);
-        const apiUrl = process.env.WHATSAPP_API_URL;
-        const apiKey = process.env.EVOLUTION_API_KEY;
-        if (!apiUrl) {
-          console.error("[webhook] WHATSAPP_API_URL não configurada");
-          return;
-        }
-
-        const [lastMessage] = await db
-          .select({
-            direction: messages.direction,
-            content: messages.content,
-            createdAt: messages.createdAt,
-          })
-          .from(messages)
-          .where(eq(messages.conversationId, convId))
-          .orderBy(desc(messages.createdAt))
-          .limit(1);
-
-        const isDuplicateReply =
-          lastMessage?.direction === "outbound" &&
-          !!lastMessage?.content &&
-          lastMessage.content === message &&
-          Date.now() - lastMessage.createdAt.getTime() <= DUPLICATE_REPLY_WINDOW_MS;
-        if (isDuplicateReply) {
-          return;
-        }
-
-        const instanceName = session.sessionId;
-        const headers: Record<string, string> = {
-          "Content-Type": "application/json",
-        };
-        if (apiKey) {
-          headers["apikey"] = apiKey;
-        }
-
-        const number = phone.replace(/\D/g, "");
-        const res = await fetch(`${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ number, text: message }),
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          console.error("[webhook] Evolution API sendText failed:", res.status, err);
-          return;
-        }
-
-        await db.insert(messages).values({
-          conversationId: convId,
-          direction: "outbound",
-          contentType: "text",
-          content: message,
-          status: "sent",
-        });
-        await db
-          .update(conversations)
-          .set({
-            lastMessageAt: new Date(),
-            lastMessagePreview: message.slice(0, 100),
-            updatedAt: new Date(),
-          })
-          .where(eq(conversations.id, convId));
-      },
-    };
-
-    const engineResult = await runConversationEngine({
-      organizationId: session.organizationId,
-      conversationId: conversation.id,
-      contactId: contact.id,
-      contactPhone: phone,
-      messageContent: messageText || "",
-      messageContentType: contentType,
-      conversationState: conversation.conversationState,
-      aiDisabledUntil: conversation.aiDisabledUntil ?? null,
-      assignedToId: conversation.assignedToId,
-      contactTagIds: contactTagRows.map((r) => r.tagId),
-      businessHours: settings?.businessHours,
-      inboundMessageId: inboundMessage?.id,
-      traceId,
-    });
-
-    for (const reply of engineResult.replies) {
-      await executor.sendMessage(conversation.id, reply);
-    }
+    // Debounce distribuído (Redis + QStash): agenda processamento em 3s; nova mensagem cancela e reinicia.
+    await scheduleConversationProcessing(conversation.id);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

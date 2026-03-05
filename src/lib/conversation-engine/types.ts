@@ -16,6 +16,8 @@ export interface ConversationEngineInput {
   };
   inboundMessageId?: string;
   traceId?: string;
+  /** Quando true, pula espera de typing e sleep de debounce (usado pelo debouncer por conversa) */
+  skipBufferAndTypingWait?: boolean;
 }
 
 export interface ConversationEngineResult {

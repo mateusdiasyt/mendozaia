@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, asc } from "drizzle-orm";
+import { and, desc, eq, gt, asc, gte, isNull, inArray } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
@@ -67,6 +67,54 @@ async function fetchCombinedInboundContent(
     : combined;
 }
 
+/** Últimos 30 segundos para agregação de mensagens quebradas */
+const COMBINED_CONTENT_WINDOW_SECONDS = 30;
+
+/** Resultado da agregação de mensagens dos últimos 30s */
+interface CombinedContentResult {
+  combined: string;
+  messageIds: string[];
+}
+
+/** Busca e combina mensagens inbound dos últimos 30s (não processadas). Usado pelo debouncer. */
+async function fetchCombinedInboundContentLast30s(
+  conversationId: string,
+  _contentType: string
+): Promise<CombinedContentResult> {
+  const since = new Date(Date.now() - COMBINED_CONTENT_WINDOW_SECONDS * 1000);
+
+  const inboundRows = await db
+    .select({
+      content: messages.content,
+      contentType: messages.contentType,
+      id: messages.id,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "inbound"),
+        gte(messages.createdAt, since),
+        isNull(messages.processedAt)
+      )
+    )
+    .orderBy(asc(messages.createdAt))
+    .limit(20);
+
+  const textRows = inboundRows.filter(
+    (m) => m.contentType === "text" && m.content?.trim()
+  );
+  const parts = textRows.map((m) => (m.content ?? "").trim());
+  const combined = parts.join(" ").replace(/\s+/g, " ").trim();
+  const finalCombined =
+    combined.length > MESSAGE_BUFFER_MAX_CHARS
+      ? combined.slice(-MESSAGE_BUFFER_MAX_CHARS)
+      : combined;
+  const messageIds = textRows.map((m) => m.id).filter(Boolean);
+
+  return { combined: finalCombined, messageIds };
+}
+
 function isRecentTyping(typingAt: Date | null | undefined): boolean {
   if (!typingAt) return false;
   return Date.now() - new Date(typingAt).getTime() < CONTACT_TYPING_IDLE_WAIT_MS;
@@ -112,6 +160,7 @@ export async function runConversationEngine(
   }
 
   if (
+    !input.skipBufferAndTypingWait &&
     input.messageContentType === "text" &&
     input.messageContent.trim() &&
     input.inboundMessageId
@@ -228,33 +277,62 @@ export async function runConversationEngine(
     }
   }
 
-  // 3. Contexto a processar: buffer combinado (inbound desde último outbound) ou mensagem original
+  // 3. Contexto a processar: buffer combinado ou mensagem original
   let messageContentToProcess = input.messageContent;
+  let processedMessageIds: string[] = [];
   if (
     input.messageContentType === "text" &&
     input.messageContent.trim() &&
     input.inboundMessageId
   ) {
-    const combined = await fetchCombinedInboundContent(
-      input.conversationId,
-      input.messageContentType
-    );
-    if (combined && combined !== input.messageContent.trim()) {
-      messageContentToProcess = combined;
-      await logOrchestration({
-        conversationId: input.conversationId,
-        organizationId: input.organizationId,
-        event: "conversation_engine_buffer_combined",
-        decision: "tool_then_ai",
-        reason: "Buffer: múltiplas mensagens combinadas para processamento",
-        traceId: input.traceId,
-        stage: "conversation_engine.buffer",
-        decisionCode: "ENGINE_BUFFER_COMBINED",
-        metadata: {
-          originalLength: input.messageContent.length,
-          combinedLength: combined.length,
-        },
-      });
+    if (input.skipBufferAndTypingWait) {
+      const result = await fetchCombinedInboundContentLast30s(
+        input.conversationId,
+        input.messageContentType
+      );
+      processedMessageIds = result.messageIds;
+      if (result.combined && result.combined !== input.messageContent.trim()) {
+        messageContentToProcess = result.combined;
+        await logOrchestration({
+          conversationId: input.conversationId,
+          organizationId: input.organizationId,
+          event: "conversation_engine_buffer_combined",
+          decision: "tool_then_ai",
+          reason: "Buffer: mensagens dos últimos 30s combinadas",
+          traceId: input.traceId,
+          stage: "conversation_engine.buffer",
+          decisionCode: "ENGINE_BUFFER_COMBINED",
+          metadata: {
+            originalLength: input.messageContent.length,
+            combinedLength: result.combined.length,
+            window: "30s",
+            messageCount: processedMessageIds.length,
+          },
+        });
+      }
+    } else {
+      const combined = await fetchCombinedInboundContent(
+        input.conversationId,
+        input.messageContentType
+      );
+      if (combined && combined !== input.messageContent.trim()) {
+        messageContentToProcess = combined;
+        await logOrchestration({
+          conversationId: input.conversationId,
+          organizationId: input.organizationId,
+          event: "conversation_engine_buffer_combined",
+          decision: "tool_then_ai",
+          reason: "Buffer: múltiplas mensagens combinadas para processamento",
+          traceId: input.traceId,
+          stage: "conversation_engine.buffer",
+          decisionCode: "ENGINE_BUFFER_COMBINED",
+          metadata: {
+            originalLength: input.messageContent.length,
+            combinedLength: combined.length,
+            window: "last_outbound",
+          },
+        });
+      }
     }
   }
 
@@ -337,6 +415,14 @@ export async function runConversationEngine(
       silence: orchestratorResult.silence,
     },
   });
+
+  // Marcar mensagens consumidas (evita processar duas vezes)
+  if (processedMessageIds.length > 0) {
+    await db
+      .update(messages)
+      .set({ processedAt: new Date() })
+      .where(inArray(messages.id, processedMessageIds));
+  }
 
   return {
     mode: "processed",

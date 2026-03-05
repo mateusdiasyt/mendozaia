@@ -233,6 +233,8 @@ export const messages = pgTable("messages", {
   mediaUrl: text("media_url"),
   status: text("status").default("sent"), // sent, delivered, read, failed
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  /** Quando preenchido, mensagem já foi consumida pelo engine (evita processar duas vezes) */
+  processedAt: timestamp("processed_at", { mode: "date" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
