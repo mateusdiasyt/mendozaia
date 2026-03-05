@@ -43,12 +43,99 @@ const INVALID_MODELO_PHRASES = [
   "do meu carro",
 ];
 
+const VEHICLE_NOISE_WORDS = new Set([
+  "meu",
+  "minha",
+  "carro",
+  "veiculo",
+  "veículo",
+  "modelo",
+  "ano",
+  "km",
+  "quilometragem",
+  "eh",
+  "e",
+  "é",
+  "um",
+  "uma",
+  "o",
+  "a",
+  "com",
+  "de",
+  "do",
+  "da",
+  "no",
+  "na",
+  "ta",
+  "tá",
+  "esta",
+  "está",
+  "tenho",
+  "to",
+  "tô",
+]);
+
+const KNOWN_BRAND_ALIASES: Record<string, string> = {
+  vw: "Volkswagen",
+  volks: "Volkswagen",
+  volkswagen: "Volkswagen",
+  gm: "Chevrolet",
+  chevrolet: "Chevrolet",
+  fiat: "Fiat",
+  ford: "Ford",
+  toyota: "Toyota",
+  honda: "Honda",
+  hyundai: "Hyundai",
+  renault: "Renault",
+  peugeot: "Peugeot",
+  citroen: "Citroen",
+  nissan: "Nissan",
+  jeep: "Jeep",
+  mitsubishi: "Mitsubishi",
+  kia: "Kia",
+  bmw: "BMW",
+  audi: "Audi",
+  mercedes: "Mercedes",
+  mercedesbenz: "Mercedes",
+};
+
 function normalizeModel(value: string): string {
   return value
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s.-]/g, " ")
+    .replace(/\s+/g, " ")
     .trim();
+}
+
+function toDisplayToken(token: string): string {
+  if (/^(?:[0-9]+(?:\.[0-9]+)?)$/.test(token)) return token;
+  if (/^(tsi|gdi|mpi|tfsi|cvt|mt|at)$/i.test(token)) return token.toUpperCase();
+  if (/^[a-z]{1,3}[0-9]{1,4}$/i.test(token)) return token.toUpperCase();
+  return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+}
+
+function canonicalizeVehicleModel(value: string): string {
+  const normalized = normalizeModel(value);
+  const tokens = normalized
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter((t) => !VEHICLE_NOISE_WORDS.has(t))
+    .filter((t) => !/^(19[89]\d|20[0-3]\d)$/.test(t))
+    .filter((t) => !/^\d{1,6}$/.test(t));
+
+  if (tokens.length === 0) return "";
+
+  const first = tokens[0]!;
+  const canonicalBrand = KNOWN_BRAND_ALIASES[first];
+  if (canonicalBrand) {
+    const rest = tokens.slice(1).map(toDisplayToken);
+    return [canonicalBrand, ...rest].join(" ").trim();
+  }
+
+  return tokens.map(toDisplayToken).join(" ").trim();
 }
 
 export function isValidVehicleModel(value: string | undefined): boolean {
@@ -155,7 +242,8 @@ function extractModelo(text: string): string | undefined {
       .replace(/^(?:um|uma|o|a)\s+/, "")
       .trim();
 
-    if (isValidVehicleModel(candidate) && candidate.length <= 50) return candidate;
+    const canonical = canonicalizeVehicleModel(candidate);
+    if (isValidVehicleModel(canonical) && canonical.length <= 50) return canonical;
   }
   return undefined;
 }
