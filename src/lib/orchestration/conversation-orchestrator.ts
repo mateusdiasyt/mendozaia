@@ -38,6 +38,7 @@ import {
   mergeVehicleSlots,
   hasAllVehicleSlots,
   getMissingSlots,
+  isValidVehicleModel,
   type VehicleSlots,
 } from "./slot-extractor";
 import {
@@ -1879,6 +1880,28 @@ function buildMissingVehicleMandatoryReply(missing: ("modelo" | "ano" | "km")[])
   return "agora me informe também a *quilometragem (km)* do veículo (obrigatório para abrir o atendimento técnico).";
 }
 
+function extractLooseVehicleModelFromReply(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+
+  let candidate = trimmed
+    .replace(/[.,;!?]+$/g, "")
+    .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/i, "")
+    .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/i, "")
+    .replace(/^(?:e|é|eh)\s+/, "")
+    .replace(/^(?:um|uma|o|a)\s+/, "")
+    .replace(/^(?:modelo(?:\s+do\s+ve[ií]culo)?\s*[:\-]?\s*)/i, "")
+    .replace(/\b(19[89]\d|20[0-3]\d)\b/g, " ")
+    .replace(/\b(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:km|quilometragem|mil)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!candidate) return undefined;
+  if (isLikelySingleWordHumanName(candidate)) return undefined;
+  if (!isValidVehicleModel(candidate)) return undefined;
+  return candidate;
+}
+
 function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, available: boolean): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
   return available
@@ -3020,9 +3043,14 @@ export async function processInboundMessage(
 
   // Regra de negócio: em caso mecânico, após nome+dúvida deve coletar modelo+ano+km antes de encaminhar ao técnico.
   if (ctx.usesVehicleSlots && mechanicalIssuePendingHandoff) {
+    const extractedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
+    if (!extractedFromMessage.modelo && getMandatoryVehicleMissing(ctx.vehicleSlots).includes("modelo")) {
+      const looseModel = extractLooseVehicleModelFromReply(ctx.messageContent);
+      if (looseModel) extractedFromMessage.modelo = looseModel;
+    }
     const mergedVehicle = mergeVehicleSlots(
       ctx.vehicleSlots ?? {},
-      extractVehicleSlotsFromText(ctx.messageContent)
+      extractedFromMessage
     );
     const mandatoryMissing = getMandatoryVehicleMissing(mergedVehicle);
 
