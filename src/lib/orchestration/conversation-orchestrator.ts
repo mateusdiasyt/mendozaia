@@ -3694,8 +3694,14 @@ export async function processInboundMessage(
     isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
   const wantsNameUpdate = !!contactName && explicitNameIntro;
+  const hasFullVehicleProfileHere = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
   const canCaptureNameNow =
-    (!contactName && (explicitNameIntro || isCollectProfileStage || isAwaitingNameStage)) ||
+    (!contactName &&
+      (explicitNameIntro ||
+        isCollectProfileStage ||
+        isAwaitingNameStage ||
+        isPendingWithoutName ||
+        (hasActiveOilFlow && hasFullVehicleProfileHere))) ||
     wantsNameUpdate;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
@@ -3710,6 +3716,24 @@ export async function processInboundMessage(
     inferredName = extractCustomerName(intentProbeText, {
       allowSingleWord: allowSingleWordName,
     });
+  }
+  // Fallback: mensagem combinada com data/hora (ex.: "pode ser hoje a tarde Mateus").
+  // extractCustomerName retorna null por containsDateOrTimeHint; tenta extrair do último token.
+  if (
+    !inferredName &&
+    !contactName &&
+    canCaptureNameNow &&
+    allowSingleWordName &&
+    containsDateOrTimeHint(intentProbeText)
+  ) {
+    const lastWord = intentProbeText.trim().split(/\s+/).pop();
+    if (lastWord && isLikelySingleWordHumanName(lastWord)) {
+      const fromLastWord = extractCustomerName(lastWord, {
+        allowSingleWord: true,
+        blockedValues: [ctx.vehicleSlots?.modelo ?? ""],
+      });
+      if (fromLastWord) inferredName = fromLastWord;
+    }
   }
   const latestMessageLooksLikeSingleName = isLikelySingleWordHumanName(
     ctx.messageContent
