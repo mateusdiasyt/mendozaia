@@ -67,6 +67,14 @@ interface WebhookPayload {
   };
 }
 
+function isMissingOnConflictConstraintError(err: unknown): boolean {
+  const msg = String(err ?? "");
+  return (
+    msg.includes("no unique or exclusion constraint matching the ON CONFLICT specification") ||
+    msg.includes("ON CONFLICT specification")
+  );
+}
+
 function parsePresenceUpdate(body: WebhookPayload): {
   sessionId: string;
   remoteJid: string;
@@ -378,16 +386,31 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (!contact) {
-      const inserted = await db
-        .insert(contacts)
-        .values({
-          organizationId: session.organizationId,
-          phone,
-        })
-        .onConflictDoNothing({
-          target: [contacts.organizationId, contacts.phone],
-        })
-        .returning();
+      let inserted:
+        | Array<(typeof contacts.$inferSelect)>
+        | undefined;
+      try {
+        inserted = await db
+          .insert(contacts)
+          .values({
+            organizationId: session.organizationId,
+            phone,
+          })
+          .onConflictDoNothing({
+            target: [contacts.organizationId, contacts.phone],
+          })
+          .returning();
+      } catch (err) {
+        // Banco ainda sem índice único novo: fallback seguro para não bloquear recebimento.
+        if (!isMissingOnConflictConstraintError(err)) throw err;
+        inserted = await db
+          .insert(contacts)
+          .values({
+            organizationId: session.organizationId,
+            phone,
+          })
+          .returning();
+      }
       [contact] = inserted;
       if (!contact) {
         [contact] = await db
@@ -429,19 +452,37 @@ export async function POST(request: NextRequest) {
         : `[${contentType}] ${messageText?.slice(0, 80) || ""}`.trim();
 
     if (!conversation) {
-      const inserted = await db
-        .insert(conversations)
-        .values({
-          organizationId: session.organizationId,
-          contactId: contact.id,
-          whatsappSessionId: session.id,
-          lastMessageAt: new Date(),
-          lastMessagePreview: messagePreview,
-        })
-        .onConflictDoNothing({
-          target: [conversations.contactId, conversations.whatsappSessionId],
-        })
-        .returning();
+      let inserted:
+        | Array<(typeof conversations.$inferSelect)>
+        | undefined;
+      try {
+        inserted = await db
+          .insert(conversations)
+          .values({
+            organizationId: session.organizationId,
+            contactId: contact.id,
+            whatsappSessionId: session.id,
+            lastMessageAt: new Date(),
+            lastMessagePreview: messagePreview,
+          })
+          .onConflictDoNothing({
+            target: [conversations.contactId, conversations.whatsappSessionId],
+          })
+          .returning();
+      } catch (err) {
+        // Banco ainda sem índice único novo: fallback seguro para não bloquear recebimento.
+        if (!isMissingOnConflictConstraintError(err)) throw err;
+        inserted = await db
+          .insert(conversations)
+          .values({
+            organizationId: session.organizationId,
+            contactId: contact.id,
+            whatsappSessionId: session.id,
+            lastMessageAt: new Date(),
+            lastMessagePreview: messagePreview,
+          })
+          .returning();
+      }
       [conversation] = inserted;
       if (!conversation) {
         [conversation] = await db
