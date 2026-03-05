@@ -1871,13 +1871,28 @@ function getMandatoryVehicleMissing(slots: VehicleSlots | undefined): ("modelo" 
 }
 
 function buildMissingVehicleMandatoryReply(missing: ("modelo" | "ano" | "km")[]): string {
+  const pick = (variants: string[]): string =>
+    variants[Math.floor(Math.random() * variants.length)] ?? variants[0] ?? "";
+
   if (missing.includes("modelo")) {
-    return "Entendi o problema. Para eu encaminhar ao mecânico técnico, me informe o *modelo* do veículo.";
+    return pick([
+      "Entendi o problema. Para eu encaminhar ao mecânico técnico, me informe o *modelo* do veículo.",
+      "Perfeito, vamos seguir. Me informe o *modelo* do veículo para eu abrir o atendimento técnico.",
+      "Certo. Pra eu te encaminhar certinho ao mecânico técnico, me diga o *modelo* do veículo.",
+    ]);
   }
   if (missing.includes("ano")) {
-    return "Perfeito, modelo anotado. Agora me informe o *ano* do veículo.";
+    return pick([
+      "Perfeito, modelo anotado. Agora me informe o *ano* do veículo.",
+      "Ótimo, já registrei o modelo. Agora me passa o *ano* do veículo.",
+      "Show, modelo salvo. Agora preciso do *ano* do veículo.",
+    ]);
   }
-  return "Ótimo, ano anotado. Agora me informe também a *quilometragem (km)* do veículo.";
+  return pick([
+    "Ótimo, ano anotado. Agora me informe também a *quilometragem (km)* do veículo.",
+    "Perfeito, ano salvo. Falta só a *quilometragem (km)* do veículo.",
+    "Beleza, já registrei o ano. Agora me passa a *quilometragem (km)*.",
+  ]);
 }
 
 function extractLooseVehicleModelFromReply(text: string): string | undefined {
