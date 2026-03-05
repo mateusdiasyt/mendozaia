@@ -68,10 +68,15 @@ interface WebhookPayload {
 }
 
 function isMissingOnConflictConstraintError(err: unknown): boolean {
-  const msg = String(err ?? "");
+  const maybe = err as
+    | { code?: string; cause?: { code?: string } }
+    | undefined;
+  const code = maybe?.code ?? maybe?.cause?.code ?? "";
+  const msg = String(err ?? "").toLowerCase();
   return (
-    msg.includes("no unique or exclusion constraint matching the ON CONFLICT specification") ||
-    msg.includes("ON CONFLICT specification")
+    code === "42P10" ||
+    msg.includes("on conflict") ||
+    msg.includes("no unique or exclusion constraint matching")
   );
 }
 
