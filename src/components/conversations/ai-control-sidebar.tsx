@@ -30,6 +30,10 @@ interface AIControlSidebarProps {
   oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
   waitingHuman?: boolean;
+  inHumanColumn?: boolean;
+  isPriority?: boolean;
+  conversationState?: string | null;
+  assignedToId?: string | null;
   segment?: "mecanica" | "restaurante" | "geral";
 }
 
@@ -43,6 +47,10 @@ export function AIControlSidebar({
   oilProducts = [],
   carInShop = false,
   waitingHuman = false,
+  inHumanColumn = false,
+  isPriority = false,
+  conversationState = null,
+  assignedToId = null,
   segment = "mecanica",
 }: AIControlSidebarProps) {
   const showVehicleControls = segment === "mecanica";
@@ -78,7 +86,16 @@ export function AIControlSidebar({
     setOilSpec(vehicleOilSpec ?? "");
   }, [vehicleOilSpec]);
 
-  const isDisabled = mounted && until && until > new Date();
+  const isDisabledByTime = mounted && !!(until && until > new Date());
+  const isDisabledByColumn = inHumanColumn || carInWorkshop || isWaitingHuman;
+  const isDisabled = isDisabledByTime || isDisabledByColumn;
+  const disabledReason = carInWorkshop
+    ? "Fluxo humano: carro na mecânica"
+    : isWaitingHuman
+      ? "Fluxo humano: aguardando atendimento humano"
+      : inHumanColumn
+        ? "Conversa na coluna humana/prioritária"
+        : null;
   const isForever =
     until &&
     until.getTime() - Date.now() > 365 * 24 * 60 * 60 * 1000; // mais de 1 ano
@@ -305,12 +322,19 @@ export function AIControlSidebar({
               {!mounted ? "Carregando..." : isDisabled ? "IA desativada" : "IA ativa"}
             </p>
             <p className="text-xs text-[#667781]">
-              {isDisabled && untilFormatted
-                ? `Até ${untilFormatted}`
+              {isDisabled && disabledReason
+                ? disabledReason
+                : isDisabled && untilFormatted
+                  ? `Até ${untilFormatted}`
                 : !mounted
                   ? "..."
                   : "Respondendo automaticamente"}
             </p>
+            {isDisabled && (isPriority || assignedToId || conversationState) && (
+              <p className="mt-1 text-[11px] text-[#667781]">
+                {`state=${conversationState ?? "init"}${isPriority ? " | prioridade=true" : ""}${assignedToId ? " | atribuído" : ""}`}
+              </p>
+            )}
           </div>
         </div>
 

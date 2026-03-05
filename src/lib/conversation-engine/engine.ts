@@ -164,7 +164,8 @@ export async function runConversationEngine(
   const isAiPaused = !!(input.aiDisabledUntil && input.aiDisabledUntil > now);
   const isHumanOnlyState =
     input.conversationState === "waiting_human" ||
-    input.conversationState === "human_active";
+    input.conversationState === "human_active" ||
+    input.isPriority === true;
 
   if (isAiPaused || isHumanOnlyState) {
     await logOrchestration({
@@ -174,7 +175,7 @@ export async function runConversationEngine(
       decision: "human_only",
       reason: isAiPaused
         ? "IA pausada no contato; engine não executa automação/orquestrador"
-        : "Conversa em estado humano; engine não executa automação/orquestrador",
+        : "Conversa em coluna/estado humano-prioritário; engine não executa automação/orquestrador",
       traceId: input.traceId,
       stage: "conversation_engine.guard",
       decisionCode: "ENGINE_SKIP_AUTOMATION_ORCHESTRATOR",

@@ -261,6 +261,27 @@ export async function POST(request: NextRequest) {
             const preview =
               outboundText?.slice(0, 100) || "[mídia]";
 
+            // Evita tratar eco da própria resposta da IA como "resposta humana"
+            const outboundTrimmed = outboundText?.trim();
+            if (outboundTrimmed) {
+              const since45s = new Date(Date.now() - 45 * 1000);
+              const [echo] = await db
+                .select({ id: messages.id })
+                .from(messages)
+                .where(
+                  and(
+                    eq(messages.conversationId, conversation.id),
+                    eq(messages.direction, "outbound"),
+                    eq(messages.content, outboundTrimmed),
+                    gte(messages.createdAt, since45s)
+                  )
+                )
+                .limit(1);
+              if (echo) {
+                return NextResponse.json({ ok: true, ignoredBotEcho: true });
+              }
+            }
+
             await db.insert(messages).values({
               conversationId: conversation.id,
               direction: "outbound",
@@ -269,6 +290,10 @@ export async function POST(request: NextRequest) {
               status: "sent",
             });
 
+            const isHumanControlState =
+              conversation.conversationState === "waiting_human" ||
+              conversation.conversationState === "human_active" ||
+              !!conversation.assignedToId;
             const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
 
             await db
@@ -277,7 +302,8 @@ export async function POST(request: NextRequest) {
                 lastMessageAt: new Date(),
                 lastMessagePreview: preview,
                 updatedAt: new Date(),
-                aiDisabledUntil: threeHoursFromNow, // Humano respondeu pelo WhatsApp
+                // Só pausa IA quando conversa realmente está em fluxo humano
+                ...(isHumanControlState ? { aiDisabledUntil: threeHoursFromNow } : {}),
               })
               .where(eq(conversations.id, conversation.id));
           }

@@ -205,6 +205,7 @@ export async function processConversation(
       messageContent: latestInbound?.content ?? "",
       messageContentType: latestInbound?.contentType ?? "text",
       conversationState: conv.conversationState,
+      isPriority: conv.isPriority ?? false,
       aiDisabledUntil: conv.aiDisabledUntil ?? null,
       assignedToId: conv.assignedToId,
       contactTagIds: contactTagRows.map((r) => r.tagId),

@@ -6,6 +6,7 @@ export interface ConversationEngineInput {
   messageContent: string;
   messageContentType: string;
   conversationState: string | null;
+  isPriority: boolean;
   aiDisabledUntil: Date | null;
   assignedToId: string | null;
   contactTagIds: string[];

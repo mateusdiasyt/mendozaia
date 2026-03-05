@@ -40,6 +40,7 @@ export default async function ConversaPage({
       aiDisabledUntil: conversations.aiDisabledUntil,
       conversationState: conversations.conversationState,
       isPriority: conversations.isPriority,
+      assignedToId: conversations.assignedToId,
       conversationStateMetadata: conversations.conversationStateMetadata,
     })
     .from(conversations)
@@ -110,7 +111,9 @@ export default async function ConversaPage({
   const carInShop = workshopFlow?.carInShop === true;
   const waitingHuman =
     conv.conversationState === "waiting_human" ||
-    conv.conversationState === "human_active" ||
+    conv.conversationState === "human_active";
+  const inHumanColumn =
+    waitingHuman ||
     conv.isPriority === true;
 
   await db
@@ -192,6 +195,10 @@ export default async function ConversaPage({
           oilProducts={oilProducts}
           carInShop={carInShop}
           waitingHuman={waitingHuman}
+          inHumanColumn={inHumanColumn}
+          isPriority={conv.isPriority}
+          conversationState={conv.conversationState}
+          assignedToId={conv.assignedToId}
           segment={segment}
         />
       </div>
