@@ -1872,12 +1872,12 @@ function getMandatoryVehicleMissing(slots: VehicleSlots | undefined): ("modelo" 
 
 function buildMissingVehicleMandatoryReply(missing: ("modelo" | "ano" | "km")[]): string {
   if (missing.includes("modelo")) {
-    return "me informe o *modelo* do veículo.";
+    return "Entendi o problema. Para eu encaminhar ao mecânico técnico, me informe o *modelo* do veículo.";
   }
   if (missing.includes("ano")) {
-    return "agora me informe o *ano* do veículo.";
+    return "Perfeito, modelo anotado. Agora me informe o *ano* do veículo.";
   }
-  return "agora me informe também a *quilometragem (km)* do veículo (obrigatório para abrir o atendimento técnico).";
+  return "Ótimo, ano anotado. Agora me informe também a *quilometragem (km)* do veículo.";
 }
 
 function extractLooseVehicleModelFromReply(text: string): string | undefined {
@@ -3073,10 +3073,7 @@ export async function processInboundMessage(
 
     if (mandatoryMissing.length > 0) {
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-      await sendMessage(
-        ctx.conversationId,
-        `Perfeito. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleMandatoryReply(mandatoryMissing)}`
-      );
+      await sendMessage(ctx.conversationId, buildMissingVehicleMandatoryReply(mandatoryMissing));
       return {
         didReply: true,
         decision: "tool_then_ai",
@@ -3283,10 +3280,7 @@ export async function processInboundMessage(
 
       if (mandatoryMissing.length > 0) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-        await sendMessage(
-          ctx.conversationId,
-          `Entendi o problema. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleMandatoryReply(mandatoryMissing)}`
-        );
+        await sendMessage(ctx.conversationId, buildMissingVehicleMandatoryReply(mandatoryMissing));
         return {
           didReply: true,
           decision: "tool_then_ai",
