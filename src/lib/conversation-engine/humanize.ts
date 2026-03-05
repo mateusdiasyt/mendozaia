@@ -11,11 +11,8 @@ export const FILLERS = [
 
 /** Retorna filler ocasional com baixa frequência para não soar repetitivo */
 export function maybeAddFiller(responseIndex: number): string | null {
-  // Só considera a 1a parte da resposta e apenas em parte das respostas
-  if (responseIndex !== 0) return null;
-  if (Math.random() > 0.18) return null;
-  const idx = Math.floor(Math.random() * FILLERS.length);
-  return FILLERS[idx] ?? null;
+  void responseIndex;
+  return null;
 }
 
 /** Delay baseado no tamanho da mensagem (simula tempo de leitura) */
