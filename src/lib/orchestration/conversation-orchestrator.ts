@@ -977,6 +977,28 @@ function toTimeStr(hour: number, minute: number): string {
   return `${pad2(hour)}:${pad2(minute)}`;
 }
 
+function normalizeTimeToHalfHour(hour: number, minute: number): { hour: number; minute: number } {
+  const total = hour * 60 + minute;
+  const nearestSlot = Math.round(total / 30) * 30;
+  const normalizedHour = Math.floor((nearestSlot % (24 * 60)) / 60);
+  const normalizedMinute = nearestSlot % 60;
+  return { hour: normalizedHour, minute: normalizedMinute };
+}
+
+function ceilDateToNextHalfHour(base: Date): Date {
+  const d = new Date(base);
+  d.setSeconds(0, 0);
+  const minutes = d.getMinutes();
+  if (minutes === 0 || minutes === 30) return d;
+  const nextSlot = Math.ceil(minutes / 30) * 30;
+  if (nextSlot >= 60) {
+    d.setHours(d.getHours() + 1, 0, 0, 0);
+  } else {
+    d.setMinutes(nextSlot, 0, 0);
+  }
+  return d;
+}
+
 function extractTime(text: string): { hour: number; minute: number } | null {
   const timeWithColon = text.match(/\b(\d{1,2}):(\d{2})\b/);
   if (timeWithColon) {
@@ -1106,23 +1128,16 @@ function extractReservationDateTime(
   const date = extractDate(text, now);
   const time = extractTime(text);
   if (date && time) {
+    const normalizedTime = normalizeTimeToHalfHour(time.hour, time.minute);
     return {
       dateStr: toDateStr(date.year, date.month, date.day),
-      timeStr: toTimeStr(time.hour, time.minute),
+      timeStr: toTimeStr(normalizedTime.hour, normalizedTime.minute),
     };
   }
 
-  // "agora" => tenta horário imediato (próximos 30 min, arredondado para 10 em 10)
+  // "agora" => usa próximo horário encaixado em grade de 30 minutos (:00 ou :30)
   if (/\bagora\b/.test(normalized)) {
-    const immediate = new Date(now.getTime() + 30 * 60 * 1000);
-    immediate.setSeconds(0, 0);
-    const rounded = Math.ceil(immediate.getMinutes() / 10) * 10;
-    if (rounded >= 60) {
-      immediate.setHours(immediate.getHours() + 1);
-      immediate.setMinutes(0);
-    } else {
-      immediate.setMinutes(rounded);
-    }
+    const immediate = ceilDateToNextHalfHour(now);
     return {
       dateStr: toDateStr(
         immediate.getFullYear(),
@@ -1135,8 +1150,9 @@ function extractReservationDateTime(
 
   // Horário sem data explícita (ex.: "às 14h") -> assume hoje; se já passou, amanhã
   if (!date && time) {
+    const normalizedTime = normalizeTimeToHalfHour(time.hour, time.minute);
     const tentative = new Date(now);
-    tentative.setHours(time.hour, time.minute, 0, 0);
+    tentative.setHours(normalizedTime.hour, normalizedTime.minute, 0, 0);
     if (tentative.getTime() <= now.getTime()) {
       tentative.setDate(tentative.getDate() + 1);
     }
@@ -1146,7 +1162,7 @@ function extractReservationDateTime(
         tentative.getMonth() + 1,
         tentative.getDate()
       ),
-      timeStr: toTimeStr(time.hour, time.minute),
+      timeStr: toTimeStr(normalizedTime.hour, normalizedTime.minute),
     };
   }
 
