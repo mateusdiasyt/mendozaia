@@ -56,6 +56,7 @@ export function isValidVehicleModel(value: string | undefined): boolean {
   const normalized = normalizeModel(value);
   if (normalized.length <= 3) return false;
   if (normalized.split(/\s+/).filter(Boolean).length > 4) return false;
+  if (/^(?:e|eh)\s+/.test(normalized)) return false;
   if (INVALID_MODELO_TERMS.has(normalized)) return false;
   if (INVALID_MODELO_PHRASES.some((term) => normalized.includes(term))) return false;
   if (/^\d+$/.test(normalized)) return false;
@@ -136,17 +137,24 @@ function extractModelo(text: string): string | undefined {
   if (candidate) {
     candidate = candidate
       .replace(/\b\d{1,2}\s*w\s*\d{2}\b/gi, " ")
-      .replace(/\b(?:e|é)\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\btenho\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\bestou\s+com\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\best[áa]\s+com\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\bto\s+com\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\bt[oô]\s+com\s+(?:um[a]?\s+)?/gi, " ")
-      .replace(/\b(?:meu\s+)?carro\s+(?:e|é|eh)\s+um[a]?\s+/gi, " ")
-      .replace(/\bve[ií]culo\s+(?:e|é|eh)\s+um[a]?\s+/gi, " ")
+      // Prefixos comuns de fala que "sujam" o modelo.
+      .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/, "")
+      .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/, "")
+      .replace(/^(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com)\s+/, "")
+      .replace(/^(?:e|é|eh)\s+/, "")
+      .replace(/^(?:um|uma|o|a)\s+/, "")
+      // Remove ano capturado junto no modelo (ex.: "onix 2022")
+      .replace(/\b(19[89]\d|20[0-3]\d)\b/g, " ")
       .replace(/\s*(?:,|\.|;)\s*$/, "")
       .replace(/\s+/g, " ")
       .trim();
+
+    // Segunda passada de limpeza para casos como "é onix" após remoção parcial.
+    candidate = candidate
+      .replace(/^(?:e|é|eh)\s+/, "")
+      .replace(/^(?:um|uma|o|a)\s+/, "")
+      .trim();
+
     if (isValidVehicleModel(candidate) && candidate.length <= 50) return candidate;
   }
   return undefined;
