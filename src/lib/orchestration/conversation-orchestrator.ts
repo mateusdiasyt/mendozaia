@@ -827,15 +827,10 @@ async function shouldOfferFlowResumeChoice(conversationId: string): Promise<bool
 
 async function shouldSuppressRepeatedNamePrompt(
   conversationId: string,
-  intentProbeText: string,
+  _intentProbeText: string,
   explicitNameIntro: boolean
 ): Promise<boolean> {
   if (explicitNameIntro) return false;
-
-  const normalized = intentProbeText.trim();
-  const isShortOrGreeting =
-    normalized.length <= 8 || looksLikeGreeting(intentProbeText);
-  if (!isShortOrGreeting) return false;
 
   const [lastOutbound] = await db
     .select({
@@ -2802,6 +2797,15 @@ export async function processInboundMessage(
     };
   }
 
+  const sentReplies = new Set<string>();
+  const originalSendMessage = options.sendMessage;
+  const sendMessage = async (convId: string, text: string) => {
+    const normalized = text.trim();
+    if (!normalized || sentReplies.has(normalized)) return;
+    sentReplies.add(normalized);
+    await originalSendMessage(convId, text);
+  };
+
   // Se alguma regra já respondeu texto na automação, evita resposta duplicada.
   if (options.automationDidReply) {
     await logOrchestration({
@@ -2941,7 +2945,7 @@ export async function processInboundMessage(
       const restartReply = contactName?.trim()
         ? `Perfeito, *${contactName.trim()}*. Iniciamos um novo atendimento. Como posso te ajudar hoje?`
         : "Perfeito, iniciamos um novo atendimento. Qual é o seu nome?";
-      await options.sendMessage(ctx.conversationId, restartReply);
+      await sendMessage(ctx.conversationId, restartReply);
       return {
         didReply: true,
         decision: "tool_then_ai",
@@ -2954,7 +2958,7 @@ export async function processInboundMessage(
       await persistResumeChoiceFlowState(ctx.conversationId, conversationMetadata, null);
       const continuationReply = buildActiveFlowContinuationReply() ??
         "Perfeito, vamos continuar de onde paramos. Como posso ajudar?";
-      await options.sendMessage(ctx.conversationId, continuationReply);
+      await sendMessage(ctx.conversationId, continuationReply);
       return {
         didReply: true,
         decision: "tool_then_ai",
@@ -2963,7 +2967,7 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Quer *continuar* o atendimento anterior ou iniciar um *novo atendimento*?"
     );
@@ -2981,7 +2985,7 @@ export async function processInboundMessage(
       await persistResumeChoiceFlowState(ctx.conversationId, conversationMetadata, {
         awaitingChoice: true,
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Bem-vindo de volta! Quer *continuar* o atendimento anterior ou iniciar um *novo atendimento*?"
       );
@@ -2999,8 +3003,22 @@ export async function processInboundMessage(
     ctx.messageContent
   );
 
-  // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo
-  if (ctx.usesVehicleSlots && isOilExchangeIntent(intentProbeText)) {
+  const hasActiveOilFlow =
+    oilFlowState.awaitingUnknownOilConfirmation ||
+    oilFlowState.awaitingOilYesNo ||
+    oilFlowState.awaitingOilSpec ||
+    oilFlowState.awaitingOilVehicle ||
+    oilFlowState.awaitingOilScheduleConfirmation;
+  const hasActiveReservationFlow =
+    reservationFlow.collectionStage === "collect_profile" ||
+    reservationFlow.collectionStage === "collect_datetime" ||
+    reservationFlow.collectionStage === "confirm_reservation";
+
+  // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo. Prioriza fluxo específico quando ativo.
+  if (
+    ctx.usesVehicleSlots &&
+    (isOilExchangeIntent(intentProbeText) || hasActiveOilFlow)
+  ) {
     const detectedOilSpec = extractOilSpec(ctx.messageContent);
     const engineCode = extractEngineCodeFromText(ctx.messageContent);
 
@@ -3034,7 +3052,7 @@ export async function processInboundMessage(
         );
         if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
           await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
           );
@@ -3051,12 +3069,12 @@ export async function processInboundMessage(
             awaitingOilVehicle: false,
             awaitingOilScheduleConfirmation: true,
           });
-          await options.sendMessage(ctx.conversationId, oilReplyNow.reply);
+          await sendMessage(ctx.conversationId, oilReplyNow.reply);
           return { didReply: true, decision: "tool_then_ai", reason: "Dados do veículo completos; oferecendo agendamento", silence: false };
         }
         if (oilReplyNow?.status === "out_of_stock") {
           await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             `No momento não temos o óleo *${oilReplyNow.productName}* disponível em estoque. Posso te encaminhar para um mecânico técnico verificar a disponibilidade e agendar?`
           );
@@ -3065,7 +3083,7 @@ export async function processInboundMessage(
       }
       const stillMissing = getMissingSlots(mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)));
       if (stillMissing.length > 0) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Para seguir com o agendamento, ${buildMissingVehicleRequiredReply(stillMissing)}`
         );
@@ -3080,9 +3098,14 @@ export async function processInboundMessage(
         productName: reservationContext.productName,
       });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
-      await options.sendMessage(
+      const missingForSchedule = getMissingSlots(ctx.vehicleSlots ?? {});
+      const vehiclePart =
+        missingForSchedule.length === 0
+          ? ""
+          : ` e os dados do veículo (${missingForSchedule.map((s) => `*${s}*`).join(", ").replace(/, ([^,]*)$/, " e $1")})`;
+      await sendMessage(
         ctx.conversationId,
-        "Perfeito! Para agendar, me informe seu *nome*, *modelo* e *ano* do veículo."
+        `Perfeito! Para agendar, me informe seu *nome*${vehiclePart}.`
       );
       return {
         didReply: true,
@@ -3093,23 +3116,106 @@ export async function processInboundMessage(
     }
 
     if (oilFlowState.awaitingOilYesNo) {
+      const oilFromMessage = extractOilSpec(ctx.messageContent);
+      if (oilFromMessage) {
+        await saveContactMemory(ctx.contactId, "vehicle_oil_spec", oilFromMessage);
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingOilYesNo: false,
+          awaitingOilSpec: false,
+        });
+        const oilToSearch = oilFromMessage;
+        const engineCode = extractEngineCodeFromText(ctx.messageContent);
+        const oilReply = await buildOilAvailabilityReply(
+          ctx.organizationId,
+          oilToSearch,
+          engineCode,
+          ctx.messageContent
+        );
+        if (oilReply?.status === "out_of_stock") {
+          await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+          await sendMessage(
+            ctx.conversationId,
+            `No momento não temos o óleo *${oilReply.productName}* disponível em estoque. Posso te encaminhar para um mecânico técnico verificar a disponibilidade e agendar?`
+          );
+          return { didReply: true, decision: "tool_then_ai", reason: "Óleo sem estoque; oferecendo encaminhamento", silence: false };
+        }
+        if (oilReply?.status === "available") {
+          const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+          const hasModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+          if (missingVehicle.length === 0 && hasModelAndYear) {
+            const vehiclePolicyDecision = evaluateVehicleServicePolicy(
+              ctx.vehicleServicePolicy,
+              ctx.vehicleSlots ?? {}
+            );
+            if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
+              await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
+              await sendMessage(
+                ctx.conversationId,
+                `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
+              );
+              return { didReply: true, decision: "tool_then_ai", reason: "Veículo não atendido pela política", silence: false };
+            }
+            await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+              awaitingOilYesNo: false,
+              awaitingOilSpec: false,
+              awaitingOilScheduleConfirmation: true,
+            });
+            await sendMessage(ctx.conversationId, oilReply.reply);
+            return { didReply: true, decision: "tool_then_ai", reason: "Óleo extraído; oferecendo agendamento", silence: false };
+          }
+          if (missingVehicle.length > 0 || !hasModelAndYear) {
+            await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+              awaitingOilYesNo: false,
+              awaitingOilSpec: false,
+              awaitingOilScheduleConfirmation: false,
+              awaitingOilVehicle: true,
+            });
+            await persistReservationContext(ctx.conversationId, conversationMetadata, {
+              serviceName: "Troca de Óleo",
+              productName: reservationContext.productName,
+            });
+            await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+            const askVehicle = buildMissingVehicleRequiredReply(
+              missingVehicle.length > 0 ? missingVehicle : (["modelo", "ano"] as ("modelo" | "ano")[])
+            );
+            const pricePart = oilReply.reply.split("Vamos agendar")[0]?.trim() ?? oilReply.reply;
+            await sendMessage(
+              ctx.conversationId,
+              `${pricePart}. Para seguir com o agendamento, ${askVehicle}`
+            );
+            return { didReply: true, decision: "tool_then_ai", reason: "Óleo extraído; coletando dados do veículo", silence: false };
+          }
+        }
+        await sendMessage(ctx.conversationId, oilReply?.reply ?? `Temos o óleo *${oilToSearch}* disponível.`);
+        return { didReply: true, decision: "tool_then_ai", reason: "Óleo extraído; resposta disponibilidade", silence: false };
+      }
       if (isSimpleAffirmative(ctx.messageContent)) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, {
           awaitingOilYesNo: false,
           awaitingOilSpec: true,
         });
-        await options.sendMessage(ctx.conversationId, "Consegue me falar o óleo?");
+        await sendMessage(ctx.conversationId, "Consegue me falar o óleo?");
         return { didReply: true, decision: "tool_then_ai", reason: "Cliente sabe o óleo; pedindo especificação", silence: false };
       }
       if (isSimpleNegative(ctx.messageContent) || looksLikeUnknownOilMessage(ctx.messageContent)) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-        await options.sendMessage(
+        const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
+        const vehiclePart =
+          missingVehicle.length === 0
+            ? ""
+            : ` e dos dados do veículo (*${missingVehicle.map((s) => (s === "km" ? "km" : s)).join(", ").replace(/, ([^,]*)$/, " e $1")}*)`;
+        await sendMessage(
           ctx.conversationId,
-          "Sem problema! Antes de te encaminhar para o mecânico técnico, preciso do seu *nome* e dados do veículo (*modelo, ano e km*). Me envie em uma mensagem, por favor."
+          `Sem problema! Antes de te encaminhar para o mecânico técnico, preciso do seu *nome*${vehiclePart}. Me envie em uma mensagem, por favor.`
         );
         return { didReply: true, decision: "tool_then_ai", reason: "Cliente não sabe o óleo; coletando nome/veículo", silence: false };
       }
+      await sendMessage(
+        ctx.conversationId,
+        "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*."
+      );
+      return { didReply: true, decision: "tool_then_ai", reason: "Aguardando sim/não sobre óleo; reenviando pergunta", silence: false };
     }
 
     if (oilFlowState.awaitingOilSpec || detectedOilSpec || engineCode) {
@@ -3123,7 +3229,7 @@ export async function processInboundMessage(
       if (oilReply?.status === "out_of_stock") {
         if (oilToSearch) await saveContactMemory(ctx.contactId, "vehicle_oil_spec", oilToSearch);
         await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `No momento não temos o óleo *${oilReply.productName}* disponível em estoque. Posso te encaminhar para um mecânico técnico verificar a disponibilidade e agendar?`
         );
@@ -3140,7 +3246,7 @@ export async function processInboundMessage(
           );
           if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
             await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-            await options.sendMessage(
+            await sendMessage(
               ctx.conversationId,
               `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
             );
@@ -3163,7 +3269,7 @@ export async function processInboundMessage(
             missingVehicle.length > 0 ? missingVehicle : (["modelo", "ano"] as ("modelo" | "ano")[])
           );
           const pricePart = oilReply.reply.split("Vamos agendar")[0]?.trim() ?? oilReply.reply;
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             `${pricePart}. Para seguir com o agendamento, ${askVehicle}`
           );
@@ -3174,11 +3280,11 @@ export async function processInboundMessage(
           awaitingOilSpec: false,
           awaitingOilScheduleConfirmation: true,
         });
-        await options.sendMessage(ctx.conversationId, oilReply.reply);
+        await sendMessage(ctx.conversationId, oilReply.reply);
         return { didReply: true, decision: "tool_then_ai", reason: "Óleo encontrado; oferecendo agendamento", silence: false };
       }
       if (oilFlowState.awaitingOilSpec) {
-        await options.sendMessage(ctx.conversationId, "Não encontrei esse óleo no cadastro. Consegue me falar o tipo? (ex.: 5W30)?");
+        await sendMessage(ctx.conversationId, "Não encontrei esse óleo no cadastro. Consegue me falar o tipo? (ex.: 5W30)?");
         return { didReply: true, decision: "tool_then_ai", reason: "Óleo não encontrado; pedindo novamente", silence: false };
       }
     }
@@ -3191,7 +3297,7 @@ export async function processInboundMessage(
       await persistOilFlowState(ctx.conversationId, conversationMetadata, {
         awaitingOilYesNo: true,
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*."
       );
@@ -3256,19 +3362,23 @@ export async function processInboundMessage(
     if (!contactName || missingIssueVehicle.length > 0) {
       if (!contactName && missingIssueVehicle.length > 0) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-        await options.sendMessage(
+        const vehiclePart =
+          missingIssueVehicle.length === 0
+            ? ""
+            : ` e os dados do veículo (${missingIssueVehicle.map((s) => `*${s}*`).join(", ").replace(/, ([^,]*)$/, " e $1")})`;
+        await sendMessage(
           ctx.conversationId,
-          "Antes de eu te encaminhar para um mecânico técnico, preciso registrar seu *nome* e os dados do veículo (*modelo, ano e km*). Me envie em uma mensagem, por favor."
+          `Antes de eu te encaminhar para um mecânico técnico, preciso registrar seu *nome*${vehiclePart}. Me envie em uma mensagem, por favor.`
         );
       } else if (!contactName) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Antes de eu te encaminhar para um mecânico técnico, me informe seu *nome*, por favor."
         );
       } else {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, *${contactName.trim()}*. Antes de eu te encaminhar para o mecânico técnico, ${buildMissingVehicleInfoReply(missingIssueVehicle)}`
         );
@@ -3281,7 +3391,7 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Entendi. Isso parece um problema mecânico e vou te encaminhar agora para um mecânico técnico te atender da forma correta."
     );
@@ -3350,7 +3460,7 @@ export async function processInboundMessage(
         if (merged.ano) await saveContactMemory(ctx.contactId, "vehicle_year", String(merged.ano));
         if (merged.km) await saveContactMemory(ctx.contactId, "vehicle_km", String(merged.km));
         const naturalVehicle = formatVehicleForNaturalSpeech(merged);
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Anotado: *${naturalVehicle}*. Confirmado em meu sistema. Como posso te ajudar agora?`
         );
@@ -3383,7 +3493,7 @@ export async function processInboundMessage(
             : labels.length === 2
               ? `Me informe *${labels[0]}* e *${labels[1]}*.`
               : `Me informe *${labels.slice(0, -1).join("*, *")} e *${labels[labels.length - 1]}*.`;
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Vou alterar em meu sistema que você mudou de carro. ${askMissing}`
         );
@@ -3408,7 +3518,7 @@ export async function processInboundMessage(
       } else if (intakeStage === "awaiting_issue") {
         continuationPrompt = "Perfeito, confirmado. Pode me explicar qual é a sua dúvida/situação do veículo?";
       }
-      await options.sendMessage(ctx.conversationId, continuationPrompt);
+      await sendMessage(ctx.conversationId, continuationPrompt);
       return {
         didReply: true,
         decision: "tool_then_ai",
@@ -3428,9 +3538,10 @@ export async function processInboundMessage(
         conversationMetadata,
         "awaiting_vehicle"
       );
-      await options.sendMessage(
+      const missingNewVehicle = getMissingSlots({});
+      await sendMessage(
         ctx.conversationId,
-        "Vou alterar em meu sistema que você mudou de carro. Me informe o *modelo*, *ano* e *quilometragem* do veículo atual."
+        `Vou alterar em meu sistema que você mudou de carro. ${buildMissingVehicleRequiredReply(missingNewVehicle)}`
       );
       return {
         didReply: true,
@@ -3440,7 +3551,7 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Sei sim, você tem um *" +
         formatVehicleForNaturalSpeech(knownVehicle) +
@@ -3458,7 +3569,7 @@ export async function processInboundMessage(
     const continuationReply = buildActiveFlowContinuationReply(intentProbeText);
 
     if (continuationReply) {
-      await options.sendMessage(ctx.conversationId, continuationReply);
+      await sendMessage(ctx.conversationId, continuationReply);
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -3490,7 +3601,7 @@ export async function processInboundMessage(
     if (offeredServices.length > 0) {
       const askedService = detectAskedOfferedService(intentProbeText, offeredServices);
       if (askedService) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Sim, trabalhamos com *${askedService}*.\n\nVou te encaminhar agora para o atendimento humano para te passar o orçamento certinho.`
         );
@@ -3516,7 +3627,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "No momento não identificamos esse serviço na nossa lista de atendimento. Se quiser, me diga o serviço exato que você precisa que eu confirmo com o time."
       );
@@ -3536,7 +3647,7 @@ export async function processInboundMessage(
     const policy = ctx.vehicleServicePolicy ?? {};
 
     if (askedModel && !askedYear) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Consigo te confirmar sim. Me informa o *ano* do ${prettifyVehicleLabel(askedModel)} para eu validar certinho na nossa política de atendimento.`
       );
@@ -3556,7 +3667,7 @@ export async function processInboundMessage(
       const response = decision.blocked
         ? `${decision.reason}\n\nSe preferir, me passe outro veículo (modelo e ano) que eu verifico na hora.`
         : "Sim, esse veículo está dentro da nossa política de atendimento.";
-      await options.sendMessage(ctx.conversationId, response);
+      await sendMessage(ctx.conversationId, response);
       return {
         didReply: true,
         decision: "tool_then_ai",
@@ -3565,7 +3676,7 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       buildVehiclePolicySummaryText(policy)
     );
@@ -3675,7 +3786,7 @@ export async function processInboundMessage(
     : { blocked: false, reason: null as string | null };
   if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
     const policyReply = `${vehiclePolicyDecision.reason}\n\nSe quiser, posso te direcionar para confirmar opções de atendimento humano.`;
-    await options.sendMessage(ctx.conversationId, policyReply);
+    await sendMessage(ctx.conversationId, policyReply);
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
@@ -3711,7 +3822,11 @@ export async function processInboundMessage(
     !Number.isNaN(parsedVehicleSlotsUpdatedAt.getTime()) &&
     Date.now() - parsedVehicleSlotsUpdatedAt.getTime() < VEHICLE_CONFIRMATION_STALE_MS;
 
-  if (intakeStage === "awaiting_name") {
+  if (
+    intakeStage === "awaiting_name" &&
+    !hasActiveOilFlow &&
+    !hasActiveReservationFlow
+  ) {
     const suppressRepeatedNamePrompt = await shouldSuppressRepeatedNamePrompt(
       ctx.conversationId,
       intentProbeText,
@@ -3741,7 +3856,7 @@ export async function processInboundMessage(
     }
 
     if (!justCapturedName && looksLikeInvalidNameAnswer(ctx.messageContent)) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Não consegui identificar seu nome. Pode me informar seu *nome*, por favor?"
       );
@@ -3779,7 +3894,7 @@ export async function processInboundMessage(
         ]
           .filter(Boolean)
           .join(" ");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, *${contactName}*. Já salvei seus dados e o veículo *${vehicleLabel}*. Vou encaminhar agora para um mecânico técnico verificar seu caso.`
         );
@@ -3812,11 +3927,11 @@ export async function processInboundMessage(
         ]
           .filter(Boolean)
           .join(" ");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, *${contactName}*. Registrei seu veículo como *${vehicleLabel}*.`
         );
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Você consegue me mandar a *km* do seu carro? Se não souber, tudo bem que eu continuo seu atendimento."
         );
@@ -3828,7 +3943,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, *${contactName}*. Agora me informe o *modelo* e o *ano* do veículo. Se souber, me passe também a *km*.`
       );
@@ -3852,7 +3967,7 @@ export async function processInboundMessage(
       const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
       if (missingVehicle.length > 0) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Prazer, *${contactName}*! Entendi seu caso. Antes de te encaminhar para um mecânico técnico, ${buildMissingVehicleRequiredReply(missingVehicle)}`
         );
@@ -3864,7 +3979,7 @@ export async function processInboundMessage(
         };
       }
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Prazer, *${contactName}*! Vou encaminhar agora seu atendimento para um mecânico técnico analisar esse problema.`
       );
@@ -3892,7 +4007,7 @@ export async function processInboundMessage(
 
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
     const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       `Prazer, *${contactName}*! ${needPrompt}`
     );
@@ -3918,7 +4033,11 @@ export async function processInboundMessage(
     };
   }
 
-  if (intakeStage === "awaiting_vehicle") {
+  if (
+    intakeStage === "awaiting_vehicle" &&
+    !hasActiveOilFlow &&
+    !hasActiveReservationFlow
+  ) {
     const requiresFullVehicleProfile =
       reservationContext.serviceName === "Revisão" ||
       reservationContext.serviceName === "Troca de Óleo";
@@ -3936,7 +4055,7 @@ export async function processInboundMessage(
 
       if (reservationContext.serviceName === "Revisão") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, registrei seu veículo como *${vehicleLabel}*.\nVou direcionar agora seu atendimento de revisão para um mecânico técnico.`
         );
@@ -3964,7 +4083,7 @@ export async function processInboundMessage(
 
       if (reservationContext.serviceName === "Troca de Óleo") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\nVocê sabe qual óleo é utilizado no carro? Se não souber, me responda *não sei* que eu direciono para o mecânico técnico.`
         );
@@ -3983,7 +4102,7 @@ export async function processInboundMessage(
         );
         if (hasKm) {
           await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             `Perfeito, já salvei aqui os dados do veículo (${vehicleLabel}). Vou encaminhar agora para um mecânico técnico verificar esse problema.`
           );
@@ -4010,7 +4129,7 @@ export async function processInboundMessage(
         }
 
         if (isSimpleAffirmative(ctx.messageContent)) {
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             "Perfeito, fico no aguardo da quilometragem."
           );
@@ -4024,7 +4143,7 @@ export async function processInboundMessage(
 
         if (looksLikeUnknownKm(ctx.messageContent)) {
           await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             `Sem problemas. Com os dados que já tenho do veículo (${vehicleLabel}), vou encaminhar agora para um mecânico técnico verificar seu caso.`
           );
@@ -4050,16 +4169,16 @@ export async function processInboundMessage(
           };
         }
 
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, registrei seu veículo como *${vehicleLabel}*.`
         );
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Você consegue me mandar a *km* do seu carro?"
         );
         if (!providedModelOrYearNow) {
-          await options.sendMessage(
+          await sendMessage(
             ctx.conversationId,
             "Se não souber a km, tudo bem que eu continuo seu atendimento."
           );
@@ -4074,7 +4193,7 @@ export async function processInboundMessage(
 
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
       const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\n${needPrompt}`
       );
@@ -4093,21 +4212,21 @@ export async function processInboundMessage(
     const capturedModelNow = !!vehicleSlotsFromCurrentMessage.modelo;
     const capturedYearNow = !!vehicleSlotsFromCurrentMessage.ano;
     if (capturedModelNow && missingRequiredVehicle.includes("ano")) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         requiresFullVehicleProfile
           ? "Perfeito, já anotei o *modelo*. Agora me informe o *ano* e o *km* do veículo."
           : "Perfeito, já anotei o *modelo*. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também."
       );
     } else if (capturedYearNow && missingRequiredVehicle.includes("modelo")) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         requiresFullVehicleProfile
           ? "Perfeito, já anotei o *ano*. Agora me informe o *modelo* e o *km* do veículo."
           : "Perfeito, já anotei o *ano*. Agora me informe o *modelo* do veículo. Se souber, pode me passar o *km* também."
       );
     } else {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         requiresFullVehicleProfile
           ? "Para continuar esse atendimento, me informe *modelo, ano e km* do veículo."
@@ -4182,7 +4301,7 @@ export async function processInboundMessage(
           .filter(Boolean)
           .join(" ");
 
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito, atualizei para *${vehicleLabel}*.\nSe conseguir, me passe também o *km* para deixar o orçamento mais preciso (se não souber, tudo bem).\nVocê sabe o tipo do óleo?`
         );
@@ -4198,7 +4317,7 @@ export async function processInboundMessage(
       }
 
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Perfeito, vamos atualizar os dados do veículo.\nMe informe o *modelo* e o *ano* do carro atual. Se conseguir, me passe também o *km* para deixar o orçamento mais preciso. Se não souber, tudo bem."
       );
@@ -4215,7 +4334,7 @@ export async function processInboundMessage(
       const hasModelAndYear = !!(slots.modelo && slots.ano);
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
       if (hasModelAndYear) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Perfeito, sem problema. Vou encaminhar para um mecânico técnico continuar seu atendimento e confirmar a especificação correta para o seu veículo."
         );
@@ -4240,7 +4359,7 @@ export async function processInboundMessage(
           silence: false,
         };
       }
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo. Se souber o *km*, também ajuda a deixar o orçamento mais preciso."
       );
@@ -4254,7 +4373,7 @@ export async function processInboundMessage(
 
     if (isSimpleAffirmative(ctx.messageContent)) {
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Perfeito! Então me informe o tipo do óleo (ex.: *5W30* ou *10W40*) para eu seguir com o valor certinho."
       );
@@ -4288,7 +4407,7 @@ export async function processInboundMessage(
       : contactName
         ? `Perfeito, *${contactName}*. `
         : "";
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       `${clarificationPrefix}${baseMissingReply}`.trim()
     );
@@ -4336,7 +4455,7 @@ export async function processInboundMessage(
         carInShop: false,
         awaitingVehicleDetails: true,
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Antes de direcionar para o mecânico técnico, preciso registrar os dados do veículo.\n${buildMissingVehicleRequiredReply(
           missingWorkshopVehicle
@@ -4354,7 +4473,7 @@ export async function processInboundMessage(
       carInShop: true,
       awaitingVehicleDetails: false,
     });
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Perfeito, vou direcionar você para um mecânico técnico verificar a situação do seu carro."
     );
@@ -4408,7 +4527,7 @@ export async function processInboundMessage(
   const asksBotName = looksLikeAskBotName(ctx.messageContent);
   if (asksBotName) {
     const botName = ctx.businessProfile?.botName?.trim() || "assistente da oficina";
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       `Prazer! Eu sou *${botName}*. Como posso te ajudar hoje?`
     );
@@ -4432,7 +4551,7 @@ export async function processInboundMessage(
       productName: reservationContext.productName,
     });
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       `Perfeito *${knownName}*, me informa o *modelo* e o *ano* do veículo para que eu possa verificar a disponibilidade de nosso agendamento. Se souber, pode me passar também a *quilometragem*.`
     );
@@ -4504,7 +4623,7 @@ export async function processInboundMessage(
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     }
 
-    await options.sendMessage(ctx.conversationId, reply);
+    await sendMessage(ctx.conversationId, reply);
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
@@ -4572,9 +4691,9 @@ export async function processInboundMessage(
     } else if (intakeStage === "awaiting_issue") {
       continuationPrompt = "Perfeito. Pode me explicar qual é a situação/dúvida do veículo?";
     }
-    await options.sendMessage(ctx.conversationId, chunks.join("\n"));
+    await sendMessage(ctx.conversationId, chunks.join("\n"));
     if (continuationPrompt) {
-      await options.sendMessage(ctx.conversationId, continuationPrompt);
+      await sendMessage(ctx.conversationId, continuationPrompt);
     }
     await logOrchestration({
       conversationId: ctx.conversationId,
@@ -4613,7 +4732,7 @@ export async function processInboundMessage(
       confirmed: true,
       vehicleSignature: currentVehicleSignature,
     });
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Perfeito, ótimo! Vamos seguir com esse veículo. Como posso te ajudar agora?"
     );
@@ -4636,7 +4755,7 @@ export async function processInboundMessage(
       confirmed: false,
       vehicleSignature: "",
     });
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Sem problemas. Me atualize, por favor: *modelo, ano e km* do veículo atual."
     );
@@ -4676,7 +4795,7 @@ export async function processInboundMessage(
     ]
       .filter(Boolean)
       .join(" - ");
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       `Antes de seguir, só confirmando: você continua com *${vehicleLabel}*?`
     );
@@ -4713,7 +4832,7 @@ export async function processInboundMessage(
     const triageReply = !hasKnownName
       ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
       : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, como posso ajudar? Podemos fazer reserva de mesa, consultar cardápio ou tirar dúvidas.`;
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       applyToneToText(triageReply, ctx.botConfig?.tone)
     );
@@ -4761,7 +4880,7 @@ export async function processInboundMessage(
     const triageReply = !hasKnownName
       ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
       : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       applyToneToText(triageReply, ctx.botConfig?.tone)
     );
@@ -4810,7 +4929,7 @@ export async function processInboundMessage(
 
       if (missingName) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Entendi seu caso. Antes de eu te encaminhar para um mecânico técnico, qual é o seu *nome*?"
         );
@@ -4824,7 +4943,7 @@ export async function processInboundMessage(
 
       if (missingRequiredVehicle.length > 0) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Entendi, *${safeContactName}*. Antes de eu te encaminhar para um mecânico técnico, ${buildMissingVehicleRequiredReply(
             getMissingSlots(ctx.vehicleSlots ?? {})
@@ -4839,7 +4958,7 @@ export async function processInboundMessage(
       }
 
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, *${safeContactName}*. Vou encaminhar agora seu atendimento para um mecânico técnico analisar esse problema.`
       );
@@ -4876,7 +4995,7 @@ export async function processInboundMessage(
       });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       const knownName = contactName?.trim() || "";
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito *${knownName}*! Vou encaminhar agora seu atendimento para um mecânico técnico verificar esse problema no veículo.`
       );
@@ -4910,7 +5029,7 @@ export async function processInboundMessage(
         productName: reservationContext.productName,
       });
       if (!hasCompleteVehicleData) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Perfeito! Para revisão, antes de eu agir, preciso dos dados completos do veículo: *modelo, ano e km*."
         );
@@ -4923,7 +5042,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
       );
@@ -4955,7 +5074,7 @@ export async function processInboundMessage(
         productName: reservationContext.productName,
       });
       if (!hasFullVehicleProfile) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Perfeito! Para óleo, antes de eu agir, preciso dos dados completos do veículo: *modelo, ano e km*."
         );
@@ -4972,7 +5091,7 @@ export async function processInboundMessage(
           ? `Perfeito! Tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
           : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
         : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
-      await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      await sendMessage(ctx.conversationId, oilQualificationReply);
       if (hasKnownModelAndYear) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, {
           awaitingUnknownOilConfirmation: true,
@@ -5025,7 +5144,7 @@ export async function processInboundMessage(
           silence: true,
         };
       }
-      await options.sendMessage(ctx.conversationId, followUpNeed);
+      await sendMessage(ctx.conversationId, followUpNeed);
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -5053,7 +5172,7 @@ export async function processInboundMessage(
       // Cliente já descreveu o problema; deixa a busca do catálogo seguir.
     } else {
     const followUp = "Certo. Qual seria o seu problema?";
-    await options.sendMessage(ctx.conversationId, followUp);
+    await sendMessage(ctx.conversationId, followUp);
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
     await logOrchestration({
       conversationId: ctx.conversationId,
@@ -5094,7 +5213,7 @@ export async function processInboundMessage(
       });
 
       if (!hasModelAndYear) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Perfeito! Para revisão, me informe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km* para deixar o diagnóstico inicial mais preciso."
         );
@@ -5106,7 +5225,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Perfeito, vou direcionar agora seu atendimento de revisão para um mecânico técnico."
       );
@@ -5144,7 +5263,7 @@ export async function processInboundMessage(
       hasModelOrYearInIssueMessage &&
       !hasOilSpecInMessage
     ) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Entendi. Você sabe o tipo do óleo?\nSe conseguir, me passe também a *quilometragem (km)* do veículo, porque isso deixa o orçamento mais preciso. Se não souber, tudo bem que eu continuo o atendimento."
       );
@@ -5163,7 +5282,7 @@ export async function processInboundMessage(
       const slots = ctx.vehicleSlots ?? {};
       const hasModelAndYear = !!(slots.modelo && slots.ano);
       if (hasModelAndYear) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Perfeito, sem problema. Vou encaminhar para um mecânico técnico continuar seu atendimento e confirmar a especificação correta para o seu veículo."
         );
@@ -5206,7 +5325,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo."
       );
@@ -5227,7 +5346,7 @@ export async function processInboundMessage(
           ? `Pra te indicar o valor correto, tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
           : "Pra te indicar o valor correto, você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
         : "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
-      await options.sendMessage(ctx.conversationId, oilQualificationReply);
+      await sendMessage(ctx.conversationId, oilQualificationReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
@@ -5283,7 +5402,7 @@ export async function processInboundMessage(
         ? `${catalog.reply}\n\n${buildVehicleFollowUpForOilQuote(ctx.vehicleSlots)}`
         : catalog.reply;
 
-      await options.sendMessage(ctx.conversationId, finalCatalogReply);
+      await sendMessage(ctx.conversationId, finalCatalogReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: catalog.selectedServiceName,
         productName: catalog.selectedProductName,
@@ -5325,7 +5444,7 @@ export async function processInboundMessage(
     if (shouldClarifyCatalog) {
       const promptKey = "catalog:clarify_intent";
       const promptState = getCatalogPromptRepeatState(conversationMetadata, promptKey);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         buildCatalogClarificationReply(promptState.repeatCount)
       );
@@ -5369,7 +5488,7 @@ export async function processInboundMessage(
     if (getIntakeStage(conversationMetadata) === "awaiting_issue") {
       const fallbackReservation =
         "Entendi. Nesse caso, posso te ajudar com o agendamento para avaliarmos melhor. Me informe seu nome e os dados do veículo (modelo, ano e km).";
-      await options.sendMessage(ctx.conversationId, fallbackReservation);
+      await sendMessage(ctx.conversationId, fallbackReservation);
       await persistIntakeStage(
         ctx.conversationId,
         conversationMetadata,
@@ -5431,7 +5550,7 @@ export async function processInboundMessage(
       );
       const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
       const promptState = getPromptRepeatState(conversationMetadata, promptKey);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         buildSmartMissingReservationProfileReply(
           missingNameProfile,
@@ -5507,7 +5626,7 @@ export async function processInboundMessage(
     const peopleCount = extractPeopleCount(ctx.messageContent);
 
     if (!contactName && (!rf || rf.collectionStage === "collect_name")) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Para reservar uma mesa, primeiro me diga seu *nome*, por favor."
       );
@@ -5531,7 +5650,7 @@ export async function processInboundMessage(
       await persistRestaurantReservationFlow(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_date",
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, *${contactName}*. Para qual data você gostaria de reservar? (ex: amanhã ou 15/03). Atendemos das *${reservationWindowLabel}*.`
       );
@@ -5549,7 +5668,7 @@ export async function processInboundMessage(
       parsedDateTime
     ) {
       if (!isDateAllowedForReservation(parsedDateTime.dateStr, ctx.reservationSchedule)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Nessa data não temos atendimento. Me diga outro dia. Atendemos das *${reservationWindowLabel}*.`
         );
@@ -5562,7 +5681,7 @@ export async function processInboundMessage(
       }
       const timeStr = parsedDateTime.timeStr;
       if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
         );
@@ -5580,7 +5699,7 @@ export async function processInboundMessage(
         90
       );
       if (!availability.available) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Esse horário não está disponível. Me diga outro dia e horário."
         );
@@ -5596,7 +5715,7 @@ export async function processInboundMessage(
         timeStr,
         collectionStage: "collect_people",
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Horário disponível. Para quantas pessoas será a reserva?"
       );
@@ -5615,7 +5734,7 @@ export async function processInboundMessage(
       !parsedDateTime
     ) {
       if (!isDateAllowedForReservation(parsedDateOnly.dateStr, ctx.reservationSchedule)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Nessa data não temos atendimento. Me diga outro dia (ex: amanhã ou 15/03). Atendemos das *${reservationWindowLabel}*.`
         );
@@ -5636,7 +5755,7 @@ export async function processInboundMessage(
         collectionStage: "collect_datetime",
       });
       const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, *${contactName}*. Para *${friendlyDate}*, você prefere *manhã* ou *tarde*? Atendemos das *${reservationWindowLabel}*.`
       );
@@ -5664,12 +5783,12 @@ export async function processInboundMessage(
       );
       const friendlyDate = formatDateForPtBr(dateStr);
       if (slots.length === 0) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não há horários livres. Quer tentar o outro período?`
         );
       } else {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Para *${friendlyDate}* no período da ${informedPeriod === "morning" ? "manhã" : "tarde"}, tenho: *${slots.join(", ")}*. Qual horário você prefere?`
         );
@@ -5695,7 +5814,7 @@ export async function processInboundMessage(
     ) {
       const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
       if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
         );
@@ -5713,7 +5832,7 @@ export async function processInboundMessage(
         90
       );
       if (!availability.available) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Esse horário não está disponível. Me diga outro horário que eu consulto."
         );
@@ -5729,7 +5848,7 @@ export async function processInboundMessage(
         timeStr,
         collectionStage: "collect_people",
       });
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Horário disponível. Para quantas pessoas será a reserva?"
       );
@@ -5748,7 +5867,7 @@ export async function processInboundMessage(
       !peopleCount &&
       !looksLikeReservationConfirmation(ctx.messageContent)
     ) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Para quantas pessoas será a reserva? (ex: 2, 4 pessoas)"
       );
@@ -5773,7 +5892,7 @@ export async function processInboundMessage(
         durationMinutes: 90,
       });
       const friendlyDate = formatDateForPtBr(rf.dateStr);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito. Reserva para *${peopleCount}* pessoa(s) em *${friendlyDate}* às *${rf.timeStr}*. Responda *sim* para confirmar.`
       );
@@ -5807,7 +5926,7 @@ export async function processInboundMessage(
       missingVehicle.length === 0
     ) {
       if (!isDateAllowedForReservation(parsedDateOnly.dateStr, ctx.reservationSchedule)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`
         );
@@ -5824,7 +5943,7 @@ export async function processInboundMessage(
         { dateStr: parsedDateOnly.dateStr }
       );
       const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito, para *${friendlyDate}*. Você prefere *manhã* ou *tarde*? Atendemos das *${reservationWindowLabel}*.`
       );
@@ -5870,12 +5989,12 @@ export async function processInboundMessage(
       );
       const friendlyDate = formatDateForPtBr(periodSelection.dateStr);
       if (slots.length === 0) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `No período da ${informedPeriod === "morning" ? "manhã" : "tarde"} de *${friendlyDate}* não encontrei horários livres dentro da nossa agenda (${reservationWindowLabel}). Quer tentar o outro período?`
         );
       } else {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Perfeito. Para *${friendlyDate}* no período da ${informedPeriod === "morning" ? "manhã" : "tarde"}, tenho: *${slots.join(", ")}*. Qual horário você prefere?`
         );
@@ -5918,7 +6037,7 @@ export async function processInboundMessage(
     ) {
       const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
       if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Me diga um horário dentro desse intervalo, por favor.`
         );
@@ -5939,7 +6058,7 @@ export async function processInboundMessage(
         dateStr: periodSelection.dateStr,
         timeStr,
       };
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         buildAvailabilityReply(parsedWithContext, availability.available)
       );
@@ -6000,7 +6119,7 @@ export async function processInboundMessage(
 
     if (!looksLikeReservationConfirmation(ctx.messageContent)) {
       if (missingRestaurantPeople) {
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           "Para quantas pessoas será a reserva?"
         );
@@ -6017,7 +6136,7 @@ export async function processInboundMessage(
       if (missingName || missingVehicle.length > 0) {
         const promptKey = buildProfilePromptKey(missingName, missingVehicle);
         const promptState = getPromptRepeatState(conversationMetadata, promptKey);
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           buildSmartMissingReservationProfileReply(
             missingName,
@@ -6056,7 +6175,7 @@ export async function processInboundMessage(
         };
       }
 
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva."
       );
@@ -6089,7 +6208,7 @@ export async function processInboundMessage(
     if (missingName || missingVehicle.length > 0) {
       const promptKey = buildProfilePromptKey(missingName, missingVehicle);
       const promptState = getPromptRepeatState(conversationMetadata, promptKey);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         buildSmartMissingReservationProfileReply(
           missingName,
@@ -6136,7 +6255,7 @@ export async function processInboundMessage(
 
     if (!recheck.available) {
       await savePendingReservation(ctx.conversationId, conversationMetadata, null);
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         "Esse horário acabou de ficar indisponível. Me diga outro dia e horário que eu consulto agora."
       );
@@ -6204,7 +6323,7 @@ export async function processInboundMessage(
         ctx.botConfig?.segment === "restaurante" && restaurantPeople
           ? ` para ${restaurantPeople} pessoa(s)`
           : "";
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`
       );
@@ -6267,7 +6386,7 @@ export async function processInboundMessage(
           timeStr: parsed.timeStr,
           durationMinutes: 60,
         });
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           buildSmartMissingReservationProfileReply(true, [], promptState.repeatCount)
         );
@@ -6292,7 +6411,7 @@ export async function processInboundMessage(
       );
       const reply = buildAvailabilityReply(parsed, availability.available);
 
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
         ctx.conversationId,
         conversationMetadata,
@@ -6340,7 +6459,7 @@ export async function processInboundMessage(
       if (missingNameProfile) {
         const promptKey = buildProfilePromptKey(true, []);
         const promptState = getPromptRepeatState(conversationMetadata, promptKey);
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           buildSmartMissingReservationProfileReply(true, [], promptState.repeatCount)
         );
@@ -6375,7 +6494,7 @@ export async function processInboundMessage(
 
       const reply =
         "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_datetime",
         slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
@@ -6416,7 +6535,7 @@ export async function processInboundMessage(
           timeStr: parsed.timeStr,
           durationMinutes: 60,
         });
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           buildSmartMissingReservationProfileReply(
             missingNameProfile,
@@ -6445,7 +6564,7 @@ export async function processInboundMessage(
       );
       const reply = buildAvailabilityReply(parsed, availability.available);
 
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
         ctx.conversationId,
         conversationMetadata,
@@ -6513,7 +6632,7 @@ export async function processInboundMessage(
           : ctx.pendingReservation ?? null
       );
       const reply = buildMissingVehicleInfoReply(missing);
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -6554,7 +6673,7 @@ export async function processInboundMessage(
         hasVehicleInfoInCurrentMessage
       )
     ) {
-      await options.sendMessage(
+      await sendMessage(
         ctx.conversationId,
         buildMissingVehicleInfoReply(missing)
       );
@@ -6608,7 +6727,7 @@ export async function processInboundMessage(
           : ctx.pendingReservation ?? null
       );
       const reply = buildMissingVehicleInfoReply(missing);
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -6649,7 +6768,7 @@ export async function processInboundMessage(
           timeStr: parsed.timeStr,
           durationMinutes: 60,
         });
-        await options.sendMessage(
+        await sendMessage(
           ctx.conversationId,
           buildSmartMissingReservationProfileReply(
             missingNameProfile,
@@ -6677,7 +6796,7 @@ export async function processInboundMessage(
         60
       );
       const reply = buildAvailabilityReply(parsed, availability.available);
-      await options.sendMessage(ctx.conversationId, reply);
+      await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
         ctx.conversationId,
         conversationMetadata,
@@ -6721,7 +6840,7 @@ export async function processInboundMessage(
       };
     }
 
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Entendi que você quer agendar. Pode me confirmar o *dia* e *horário* no formato, por exemplo: *28/02 às 14:00*?"
     );
@@ -6755,7 +6874,7 @@ export async function processInboundMessage(
     !containsDateOrTimeHint(ctx.messageContent) &&
     looksLikeGreeting(ctx.messageContent)
   ) {
-    await options.sendMessage(
+    await sendMessage(
       ctx.conversationId,
       "Olá! Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
     );
@@ -6821,7 +6940,7 @@ export async function processInboundMessage(
     };
   }
 
-  const aiReplied = await callAIWithContext(ctx, options.sendMessage, {
+  const aiReplied = await callAIWithContext(ctx, sendMessage, {
     traceId: params.traceId,
   });
   return {
