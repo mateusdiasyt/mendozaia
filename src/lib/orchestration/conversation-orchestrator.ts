@@ -1615,6 +1615,20 @@ function shouldAskOilQualification(text: string): boolean {
   return isOilExchangeIntent(text) && !extractOilSpec(text);
 }
 
+function shouldEscalateMechanicalIssue(text: string): boolean {
+  const t = normalizeForSearch(text);
+  const hasMechanicalSymptom =
+    /\b(vazando|vazamento|barulho|ruido|falha|defeito|superaquec|nao liga|nao pega|fumaca|fumaça|luz do painel)\b/.test(
+      t
+    );
+  const hasVehicleContext =
+    /\b(carro|veiculo|motor|freio|suspensao|direcao|oleo|óleo)\b/.test(t);
+  const explicitRoutineOil =
+    /\b(troca de oleo|trocar oleo|troca oleo|troca de óleo|revisao de oleo)\b/.test(t) &&
+    !hasMechanicalSymptom;
+  return hasMechanicalSymptom && hasVehicleContext && !explicitRoutineOil;
+}
+
 function isRevisionServiceIntent(text: string): boolean {
   const t = normalizeForSearch(text);
   return /\b(revisao|checkup|check up)\b/.test(t);
@@ -3131,6 +3145,49 @@ export async function processInboundMessage(
     ctx.usesVehicleSlots &&
     (isOilExchangeIntent(intentProbeText) || hasActiveOilFlow)
   ) {
+    if (shouldEscalateMechanicalIssue(intentProbeText)) {
+      await sendMessage(
+        ctx.conversationId,
+        "Entendi. Como você relatou um problema mecânico (ex.: vazamento), o ideal é um mecânico técnico avaliar seu carro agora. Vou te encaminhar para atendimento humano especializado."
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Problema mecânico em contexto de óleo (ex: vazando óleo); encaminhado para técnico humano"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "oil_flow_mechanical_issue_handoff",
+        decision: "human_only",
+        reason: "Sintoma mecânico detectado durante fluxo de óleo; handoff técnico",
+        traceId: params.traceId,
+        stage: "orchestrator.handoff",
+        decisionCode: "OIL_MECHANICAL_HANDOFF",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+          intentProbeText,
+          handoffSuccess: handoff.success,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Problema mecânico em contexto de óleo; encaminhado para humano técnico",
+        silence: false,
+      };
+    }
+
     const detectedOilSpec = extractOilSpec(ctx.messageContent);
     const engineCode = extractEngineCodeFromText(ctx.messageContent);
 
