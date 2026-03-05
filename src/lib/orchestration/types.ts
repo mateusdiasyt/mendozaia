@@ -22,6 +22,7 @@ export type OrchestratorDecision =
   | "tool_then_ai";
 
 import type { VehicleSlots } from "./slot-extractor";
+import type { CustomerContext } from "@/lib/ai-agent";
 export type { VehicleSlots } from "./slot-extractor";
 
 export interface OrchestrationContext {
@@ -80,6 +81,8 @@ export interface OrchestrationContext {
     }>;
   };
   offeredServices?: string[];
+  /** Contexto do cliente (perfil + memória de conversas anteriores) */
+  customerContext?: CustomerContext | null;
 }
 
 export interface OrchestratorResult {

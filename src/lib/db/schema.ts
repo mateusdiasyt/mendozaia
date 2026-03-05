@@ -342,6 +342,37 @@ export const automationRules = pgTable("automation_rules", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// ==================== FAQ (Base de conhecimento automática) ====================
+
+export const faqEntries = pgTable("faq_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  question: text("question").notNull(),
+  answer: text("answer").notNull(),
+  intent: text("intent").notNull(),
+  usageCount: integer("usage_count").default(0).notNull(),
+  confidenceScore: integer("confidence_score").default(100).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== EXEMPLOS DE TREINAMENTO (IA aprende com humanos) ====================
+
+export const aiTrainingExamples = pgTable("ai_training_examples", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: uuid("organization_id")
+    .notNull()
+    .references(() => organizations.id, { onDelete: "cascade" }),
+  userMessage: text("user_message").notNull(),
+  humanReply: text("human_reply").notNull(),
+  intent: text("intent").notNull(),
+  usageCount: integer("usage_count").default(0).notNull(),
+  qualityScore: integer("quality_score").default(100).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // ==================== LOGS DE ORQUESTRAÇÃO ====================
 
 export const orchestrationLogs = pgTable("orchestration_logs", {

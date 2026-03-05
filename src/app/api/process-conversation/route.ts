@@ -10,6 +10,7 @@ import {
   tryAcquireConversationLock,
   releaseConversationLock,
   checkTypingAndRescheduleIfNeeded,
+  checkFloodAndRescheduleIfNeeded,
 } from "@/lib/conversation-engine/debouncer";
 import { getRedis, REDIS_KEYS } from "@/lib/redis/redis-client";
 
@@ -30,9 +31,16 @@ async function handler(request: Request) {
   }
 
   try {
+    // Anti flood: se >10 msgs em 10s, reagendar +8s
+    const floodRescheduled = await checkFloodAndRescheduleIfNeeded(conversationId);
+    if (floodRescheduled) {
+      await releaseConversationLock(conversationId);
+      return NextResponse.json({ ok: true, skipped: "flood_reschedule" });
+    }
+
     // Debounce inteligente: se usuário ainda digitando, reagendar +2s
-    const rescheduled = await checkTypingAndRescheduleIfNeeded(conversationId);
-    if (rescheduled) {
+    const typingRescheduled = await checkTypingAndRescheduleIfNeeded(conversationId);
+    if (typingRescheduled) {
       await releaseConversationLock(conversationId);
       return NextResponse.json({ ok: true, skipped: "typing_reschedule" });
     }

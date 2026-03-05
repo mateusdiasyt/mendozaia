@@ -13,7 +13,7 @@ import {
 } from "@google/generative-ai";
 import { db } from "@/lib/db";
 import { messages } from "@/lib/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { DEFAULT_SYSTEM_PROMPT, RESERVATIONS_SYSTEM_ADDON, NATURAL_BEHAVIOR_INSTRUCTIONS } from "./ai-agent-constants";
 import {
   getContactMemories,
@@ -30,6 +30,30 @@ export type { GeminiModel } from "./ai-agent-constants";
 const MEMORY_EXTRACT_REGEX = /\[MEMÓRIA:([^=]+)=([^\]]*)\]/gi;
 
 const VEHICLE_MEMORY_KEYS = new Set(["vehicle_model", "vehicle_year", "vehicle_km", "vehicle_oil_spec"]);
+
+/** Últimas N mensagens enviadas ao modelo para evitar prompt excessivo */
+const HISTORY_MESSAGE_LIMIT = 15;
+
+const CONTEXT_PRIORITY_INSTRUCTION = `Use as seguintes prioridades ao responder:
+1. Memórias do contato (informações já conhecidas)
+2. Dados estruturados extraídos da conversa (veículo, etc.)
+3. Histórico recente da conversa
+4. Mensagem atual do cliente`;
+
+const MEMORY_INSTRUCTION_DEFAULT = `Se o cliente informar algo relevante e duradouro (nome, email, preferência, veículo etc), adicione no FINAL da resposta:
+[MEMÓRIA:chave=valor]
+
+Use apenas para informações permanentes do cliente.
+Não invente memórias.`;
+
+const MEMORY_INSTRUCTION_VEHICLE = `Se o cliente informar algo relevante e duradouro (nome, email, preferências etc), adicione no FINAL da resposta:
+[MEMÓRIA:chave=valor]
+
+NÃO salve modelo, ano ou quilometragem em [MEMÓRIA:...] — são dados do atendimento, não do contato.
+Use apenas para informações permanentes do cliente. Não invente memórias.`;
+
+const TRAINING_EXAMPLES_INSTRUCTION = `Os exemplos abaixo mostram como um atendente humano responde aos clientes.
+Use o mesmo tom, estilo e estrutura nas suas respostas.`;
 
 /** Detecta se a mensagem parece informar data e/ou horário para reserva */
 function seemsToContainDateTime(text: string): boolean {
@@ -48,6 +72,13 @@ export interface VehicleSlots {
   km?: number;
 }
 
+export interface CustomerContext {
+  name?: string;
+  lastIntent?: string;
+  preferredTopic?: string;
+  keyFacts?: string[];
+}
+
 export interface GenerateAIReplyOptions {
   organizationId?: string;
   reservationsEnabled?: boolean;
@@ -56,6 +87,10 @@ export interface GenerateAIReplyOptions {
   usesVehicleSlots?: boolean;
   /** Texto "Sobre" da empresa - a IA usa como contexto para responder naturalmente perguntas como "vocês são uma mecânica?" */
   businessAbout?: string | null;
+  /** Contexto do cliente (perfil + memória de conversas anteriores) - Parte 3 */
+  customerContext?: CustomerContext | null;
+  /** Exemplares de respostas humanas para a IA seguir (Parte 5) */
+  trainingExamples?: Array<{ id: string; userMessage: string; humanReply: string }>;
 }
 
 /** Retry com backoff ao receber 429 (rate limit). */
@@ -160,7 +195,7 @@ export async function generateAIReply(
     !!options?.reservationsEnabled &&
     !!options?.organizationId;
 
-  const [memories, recentMessages] = await Promise.all([
+  const [memories, recentMessagesDesc] = await Promise.all([
     getContactMemories(contactId),
     db
       .select({
@@ -169,15 +204,16 @@ export async function generateAIReply(
       })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
-      .limit(50),
+      .orderBy(desc(messages.createdAt))
+      .limit(HISTORY_MESSAGE_LIMIT),
   ]);
 
   const memoriesForPrompt = Object.fromEntries(
     Object.entries(memories).filter(([k]) => !VEHICLE_MEMORY_KEYS.has(k.toLowerCase().trim()))
   );
   const memoriesBlock = formatMemoriesForPrompt(memoriesForPrompt);
-  const historyText = recentMessages
+  const recentChronological = [...recentMessagesDesc].reverse();
+  const historyText = recentChronological
     .filter((m): m is { direction: string; content: string } => !!m.content)
     .map((m) =>
       m.direction === "inbound" ? `Cliente: ${m.content}` : `Atendente: ${m.content}`
@@ -185,36 +221,41 @@ export async function generateAIReply(
     .join("\n");
 
   const memoryInstruction = options?.usesVehicleSlots
-    ? `
-Quando o cliente informar algo importante (nome, email, preferências, etc.), adicione no FINAL da sua resposta: [MEMÓRIA:chave=valor]
-Exemplo: "meu nome é João" → [MEMÓRIA:name=João]
-NÃO salve modelo, ano ou quilometragem em [MEMÓRIA:...] — são dados do atendimento, não do contato. Use apenas uma linha por informação.`
-    : `
-Quando o cliente informar algo importante (nome, email, preferências, pedido, etc.), adicione no FINAL da sua resposta, em linhas separadas: [MEMÓRIA:chave=valor]
-Exemplo: se o cliente disser "meu nome é João", termine sua resposta com: [MEMÓRIA:name=João]
-Use apenas uma linha por informação. Não invente informações.`;
+    ? MEMORY_INSTRUCTION_VEHICLE
+    : MEMORY_INSTRUCTION_DEFAULT;
 
-  let basePrompt = memoriesBlock
-    ? `${systemPrompt}
+  const sections: string[] = [];
 
-${memoriesBlock}
-${memoryInstruction}
+  sections.push(`[SISTEMA]\n${systemPrompt}\n\n${CONTEXT_PRIORITY_INSTRUCTION}\n\n${memoryInstruction}\n\n${NATURAL_BEHAVIOR_INSTRUCTIONS}`);
 
-${NATURAL_BEHAVIOR_INSTRUCTIONS}`
-    : `${systemPrompt}
-${memoryInstruction}
-
-${NATURAL_BEHAVIOR_INSTRUCTIONS}`;
-
-  if (options?.businessAbout?.trim()) {
-    basePrompt += `
-
-[SOBRE A EMPRESA - use como contexto para responder perguntas como "vocês são uma mecânica?", "o que vocês fazem?", "o que é esse lugar?". Responda de forma natural, resumindo ou adaptando as informações conforme a pergunta. NÃO copie o texto literalmente; entenda e responda como um atendente humano.]
-${options.businessAbout.trim()}`;
+  if (memoriesBlock) {
+    sections.push(`[MEMÓRIAS DO CONTATO]\n${memoriesBlock}`);
   }
 
-  if (useReservationTools) {
-    basePrompt += `\n${RESERVATIONS_SYSTEM_ADDON}`;
+  if (options?.businessAbout?.trim()) {
+    sections.push(`[CONTEXTO DA EMPRESA]\n${options.businessAbout.trim()}\nUse como contexto para perguntas como "vocês são uma mecânica?", "o que vocês fazem?". Responda de forma natural, sem copiar o texto literalmente.`);
+  }
+
+  if (options?.customerContext) {
+    const cc = options.customerContext;
+    const parts: string[] = [];
+    if (cc.name) parts.push(`Nome: ${cc.name}`);
+    if (cc.lastIntent || cc.preferredTopic)
+      parts.push(`Último assunto: ${cc.preferredTopic ?? cc.lastIntent ?? "-"}`);
+    if (cc.keyFacts && cc.keyFacts.length > 0) {
+      parts.push(`Informações conhecidas:\n${cc.keyFacts.map((f) => `* ${f}`).join("\n")}`);
+    }
+    if (parts.length > 0) {
+      sections.push(`[CONTEXTO DO CLIENTE]\n${parts.join("\n")}\nUse para personalizar a resposta (ex.: "Mateus, da última vez você comentou que usa óleo 5W30. O problema continua?").`);
+    }
+  }
+
+  if (options?.trainingExamples && options.trainingExamples.length > 0) {
+    const lines = options.trainingExamples.map(
+      (ex, i) =>
+        `Exemplo ${i + 1}\nCliente: ${ex.userMessage}\nHumano: ${ex.humanReply}`
+    );
+    sections.push(`[EXEMPLOS DE RESPOSTAS HUMANAS]\n${TRAINING_EXAMPLES_INSTRUCTION}\n\n${lines.join("\n\n")}`);
   }
 
   if (options?.usesVehicleSlots && options?.vehicleSlots) {
@@ -229,44 +270,30 @@ ${options.businessAbout.trim()}`;
     if (!s.km) missing.push("quilometragem");
     const hasAllSlots = s.modelo && s.ano && s.km;
     if (parts.length > 0) {
-      basePrompt += `
-
-[DADOS EXTRAÍDOS DA CONVERSA - use estes dados, NUNCA peça de novo]
-Veículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}`;
-    }
-    // Cliente já completou modelo/ano/km E temos funções de reserva
-    if (hasAllSlots && useReservationTools) {
-      const userGaveDateTime = seemsToContainDateTime(newMessage);
-      if (userGaveDateTime) {
-        basePrompt += `
-
-[IMPORTANTE] O cliente informou data e horário nesta mensagem. Você TEM check_availability e create_reservation.
-Use check_availability AGORA com a data e horário que o cliente indicou. Converta para YYYY-MM-DD e HH:mm. Ex: "dia 26 de fevereiro às 14h" → 2025-02-26, 14:00.
-NUNCA peça modelo/ano/km novamente — já estão em [DADOS EXTRAÍDOS].`;
-      } else {
-        basePrompt += `
-
-[IMPORTANTE] O cliente já informou modelo, ano e quilometragem. Você TEM as funções check_availability e create_reservation.
-Sua resposta AGORA: pergunte qual data e horário prefere. Ex.: "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?"
-PROIBIDO dizer "nossa equipe vai verificar", "retornar em breve" ou perguntar modelo/ano/km de novo.`;
+      let vehicleBlock = `[DADOS EXTRAÍDOS DA CONVERSA]\nVeículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}\nUse estes dados; NUNCA peça de novo.`;
+      if (hasAllSlots && useReservationTools) {
+        const userGaveDateTime = seemsToContainDateTime(newMessage);
+        if (userGaveDateTime) {
+          vehicleBlock += `\n\n[IMPORTANTE] O cliente informou data e horário nesta mensagem. Use check_availability AGORA. Converta para YYYY-MM-DD e HH:mm. NUNCA peça modelo/ano/km novamente.`;
+        } else {
+          vehicleBlock += `\n\n[IMPORTANTE] Você TEM check_availability e create_reservation. Pergunte qual data e horário prefere. PROIBIDO dizer "nossa equipe vai verificar" ou perguntar modelo/ano/km de novo.`;
+        }
       }
+      sections.push(vehicleBlock);
     }
   }
 
-  const fullPrompt = historyText
-    ? `${basePrompt}
+  if (useReservationTools) {
+    sections.push(`[FUNÇÕES DE RESERVA]\n${RESERVATIONS_SYSTEM_ADDON}`);
+  }
 
-Histórico recente da conversa:
-${historyText}
+  if (historyText) {
+    sections.push(`[HISTÓRICO RECENTE]\n${historyText}`);
+  }
 
-Cliente: ${newMessage}
+  sections.push(`[MENSAGEM ATUAL]\nCliente: ${newMessage}\n\nAtendente:`);
 
-Atendente:`
-    : `${basePrompt}
-
-Cliente: ${newMessage}
-
-Atendente:`;
+  const fullPrompt = sections.filter(Boolean).join("\n\n---\n\n");
 
   const modelParams: { model: string; tools?: Array<typeof reservationTools> } = {
     model,

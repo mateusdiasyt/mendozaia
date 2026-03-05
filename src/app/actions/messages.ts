@@ -11,8 +11,9 @@ import {
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { saveContactMemory } from "@/lib/contact-memories";
+import { learnFromHumanMessage } from "@/lib/ai-training";
 
 export async function setConversationAIDisabled(
   conversationId: string,
@@ -290,6 +291,26 @@ export async function sendMessage(conversationId: string, text: string) {
     content: text,
     status: "sent",
   });
+
+  // Aprendizado com atendimento humano - Parte 4
+  const [lastInbound] = await db
+    .select({ content: messages.content })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "inbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  if (lastInbound?.content?.trim()) {
+    await learnFromHumanMessage(
+      lastInbound.content.trim(),
+      text,
+      conv.organizationId
+    );
+  }
 
   const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
 

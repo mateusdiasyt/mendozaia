@@ -12,7 +12,10 @@ import {
   whatsappSessions,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { scheduleConversationProcessing } from "@/lib/conversation-engine/debouncer";
+import {
+  scheduleConversationProcessing,
+  incrementFloodCount,
+} from "@/lib/conversation-engine/debouncer";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
 // Formato esperado da Evolution API (texto e mídia)
@@ -434,6 +437,9 @@ export async function POST(request: NextRequest) {
         unreadCount: conversation.unreadCount + 1,
       })
       .where(eq(conversations.id, conversation.id));
+
+    // Anti flood: incrementa contador (INCR + EXPIRE 10)
+    await incrementFloodCount(conversation.id);
 
     // Debounce distribuído (Redis + QStash): agenda processamento em 3s; nova mensagem cancela e reinicia.
     await scheduleConversationProcessing(conversation.id);

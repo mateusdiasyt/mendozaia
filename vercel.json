@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/automation-followup",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/ai-training-cleanup",
+      "schedule": "0 3 * * 0"
+    },
+    {
+      "path": "/api/cron/generate-faq",
+      "schedule": "0 4 * * 0"
     }
   ]
 }

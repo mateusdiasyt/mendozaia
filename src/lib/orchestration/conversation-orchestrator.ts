@@ -17,7 +17,19 @@ import { eq, desc, and, gt, lt, asc } from "drizzle-orm";
 import { logOrchestration } from "./logger";
 import { filterResponse } from "./response-filter";
 import { handoffToHuman } from "./handoff";
-import { generateAIReply } from "@/lib/ai-agent";
+import { generateAIReply, type CustomerContext } from "@/lib/ai-agent";
+import {
+  findRelevantExamples,
+  incrementUsageCount,
+  setLastUsedExampleIds,
+  clearLastUsedExampleIds,
+} from "@/lib/ai-training";
+import {
+  findRelevantFAQ,
+  incrementFaqUsage,
+  setLastUsedFaqId,
+  clearLastUsedFaqId,
+} from "@/lib/faq-engine";
 import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
 import { getContactMemories, saveContactMemory } from "@/lib/contact-memories";
 import {
@@ -28,6 +40,10 @@ import {
   getMissingSlots,
   type VehicleSlots,
 } from "./slot-extractor";
+import {
+  getRandomNameQuestion,
+  getRandomContinuationNameQuestion,
+} from "@/lib/conversation-engine/humanize";
 import type {
   OrchestrationContext,
   OrchestratorResult,
@@ -43,6 +59,8 @@ export interface ProcessInboundMessageParams {
   messageContent: string;
   messageContentType?: string;
   traceId?: string;
+  /** Contexto do cliente (perfil + memória) - injetado no prompt da IA */
+  customerContext?: CustomerContext | null;
 }
 
 export interface ProcessResult {
@@ -2574,6 +2592,7 @@ export async function loadConversationContext(
           }>)
         : [],
     },
+    customerContext: params.customerContext ?? null,
   };
 }
 
@@ -2669,6 +2688,11 @@ export async function callAIWithContext(
   const apiKey = (aiAgent?.apiKey as string) || undefined;
 
   try {
+    const trainingExamples = await findRelevantExamples(
+      ctx.organizationId,
+      ctx.messageContent,
+      3
+    );
     const rawReply = await generateAIReply(
       ctx.conversationId,
       ctx.contactId,
@@ -2682,6 +2706,8 @@ export async function callAIWithContext(
         vehicleSlots: ctx.vehicleSlots,
         usesVehicleSlots: ctx.usesVehicleSlots,
         businessAbout: ctx.businessProfile?.about ?? undefined,
+        customerContext: ctx.customerContext ?? undefined,
+        trainingExamples: trainingExamples.length > 0 ? trainingExamples : undefined,
       }
     );
 
@@ -2703,6 +2729,13 @@ export async function callAIWithContext(
     }
 
     await sendMessage(ctx.conversationId, filtered);
+
+    const exampleIds = trainingExamples.map((ex) => ex.id);
+    if (exampleIds.length > 0) {
+      await incrementUsageCount(exampleIds);
+      await setLastUsedExampleIds(ctx.conversationId, exampleIds);
+    }
+    await clearLastUsedFaqId(ctx.conversationId);
 
     // Detecta handoff implícito na resposta (ex: template mecânica "direcionar para mecânico")
     const handoffPhrases = [
@@ -2944,7 +2977,7 @@ export async function processInboundMessage(
       await clearConversationFlowState(ctx.conversationId, conversationMetadata);
       const restartReply = contactName?.trim()
         ? `Perfeito, *${contactName.trim()}*. Iniciamos um novo atendimento. Como posso te ajudar hoje?`
-        : "Perfeito, iniciamos um novo atendimento. Qual é o seu nome?";
+        : `Perfeito, iniciamos um novo atendimento. ${getRandomNameQuestion()}`;
       await sendMessage(ctx.conversationId, restartReply);
       return {
         didReply: true,
@@ -4702,7 +4735,7 @@ export async function processInboundMessage(
     const hasModelAndYear = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
     let continuationPrompt: string | null = null;
     if (intakeStage === "awaiting_name" || (!contactName && !intakeStage)) {
-      continuationPrompt = "Para continuarmos, qual é o seu nome?";
+      continuationPrompt = `Para continuarmos, ${getRandomContinuationNameQuestion()}`;
     } else if (
       !!ctx.usesVehicleSlots &&
       !hasModelAndYear &&
@@ -4854,7 +4887,7 @@ export async function processInboundMessage(
       ctx.reservationSchedule?.timezone
     );
     const triageReply = !hasKnownName
-      ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
+      ? `${greetingPrefix}${botIntro} ${getRandomNameQuestion()}`
       : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, como posso ajudar? Podemos fazer reserva de mesa, consultar cardápio ou tirar dúvidas.`;
     await sendMessage(
       ctx.conversationId,
@@ -4902,7 +4935,7 @@ export async function processInboundMessage(
       ctx.reservationSchedule?.timezone
     );
     const triageReply = !hasKnownName
-      ? `${greetingPrefix}${botIntro} Qual é o seu nome?`
+      ? `${greetingPrefix}${botIntro} ${getRandomNameQuestion()}`
       : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
     await sendMessage(
       ctx.conversationId,
@@ -6961,6 +6994,32 @@ export async function processInboundMessage(
       decision: result.decision,
       reason: result.reason,
       silence: !result.shouldRespond,
+    };
+  }
+
+  // FAQ: responder direto se houver entrada com confidence >= 80 (camada antes da IA)
+  const faq = await findRelevantFAQ(ctx.organizationId, ctx.messageContent, 80);
+  if (faq) {
+    await sendMessage(ctx.conversationId, faq.answer);
+    await incrementFaqUsage(faq.id);
+    await setLastUsedFaqId(ctx.conversationId, faq.id);
+    await clearLastUsedExampleIds(ctx.conversationId);
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "faq_responded",
+      decision: "ai_respond",
+      reason: "Resposta via FAQ (base de conhecimento)",
+      traceId: params.traceId,
+      stage: "orchestrator.faq",
+      decisionCode: "FAQ_RESPONSE",
+      metadata: { faqId: faq.id },
+    });
+    return {
+      didReply: true,
+      decision: result.decision,
+      reason: result.reason,
+      silence: false,
     };
   }
 

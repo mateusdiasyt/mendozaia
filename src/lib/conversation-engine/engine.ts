@@ -2,9 +2,33 @@ import { and, desc, eq, gt, asc, gte, isNull, inArray } from "drizzle-orm";
 import { processMessageReceivedRules } from "@/lib/automation/engine";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
-import { processInboundMessage } from "@/lib/orchestration";
+import { processInboundMessage, handoffToHuman } from "@/lib/orchestration";
 import { logOrchestration } from "@/lib/orchestration/logger";
+import { getUserMemory, updateUserMemory } from "@/lib/user-memory";
+import {
+  getCustomerProfile,
+  updateCustomerProfile,
+} from "@/lib/customer-profile";
+import { getConversationMemory } from "@/lib/conversation-memory";
+import { logIntelligence } from "@/lib/intelligence-logger";
+import { classifyIntent } from "./intent-classifier";
+import { detectFrustration } from "./frustration-detector";
+import { detectUrgency } from "./urgency-detector";
+import { isLoopConfusion } from "./loop-prevention";
+import { calculateFromProfile } from "./priority-calculator";
 import type { ConversationEngineInput, ConversationEngineResult } from "./types";
+import { parseMessagesResponse, splitIntoMessages } from "./multi-message";
+import {
+  getLastUsedExampleIds,
+  clearLastUsedExampleIds,
+  decreaseQualityForUsedExamples,
+  isNegativeFeedback,
+} from "@/lib/ai-training";
+import {
+  getLastUsedFaqId,
+  clearLastUsedFaqId,
+  updateFaqConfidence,
+} from "@/lib/faq-engine";
 
 /** Debounce do buffer: aguarda N ms sem novas mensagens antes de processar (agrupa sequência) */
 const MESSAGE_BUFFER_DEBOUNCE_MS = 2000;
@@ -22,9 +46,17 @@ function sleep(ms: number): Promise<void> {
 function pushReply(replies: string[], text: string): void {
   const normalized = text.trim();
   if (!normalized) return;
-  const lastReply = replies[replies.length - 1];
-  if (lastReply === normalized) return;
-  replies.push(normalized);
+
+  const parsed = parseMessagesResponse(normalized);
+  const parts = parsed ?? (normalized.length > 120 ? splitIntoMessages(normalized) : [normalized]);
+
+  for (const part of parts) {
+    const p = part.trim();
+    if (!p) continue;
+    const lastReply = replies[replies.length - 1];
+    if (lastReply === p) continue;
+    replies.push(p);
+  }
 }
 
 /** Busca e combina todas as mensagens inbound desde o último outbound (buffer da sequência do usuário). */
@@ -67,8 +99,11 @@ async function fetchCombinedInboundContent(
     : combined;
 }
 
-/** Últimos 30 segundos para agregação de mensagens quebradas */
-const COMBINED_CONTENT_WINDOW_SECONDS = 30;
+/** Últimos 45 segundos para agregação de mensagens quebradas */
+const COMBINED_CONTENT_WINDOW_SECONDS = 45;
+
+/** Máximo de mensagens inbound a agregar para a IA */
+const COMBINED_CONTENT_MAX_MESSAGES = 8;
 
 /** Resultado da agregação de mensagens dos últimos 30s */
 interface CombinedContentResult {
@@ -76,8 +111,8 @@ interface CombinedContentResult {
   messageIds: string[];
 }
 
-/** Busca e combina mensagens inbound dos últimos 30s (não processadas). Usado pelo debouncer. */
-async function fetchCombinedInboundContentLast30s(
+/** Busca e combina mensagens inbound dos últimos 45s (não processadas). Usado pelo debouncer. */
+async function fetchCombinedInboundContentLast45s(
   conversationId: string,
   _contentType: string
 ): Promise<CombinedContentResult> {
@@ -99,18 +134,19 @@ async function fetchCombinedInboundContentLast30s(
       )
     )
     .orderBy(asc(messages.createdAt))
-    .limit(20);
+    .limit(50);
 
   const textRows = inboundRows.filter(
     (m) => m.contentType === "text" && m.content?.trim()
   );
-  const parts = textRows.map((m) => (m.content ?? "").trim());
+  const limitedRows = textRows.slice(-COMBINED_CONTENT_MAX_MESSAGES);
+  const parts = limitedRows.map((m) => (m.content ?? "").trim());
   const combined = parts.join(" ").replace(/\s+/g, " ").trim();
   const finalCombined =
     combined.length > MESSAGE_BUFFER_MAX_CHARS
       ? combined.slice(-MESSAGE_BUFFER_MAX_CHARS)
       : combined;
-  const messageIds = textRows.map((m) => m.id).filter(Boolean);
+  const messageIds = limitedRows.map((m) => m.id).filter(Boolean);
 
   return { combined: finalCombined, messageIds };
 }
@@ -157,6 +193,244 @@ export async function runConversationEngine(
       orchestratorDidReply: false,
       silence: true,
     };
+  }
+
+  // Parte 8 (exemplos) + FAQ: se cliente disse "não entendi" / "isso não ajudou", diminuir score
+  if (input.messageContent.trim() && isNegativeFeedback(input.messageContent)) {
+    const lastFaqId = await getLastUsedFaqId(input.conversationId);
+    if (lastFaqId) {
+      await updateFaqConfidence(lastFaqId, -10);
+      await clearLastUsedFaqId(input.conversationId);
+    } else {
+      const usedIds = await getLastUsedExampleIds(input.conversationId);
+      if (usedIds.length > 0) {
+        await decreaseQualityForUsedExamples(usedIds, -15);
+        await clearLastUsedExampleIds(input.conversationId);
+      }
+    }
+  }
+
+  // Memória do usuário (Redis)
+  const userMemory = await getUserMemory(input.contactPhone);
+  console.log({
+    stage: "user_memory_loaded",
+    conversationId: input.conversationId,
+    hasMemory: !!userMemory,
+  });
+
+  // Perfil do cliente (Redis) - Parte 1
+  const customerProfile = await getCustomerProfile(input.contactPhone);
+  logIntelligence({
+    event: "customer_profile_loaded",
+    conversationId: input.conversationId,
+    organizationId: input.organizationId,
+    metadata: { hasProfile: !!customerProfile },
+  });
+
+  // Memória de conversa anterior - Parte 3
+  const conversationMemory = await getConversationMemory(input.conversationId);
+  logIntelligence({
+    event: "conversation_memory_loaded",
+    conversationId: input.conversationId,
+    metadata: { hasMemory: !!conversationMemory },
+  });
+
+  const customerContext =
+    customerProfile || conversationMemory
+      ? {
+          name: customerProfile?.name,
+          lastIntent: customerProfile?.lastIntent ?? userMemory?.lastIntent,
+          preferredTopic:
+            customerProfile?.preferredTopic ?? conversationMemory?.mainTopic,
+          keyFacts: conversationMemory?.keyFacts,
+        }
+      : undefined;
+
+  // Detecção de urgência - Parte 6
+  const isUrgent = detectUrgency(input.messageContent);
+  if (isUrgent) {
+    logIntelligence({
+      event: "urgency_detected",
+      conversationId: input.conversationId,
+      organizationId: input.organizationId,
+    });
+    pushReply(
+      replies,
+      "Entendi que é urgente. Vou tentar te ajudar o mais rápido possível."
+    );
+  }
+
+  // Prevenção de loop - Parte 8: bot 3x + "não entendi" → handoff
+  if (isLoopConfusion(input.messageContent)) {
+    const lastMessages = await db
+      .select({ direction: messages.direction })
+      .from(messages)
+      .where(eq(messages.conversationId, input.conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(4);
+    let consecutiveOutbound = 0;
+    for (let i = 1; i < lastMessages.length; i++) {
+      if (lastMessages[i]?.direction === "outbound") consecutiveOutbound++;
+      else break;
+    }
+    if (consecutiveOutbound >= 3) {
+      const { priorityScore } = calculateFromProfile(customerProfile);
+      await handoffToHuman(
+        input.conversationId,
+        input.organizationId,
+        "Loop de confusão detectado (bot 3x + não entendi)",
+        {
+          priorityScore: Math.max(5, priorityScore),
+          urgency: "normal",
+          conversationSummary: {
+            summary: `Cliente disse "não entendi" após 3+ respostas do bot. Transferido para humano.`,
+            mainTopic: userMemory?.lastTopic ?? "confusão",
+            keyFacts: [],
+          },
+        }
+      );
+      await updateCustomerProfile(input.contactPhone, {
+        lastSeenAt: new Date().toISOString(),
+        totalMessages: (customerProfile?.totalMessages ?? 0) + 1,
+      });
+      replies.push(
+        "Vou chamar um atendente humano para te ajudar melhor. Um momento 🙏"
+      );
+      return {
+        mode: "escalated",
+        replies,
+        automationDidReply: false,
+        orchestratorDidReply: true,
+        silence: false,
+        escalated: true,
+      };
+    }
+  }
+
+  // Classificação de intenção
+  const intent = classifyIntent(input.messageContent);
+  if (intent) {
+    console.log({
+      stage: "intent_detected",
+      conversationId: input.conversationId,
+      intent,
+    });
+  }
+
+  if (intent === "PEDIR_ATENDENTE") {
+    const { priorityScore } = calculateFromProfile(customerProfile);
+    await handoffToHuman(
+      input.conversationId,
+      input.organizationId,
+      "Cliente pediu atendente humano",
+      {
+        priorityScore: Math.max(5, priorityScore),
+        urgency: isUrgent ? "high" : "normal",
+        conversationSummary: {
+          summary: `Cliente ${customerProfile?.name ?? "anon"} pediu atendente humano.`,
+          mainTopic: "pedir_atendente",
+          keyFacts: conversationMemory?.keyFacts ?? [],
+        },
+      }
+    );
+    await updateUserMemory(input.contactPhone, {
+      lastIntent: intent,
+      lastTopic: "pedir_atendente",
+      lastInteractionAt: new Date().toISOString(),
+    });
+    await updateCustomerProfile(input.contactPhone, {
+      lastSeenAt: new Date().toISOString(),
+      totalMessages: (customerProfile?.totalMessages ?? 0) + 1,
+      lastIntent: intent,
+      preferredTopic: "pedir_atendente",
+    });
+    console.log({
+      stage: "conversation_escalated",
+      conversationId: input.conversationId,
+      reason: "PEDIR_ATENDENTE",
+    });
+    replies.push(
+      "Vou chamar um atendente humano para te ajudar melhor. Um momento 🙏"
+    );
+    return {
+      mode: "escalated",
+      replies,
+      automationDidReply: false,
+      orchestratorDidReply: true,
+      silence: false,
+      escalated: true,
+    };
+  }
+
+  // Detecção de frustração
+  const isFrustrated = detectFrustration(input.messageContent);
+  if (isFrustrated) {
+    const newScore = (userMemory?.frustrationScore ?? 0) + 1;
+    await updateUserMemory(input.contactPhone, {
+      frustrationScore: newScore,
+      lastIntent: intent ?? userMemory?.lastIntent,
+      lastTopic: userMemory?.lastTopic,
+      lastInteractionAt: new Date().toISOString(),
+    });
+    console.log({
+      stage: "frustration_detected",
+      conversationId: input.conversationId,
+      frustrationScore: newScore,
+    });
+
+    if (newScore >= 2) {
+      const { priorityScore } = calculateFromProfile(customerProfile);
+      await handoffToHuman(
+        input.conversationId,
+        input.organizationId,
+        "Frustração detectada (score >= 2)",
+        {
+          priorityScore: Math.max(5, priorityScore + 2),
+          urgency: isUrgent ? "high" : "normal",
+          conversationSummary: {
+            summary: `Cliente ${customerProfile?.name ?? "anon"} frustrado (score ${newScore}). Transferido para humano.`,
+            mainTopic: userMemory?.lastTopic ?? "frustração",
+            keyFacts: conversationMemory?.keyFacts ?? [],
+          },
+        }
+      );
+      await updateCustomerProfile(input.contactPhone, {
+        lastSeenAt: new Date().toISOString(),
+        totalMessages: (customerProfile?.totalMessages ?? 0) + 1,
+        frustrationScore: newScore,
+        lastIntent: intent ?? customerProfile?.lastIntent,
+      });
+      console.log({
+        stage: "conversation_escalated",
+        conversationId: input.conversationId,
+        reason: "frustration_threshold",
+      });
+      replies.push(
+        "Vou chamar um atendente humano para te ajudar melhor. Um momento 🙏"
+      );
+      return {
+        mode: "escalated",
+        replies,
+        automationDidReply: false,
+        orchestratorDidReply: true,
+        silence: false,
+        escalated: true,
+      };
+    }
+  }
+
+  // Atualizar memória com intenção/tópico
+  if (intent) {
+    await updateUserMemory(input.contactPhone, {
+      lastIntent: intent,
+      lastTopic: intent.toLowerCase(),
+      lastInteractionAt: new Date().toISOString(),
+    });
+    console.log({
+      stage: "user_memory_updated",
+      conversationId: input.conversationId,
+      lastIntent: intent,
+    });
   }
 
   if (
@@ -286,7 +560,7 @@ export async function runConversationEngine(
     input.inboundMessageId
   ) {
     if (input.skipBufferAndTypingWait) {
-      const result = await fetchCombinedInboundContentLast30s(
+      const result = await fetchCombinedInboundContentLast45s(
         input.conversationId,
         input.messageContentType
       );
@@ -387,6 +661,7 @@ export async function runConversationEngine(
       messageContent: messageContentToProcess,
       messageContentType: input.messageContentType,
       traceId: input.traceId,
+      customerContext: customerContext ?? undefined,
     },
     {
       automationDidReply,
@@ -423,6 +698,26 @@ export async function runConversationEngine(
       .set({ processedAt: new Date() })
       .where(inArray(messages.id, processedMessageIds));
   }
+
+  // Atualizar perfil do cliente - Parte 1
+  const isNewProfile = !customerProfile;
+  await updateCustomerProfile(input.contactPhone, {
+    name: customerProfile?.name ?? userMemory?.name,
+    lastSeenAt: new Date().toISOString(),
+    totalMessages: (customerProfile?.totalMessages ?? 0) + 1,
+    totalConversations: isNewProfile ? 1 : (customerProfile?.totalConversations ?? 1),
+    firstSeenAt: isNewProfile ? new Date().toISOString() : undefined,
+    lastIntent: intent ?? customerProfile?.lastIntent,
+    preferredTopic: intent?.toLowerCase() ?? customerProfile?.preferredTopic,
+    frustrationScore:
+      userMemory?.frustrationScore ?? customerProfile?.frustrationScore ?? 0,
+  });
+  logIntelligence({
+    event: "customer_profile_updated",
+    conversationId: input.conversationId,
+    organizationId: input.organizationId,
+    metadata: { totalMessages: (customerProfile?.totalMessages ?? 0) + 1 },
+  });
 
   return {
     mode: "processed",

@@ -20,9 +20,14 @@ import {
   organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc, gte, isNull } from "drizzle-orm";
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 import { runConversationEngine } from "./engine";
 import { createSendMessageExecutor } from "./executor";
 import { logOrchestration } from "@/lib/orchestration/logger";
+import { calculateHumanDelay } from "./humanize";
 import { getRedis, REDIS_KEYS } from "@/lib/redis/redis-client";
 import { Client } from "@upstash/qstash";
 
@@ -36,10 +41,15 @@ const TYPING_RECENT_MS = 3_000;
 const TYPING_RESCHEDULE_DELAY_MS = 2_000;
 
 /** TTL do lock (evita deadlock se processamento travar; engine pode levar 60s+) */
-const LOCK_TTL_S = 90;
+const LOCK_TTL_S = 120;
 
-/** TTL da chave de messageId no Redis (QStash delay + latência + processamento) */
-const DEBOUNCE_KEY_TTL_S = 60;
+/** TTL da chave de messageId no Redis (evitar perda em latência/fila) */
+const DEBOUNCE_KEY_TTL_S = 120;
+
+/** Limite de mensagens em 10s para considerar flood */
+const FLOOD_THRESHOLD = 10;
+const FLOOD_WINDOW_S = 10;
+const FLOOD_RESCHEDULE_DELAY_MS = 8_000;
 
 function getQStashClient(): Client {
   const token = process.env.QSTASH_TOKEN;
@@ -102,6 +112,24 @@ export async function processConversation(
 
     const phone = contact.phone ?? "";
 
+    // Buscar conteúdo combinado para delay humano (últimos 45s)
+    const since45s = new Date(Date.now() - 45 * 1000);
+    const inboundForLength = await db
+      .select({ content: messages.content })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.direction, "inbound"),
+          gte(messages.createdAt, since45s),
+          isNull(messages.processedAt)
+        )
+      );
+    const combinedLength = inboundForLength.reduce(
+      (sum, m) => sum + (m.content?.length ?? 0),
+      0
+    );
+
     const [latestInbound] = await db
       .select({
         id: messages.id,
@@ -146,10 +174,22 @@ export async function processConversation(
         }
       | undefined;
 
+    const engineStartTime = new Date();
     const sendMessage = createSendMessageExecutor({
       conversationId,
       sessionId: session.sessionId,
       phone,
+      engineStartTime,
+    });
+
+    // Delay humano: simula tempo de leitura baseado no tamanho da mensagem
+    const humanDelayMs = calculateHumanDelay(combinedLength);
+    await sleep(humanDelayMs);
+    console.log({
+      stage: "worker_delay_applied",
+      conversationId,
+      messageLength: combinedLength,
+      delayMs: humanDelayMs,
     });
 
     console.log({
@@ -172,14 +212,35 @@ export async function processConversation(
       inboundMessageId: latestInbound?.id,
       traceId,
       skipBufferAndTypingWait: true,
+      engineStartTime,
     });
 
-    for (const reply of engineResult.replies) {
-      await sendMessage(conversationId, reply);
+    let shouldReprocess = false;
+    for (let i = 0; i < engineResult.replies.length; i++) {
+      const ok = await sendMessage(conversationId, engineResult.replies[i]!, i);
+      if (!ok) {
+        shouldReprocess = true;
+        break;
+      }
     }
 
+    if (shouldReprocess) {
+      console.log({
+        stage: "stale_response_reprocess",
+        conversationId,
+      });
+      await scheduleConversationProcessing(conversationId);
+      return;
+    }
+
+    console.log({
+      stage: "ai_multi_message_sent",
+      conversationId,
+      messagesCount: engineResult.replies.length,
+    });
+
     // Marcar mensagens inbound consumidas (evita processar duas vezes)
-    const since = new Date(Date.now() - 30 * 1000);
+    const since = new Date(Date.now() - 45 * 1000);
     await db
       .update(messages)
       .set({ processedAt: new Date() })
@@ -191,13 +252,6 @@ export async function processConversation(
           isNull(messages.processedAt)
         )
       );
-
-    console.log({
-      stage: "engine_executed",
-      conversationId,
-      repliesCount: engineResult.replies.length,
-      mode: engineResult.mode,
-    });
 
     await logOrchestration({
       conversationId,
@@ -251,6 +305,38 @@ export async function releaseConversationLock(
 ): Promise<void> {
   const redis = getRedis();
   await redis.del(REDIS_KEYS.lock(conversationId));
+}
+
+/**
+ * Verifica se há flood (>10 msgs em 10s). Se sim, reagenda com delay 8s e retorna true.
+ */
+export async function checkFloodAndRescheduleIfNeeded(
+  conversationId: string
+): Promise<boolean> {
+  const redis = getRedis();
+  const floodKey = REDIS_KEYS.flood(conversationId);
+  const count = await redis.get<number>(floodKey);
+  if (count === null || count <= FLOOD_THRESHOLD) return false;
+
+  console.log({
+    stage: "worker_flood_detected",
+    conversationId,
+    messageCount: count,
+    rescheduleDelayMs: FLOOD_RESCHEDULE_DELAY_MS,
+  });
+
+  await scheduleConversationProcessing(conversationId, FLOOD_RESCHEDULE_DELAY_MS);
+  return true;
+}
+
+/**
+ * Incrementa contador de flood (chamado no webhook a cada mensagem).
+ */
+export async function incrementFloodCount(conversationId: string): Promise<void> {
+  const redis = getRedis();
+  const floodKey = REDIS_KEYS.flood(conversationId);
+  await redis.incr(floodKey);
+  await redis.expire(floodKey, FLOOD_WINDOW_S);
 }
 
 /**
@@ -326,9 +412,11 @@ export async function scheduleConversationProcessing(
 
   const url = getProcessConversationUrl();
   const client = getQStashClient();
-  const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
-  const delayStr: "1s" | "2s" | "3s" | "4s" | "5s" =
-    delaySeconds <= 1 ? "1s" : delaySeconds <= 2 ? "2s" : delaySeconds <= 3 ? "3s" : delaySeconds <= 4 ? "4s" : "5s";
+  const delaySeconds = Math.max(1, Math.min(10, Math.ceil(delayMs / 1000)));
+  const delayStr: "1s" | "2s" | "3s" | "4s" | "5s" | "6s" | "7s" | "8s" | "9s" | "10s" =
+    delaySeconds <= 1 ? "1s" : delaySeconds <= 2 ? "2s" : delaySeconds <= 3 ? "3s"
+    : delaySeconds <= 4 ? "4s" : delaySeconds <= 5 ? "5s" : delaySeconds <= 6 ? "6s"
+    : delaySeconds <= 7 ? "7s" : delaySeconds <= 8 ? "8s" : delaySeconds <= 9 ? "9s" : "10s";
 
   const res = await client.publishJSON({
     url,

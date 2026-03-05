@@ -18,17 +18,22 @@ export interface ConversationEngineInput {
   traceId?: string;
   /** Quando true, pula espera de typing e sleep de debounce (usado pelo debouncer por conversa) */
   skipBufferAndTypingWait?: boolean;
+  /** Timestamp de início do engine (para verificar nova mensagem antes de enviar) */
+  engineStartTime?: Date;
 }
 
 export interface ConversationEngineResult {
   mode:
     | "skipped_human_only"
     | "debounced"
-    | "processed";
+    | "processed"
+    | "escalated";
   replies: string[];
   automationDidReply: boolean;
   orchestratorDidReply: boolean;
   orchestratorDecision?: string;
   orchestratorReason?: string;
   silence: boolean;
+  /** Se true, houve escalação para humano - não enviar respostas normais */
+  escalated?: boolean;
 }

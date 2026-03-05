@@ -31,4 +31,18 @@ export const REDIS_KEYS = {
   debounce: (conversationId: string) =>
     `debounce:conversation:${conversationId}`,
   lock: (conversationId: string) => `lock:conversation:${conversationId}`,
+  flood: (conversationId: string) => `flood:conversation:${conversationId}`,
+  lastResponse: (conversationId: string) =>
+    `last-response:conversation:${conversationId}`,
+  userMemory: (phone: string) => `user_memory:${phone}`,
+  customerProfile: (phone: string) => `customer_profile:${phone}`,
+  conversationMemory: (conversationId: string) =>
+    `conversation_memory:${conversationId}`,
+  humanQueue: (orgId?: string) =>
+    orgId ? `human_queue:${orgId}` : `human_queue`,
+  aiTrainingExamples: () => `ai_training_examples`,
+  lastUsedExampleIds: (conversationId: string) =>
+    `last_used_example_ids:${conversationId}`,
+  lastUsedFaqId: (conversationId: string) =>
+    `last_used_faq_id:${conversationId}`,
 } as const;
