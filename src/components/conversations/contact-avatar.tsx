@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface ContactAvatarProps {
-  /** sessionId da instância WhatsApp (whatsappSessions.sessionId) */
+  /** sessionId da instancia WhatsApp (whatsappSessions.sessionId) */
   sessionId: string;
   /** Telefone do contato */
   phone: string;
@@ -13,10 +13,13 @@ interface ContactAvatarProps {
   size?: "sm" | "md";
   /** Se true, usa conversationId em vez de sessionId+phone (para cache por conversa) */
   conversationId?: string;
-  /** Número não lido para badge */
+  /** Numero nao lido para badge */
   unreadCount?: number;
   className?: string;
 }
+
+const AVATAR_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 horas
+const memoryAvatarCache = new Map<string, { url: string; cachedAt: number }>();
 
 function getInitials(name: string): string {
   if (!name) return "?";
@@ -28,6 +31,40 @@ function getInitials(name: string): string {
     return parts[0].slice(0, 2).toUpperCase();
   }
   return parts[0]?.[0]?.toUpperCase() ?? "?";
+}
+
+function buildCacheKey(conversationId?: string, sessionId?: string, phone?: string): string {
+  if (conversationId) return `conversation:${conversationId}`;
+  return `session:${sessionId ?? ""}:phone:${phone ?? ""}`;
+}
+
+function readLocalCache(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(`avatar:${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { url?: string; cachedAt?: number };
+    if (!parsed.url || !parsed.cachedAt) return null;
+    if (Date.now() - parsed.cachedAt > AVATAR_CACHE_TTL_MS) {
+      localStorage.removeItem(`avatar:${key}`);
+      return null;
+    }
+    return parsed.url;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalCache(key: string, url: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(
+      `avatar:${key}`,
+      JSON.stringify({ url, cachedAt: Date.now() })
+    );
+  } catch {
+    // ignore cache write failure
+  }
 }
 
 export function ContactAvatar({
@@ -43,31 +80,73 @@ export function ContactAvatar({
 
   const sizeClass = size === "sm" ? "h-10 w-10 text-sm" : "h-12 w-12 text-lg";
   const initials = getInitials(displayName);
+  const cacheKey = useMemo(
+    () => buildCacheKey(conversationId, sessionId, phone),
+    [conversationId, sessionId, phone]
+  );
+  const effectiveProfileUrl = profileUrl;
 
   useEffect(() => {
+    if (profileUrl) {
+      return;
+    }
+    let cancelled = false;
+
+    const memoryCached = memoryAvatarCache.get(cacheKey);
+    if (memoryCached && Date.now() - memoryCached.cachedAt <= AVATAR_CACHE_TTL_MS) {
+      queueMicrotask(() => {
+        if (!cancelled) setProfileUrl(memoryCached.url);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const localCached = readLocalCache(cacheKey);
+    if (localCached) {
+      memoryAvatarCache.set(cacheKey, { url: localCached, cachedAt: Date.now() });
+      queueMicrotask(() => {
+        if (!cancelled) setProfileUrl(localCached);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     const params = conversationId
       ? `conversationId=${conversationId}`
       : `sessionId=${encodeURIComponent(sessionId)}&phone=${encodeURIComponent(phone)}`;
+
     fetch(`/api/profile-picture?${params}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data?.url) setProfileUrl(data.url);
+        if (!data?.url) return;
+        const url = String(data.url);
+        if (!cancelled) setProfileUrl(url);
+        memoryAvatarCache.set(cacheKey, { url, cachedAt: Date.now() });
+        writeLocalCache(cacheKey, url);
       })
       .catch(() => {});
-  }, [sessionId, phone, conversationId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, phone, conversationId, cacheKey, profileUrl]);
 
   return (
     <div className={`relative shrink-0 ${className}`}>
       <div
         className={`flex items-center justify-center overflow-hidden rounded-full bg-[#00a884] font-medium text-white ${sizeClass}`}
       >
-        {profileUrl ? (
+        {effectiveProfileUrl ? (
           <img
-            src={profileUrl}
+            src={effectiveProfileUrl}
             alt=""
             className="h-full w-full object-cover"
             referrerPolicy="no-referrer"
-            onError={() => setProfileUrl(null)}
+            onError={() => {
+              setProfileUrl(null);
+              memoryAvatarCache.delete(cacheKey);
+            }}
           />
         ) : (
           initials
