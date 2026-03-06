@@ -25,6 +25,15 @@ const INVALID_MODELO_TERMS = new Set([
   "dia",
 ]);
 
+const ALLOWED_SHORT_MODELS = new Set([
+  "gol",
+  "uno",
+  "up",
+  "fit",
+  "c3",
+  "c4",
+]);
+
 const INVALID_MODELO_PHRASES = [
   "gostaria",
   "quero",
@@ -141,7 +150,13 @@ function canonicalizeVehicleModel(value: string): string {
 export function isValidVehicleModel(value: string | undefined): boolean {
   if (!value?.trim()) return false;
   const normalized = normalizeModel(value);
-  if (normalized.length <= 3) return false;
+  if (
+    normalized.length <= 3 &&
+    !ALLOWED_SHORT_MODELS.has(normalized) &&
+    !/^[a-z]+\d{1,2}$/i.test(normalized)
+  ) {
+    return false;
+  }
   if (normalized.split(/\s+/).filter(Boolean).length > 4) return false;
   if (/^(?:e|eh)\s+/.test(normalized)) return false;
   if (INVALID_MODELO_TERMS.has(normalized)) return false;
