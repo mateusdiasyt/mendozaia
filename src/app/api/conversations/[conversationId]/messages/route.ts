@@ -6,7 +6,7 @@ import {
   conversations,
   messages,
 } from "@/lib/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, gt, desc } from "drizzle-orm";
 
 /**
  * GET /api/conversations/[conversationId]/messages
@@ -27,6 +27,12 @@ export async function GET(
   }
 
   const { conversationId } = await params;
+  const { searchParams } = new URL(request.url);
+  const afterParam = searchParams.get("after");
+  const parsedAfter =
+    afterParam && !Number.isNaN(Date.parse(afterParam))
+      ? new Date(afterParam)
+      : null;
 
   const [conv] = await db
     .select()
@@ -46,14 +52,18 @@ export async function GET(
   const msgList = await db
     .select({ message: messages })
     .from(messages)
-    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
     .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(conversations.organizationId, org.id)
-      )
+      parsedAfter
+        ? and(
+            eq(messages.conversationId, conversationId),
+            gt(messages.createdAt, parsedAfter)
+          )
+        : eq(messages.conversationId, conversationId)
     )
-    .orderBy(asc(messages.createdAt));
+    .orderBy(parsedAfter ? asc(messages.createdAt) : desc(messages.createdAt))
+    .limit(parsedAfter ? 300 : 200);
+
+  const orderedMessages = parsedAfter ? msgList : [...msgList].reverse();
 
   const typingAt = (conv as { contactTypingAt?: Date | null })?.contactTypingAt;
   const TYPING_TIMEOUT_MS = 12_000;
@@ -62,7 +72,7 @@ export async function GET(
     Date.now() - new Date(typingAt).getTime() < TYPING_TIMEOUT_MS;
 
   return NextResponse.json({
-    messages: msgList.map((item) => item.message),
+    messages: orderedMessages.map((item) => item.message),
     typing: !!isTyping,
   });
 }

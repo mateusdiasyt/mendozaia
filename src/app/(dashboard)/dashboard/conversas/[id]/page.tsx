@@ -8,7 +8,7 @@ import {
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
-import { eq, and, asc, inArray } from "drizzle-orm";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { ChatView } from "./chat-view";
 import { AIControlSidebar } from "@/components/conversations/ai-control-sidebar";
@@ -72,52 +72,50 @@ export default async function ConversaPage({
 
   if (!conv) notFound();
 
-  const msgList = await db
-    .select({ message: messages })
-    .from(messages)
-    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
-    .where(
-      and(
-        eq(messages.conversationId, id),
-        eq(conversations.organizationId, org.id)
-      )
-    )
-    .orderBy(asc(messages.createdAt));
-
-  const memories = usesVehicleSlots
-    ? await db
-        .select({ key: contactMemories.key, value: contactMemories.value })
-        .from(contactMemories)
-        .where(
-          and(
-            eq(contactMemories.contactId, conv.contactId),
-            inArray(contactMemories.key, [
-              "vehicle_model",
-              "vehicle_year",
-              "vehicle_km",
-              "vehicle_oil_spec",
-            ])
+  const [recentMessagesDesc, memories, oilProducts] = await Promise.all([
+    db
+      .select({ message: messages })
+      .from(messages)
+      .where(eq(messages.conversationId, id))
+      .orderBy(desc(messages.createdAt))
+      .limit(200),
+    usesVehicleSlots
+      ? db
+          .select({ key: contactMemories.key, value: contactMemories.value })
+          .from(contactMemories)
+          .where(
+            and(
+              eq(contactMemories.contactId, conv.contactId),
+              inArray(contactMemories.key, [
+                "vehicle_model",
+                "vehicle_year",
+                "vehicle_km",
+                "vehicle_oil_spec",
+              ])
+            )
           )
-        )
-    : [];
+      : Promise.resolve([]),
+    usesVehicleSlots
+      ? db
+          .select({ id: products.id, name: products.name, model: products.model })
+          .from(products)
+          .where(
+            and(
+              eq(products.organizationId, org.id),
+              eq(products.isActive, true),
+              eq(products.category, "oleo")
+            )
+          )
+      : Promise.resolve([]),
+  ]);
+
+  const msgList = [...recentMessagesDesc].reverse();
 
   const memoryByKey = Object.fromEntries(memories.map((m) => [m.key, m.value]));
   const vehicleModel = memoryByKey.vehicle_model ?? null;
   const vehicleYear = memoryByKey.vehicle_year ?? null;
   const vehicleKm = memoryByKey.vehicle_km ?? null;
   const vehicleOilSpec = memoryByKey.vehicle_oil_spec ?? null;
-  const oilProducts = usesVehicleSlots
-    ? await db
-        .select({ id: products.id, name: products.name, model: products.model })
-        .from(products)
-        .where(
-          and(
-            eq(products.organizationId, org.id),
-            eq(products.isActive, true),
-            eq(products.category, "oleo")
-          )
-        )
-    : [];
   const workshopFlow =
     (conv.conversationStateMetadata as Record<string, unknown> | undefined)?.workshopFlow as
       | Record<string, unknown>
@@ -130,7 +128,7 @@ export default async function ConversaPage({
     waitingHuman ||
     conv.isPriority === true;
 
-  await db
+  void db
     .update(conversations)
     .set({ unreadCount: 0, updatedAt: new Date() })
     .where(eq(conversations.id, id));

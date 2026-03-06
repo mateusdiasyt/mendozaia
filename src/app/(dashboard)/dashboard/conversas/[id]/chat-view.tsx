@@ -31,28 +31,69 @@ export function ChatView({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const lastCountRef = useRef(messages.length);
+  const lastMessageAtRef = useRef<Date | null>(
+    initialMessages.length > 0
+      ? new Date(initialMessages[initialMessages.length - 1]!.createdAt)
+      : null
+  );
   const router = useRouter();
 
   const [typing, setTyping] = useState(false);
 
+  useEffect(() => {
+    if (initialMessages.length === 0) {
+      lastMessageAtRef.current = null;
+      return;
+    }
+    lastMessageAtRef.current = new Date(
+      initialMessages[initialMessages.length - 1]!.createdAt
+    );
+  }, [initialMessages]);
+
   const fetchMessages = useCallback(async () => {
     try {
-      const res = await fetch(`/api/conversations/${conversationId}/messages`);
+      const after = lastMessageAtRef.current;
+      const qs = after ? `?after=${encodeURIComponent(after.toISOString())}` : "";
+      const res = await fetch(`/api/conversations/${conversationId}/messages${qs}`);
       if (!res.ok) return;
       const data = await res.json();
-      const fetched = (data.messages ?? []) as Message[];
+      const fetched = ((data.messages ?? []) as Message[]).map((m) => ({
+        ...m,
+        createdAt: new Date(m.createdAt),
+      }));
       setTyping(!!data.typing);
-      if (fetched.length >= lastCountRef.current) {
-        const hadNewMessages = fetched.length > lastCountRef.current;
-        setMessages(
-          fetched.map((m) => ({
-            ...m,
-            createdAt: new Date(m.createdAt),
-          }))
+
+      if (fetched.length > 0) {
+        setMessages((prev) => {
+          const next = [...prev];
+          for (const msg of fetched) {
+            const existingById = next.findIndex((m) => m.id === msg.id);
+            if (existingById >= 0) continue;
+
+            if (msg.direction === "outbound" && msg.contentType === "text" && msg.content) {
+              const tempIdx = next.findIndex(
+                (m) =>
+                  m.id.startsWith("temp-") &&
+                  m.direction === "outbound" &&
+                  m.contentType === "text" &&
+                  m.content === msg.content &&
+                  Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) <
+                    2 * 60 * 1000
+              );
+              if (tempIdx >= 0) {
+                next[tempIdx] = msg;
+                continue;
+              }
+            }
+
+            next.push(msg);
+          }
+          return next;
+        });
+        lastMessageAtRef.current = new Date(
+          fetched[fetched.length - 1]!.createdAt
         );
-        lastCountRef.current = fetched.length;
-        if (hadNewMessages) router.refresh(); // atualiza lista de conversas
+        router.refresh(); // atualiza lista de conversas
       }
     } catch {
       // ignora erros de polling
@@ -100,7 +141,6 @@ export function ChatView({
 
     try {
       await sendMessage(conversationId, text);
-      lastCountRef.current += 1;
       setMessages((prev) => [
         ...prev,
         {
