@@ -3112,7 +3112,7 @@ export async function processInboundMessage(
     .from(conversations)
     .where(eq(conversations.id, ctx.conversationId))
     .limit(1);
-  const conversationMetadata =
+  let conversationMetadata =
     (convMetaRow?.conversationStateMetadata as Record<string, unknown>) ?? {};
   const intakeStage = getIntakeStage(conversationMetadata);
   const reservationContext = getReservationContext(conversationMetadata);
@@ -3366,6 +3366,73 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_profile" ||
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation";
+
+  // Persistência passiva de pista de agendamento (data/horário) em qualquer etapa:
+  // se o cliente disser "hoje", "amanhã" ou horário, salva no metadata para UI e próximos passos.
+  if (
+    ctx.reservationsEnabled &&
+    (
+      looksLikeReservationIntent(intentProbeText) ||
+      containsDateOrTimeHint(intentProbeText) ||
+      hasActiveOilFlow ||
+      hasActiveReservationFlow ||
+      intakeStage === "awaiting_reservation_profile"
+    )
+  ) {
+    const parsedDateTimeHint = extractReservationDateTime(ctx.messageContent);
+    const parsedDateOnlyHint = parsedDateTimeHint
+      ? null
+      : extractReservationDateOnly(ctx.messageContent);
+    const currentPeriodFlow =
+      (conversationMetadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
+    const currentPending =
+      (conversationMetadata.pendingReservation as Record<string, unknown> | undefined) ?? {};
+    let nextMetadata = conversationMetadata;
+    let changed = false;
+
+    if (parsedDateOnlyHint?.dateStr) {
+      nextMetadata = {
+        ...nextMetadata,
+        reservationPeriodFlow: {
+          ...currentPeriodFlow,
+          dateStr: parsedDateOnlyHint.dateStr,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      changed = true;
+    }
+
+    if (parsedDateTimeHint?.dateStr && parsedDateTimeHint?.timeStr) {
+      nextMetadata = {
+        ...nextMetadata,
+        reservationPeriodFlow: {
+          ...currentPeriodFlow,
+          dateStr: parsedDateTimeHint.dateStr,
+          updatedAt: new Date().toISOString(),
+        },
+        pendingReservation: {
+          dateStr: parsedDateTimeHint.dateStr,
+          timeStr: parsedDateTimeHint.timeStr,
+          durationMinutes:
+            typeof currentPending.durationMinutes === "number"
+              ? currentPending.durationMinutes
+              : 60,
+        },
+      };
+      changed = true;
+    }
+
+    if (changed) {
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: nextMetadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      conversationMetadata = nextMetadata;
+    }
+  }
 
   // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo. Prioriza fluxo específico quando ativo.
   if (
