@@ -16,6 +16,7 @@ import {
   setConversationCarInShop,
   setConversationHumanWaiting,
   setConversationVehicleOil,
+  updateConversationContactData,
   resetConversationForTesting,
 } from "@/app/actions/messages";
 import { useRouter } from "next/navigation";
@@ -24,6 +25,10 @@ import { AI_DISABLE_DURATIONS } from "@/lib/conversation-ai";
 interface AIControlSidebarProps {
   conversationId: string;
   aiDisabledUntil: Date | string | null;
+  contactName?: string | null;
+  contactPhone?: string | null;
+  contactEmail?: string | null;
+  contactNotes?: string | null;
   vehicleModel?: string | null;
   vehicleYear?: string | null;
   vehicleKm?: string | null;
@@ -41,6 +46,10 @@ interface AIControlSidebarProps {
 export function AIControlSidebar({
   conversationId,
   aiDisabledUntil,
+  contactName = null,
+  contactPhone = null,
+  contactEmail = null,
+  contactNotes = null,
   vehicleModel,
   vehicleYear,
   vehicleKm,
@@ -66,6 +75,10 @@ export function AIControlSidebar({
   const [isWaitingHuman, setIsWaitingHuman] = useState(waitingHuman);
   const [oilSpec, setOilSpec] = useState(vehicleOilSpec ?? "");
   const [updatingOil, setUpdatingOil] = useState(false);
+  const [editingName, setEditingName] = useState(contactName ?? "");
+  const [editingEmail, setEditingEmail] = useState(contactEmail ?? "");
+  const [editingNotes, setEditingNotes] = useState(contactNotes ?? "");
+  const [savingContactData, setSavingContactData] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -86,6 +99,18 @@ export function AIControlSidebar({
   useEffect(() => {
     setOilSpec(vehicleOilSpec ?? "");
   }, [vehicleOilSpec]);
+
+  useEffect(() => {
+    setEditingName(contactName ?? "");
+  }, [contactName]);
+
+  useEffect(() => {
+    setEditingEmail(contactEmail ?? "");
+  }, [contactEmail]);
+
+  useEffect(() => {
+    setEditingNotes(contactNotes ?? "");
+  }, [contactNotes]);
 
   const isDisabledByTime = mounted && !!(until && until > new Date());
   const isDisabledByColumn = inHumanColumn || carInWorkshop || isWaitingHuman;
@@ -203,6 +228,36 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleSaveContactData() {
+    setSavingContactData(true);
+    try {
+      await updateConversationContactData(conversationId, {
+        name: editingName,
+        email: editingEmail,
+        notes: editingNotes,
+      });
+      router.refresh();
+    } catch {
+      //
+    } finally {
+      setSavingContactData(false);
+    }
+  }
+
+  const formatPhone = (phone: string | null | undefined): string => {
+    if (!phone) return "Não informado";
+    const digits = phone.replace(/\D/g, "");
+    const local =
+      digits.length === 13 && digits.startsWith("55") ? digits.slice(2) : digits;
+    if (local.length === 11) {
+      return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+    }
+    if (local.length === 10) {
+      return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+    }
+    return phone;
+  };
+
   const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
   const sectionTitleClass =
     "text-xs font-semibold uppercase tracking-[0.08em] text-slate-500";
@@ -222,6 +277,80 @@ export function AIControlSidebar({
       </div>
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+        <div className={cardClass}>
+          <p className={sectionTitleClass}>Dados do cliente</p>
+          <div className="mt-3 space-y-3">
+            <div>
+              <p className="mb-1.5 text-xs font-medium text-slate-600">Número</p>
+              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">
+                {formatPhone(contactPhone)}
+              </div>
+            </div>
+            <div>
+              <label
+                htmlFor="contact-name"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
+                Nome
+              </label>
+              <input
+                id="contact-name"
+                type="text"
+                value={editingName}
+                onChange={(event) => setEditingName(event.target.value)}
+                disabled={savingContactData}
+                className={selectClass}
+                placeholder="Nome do cliente"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="contact-email"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
+                Email
+              </label>
+              <input
+                id="contact-email"
+                type="email"
+                value={editingEmail}
+                onChange={(event) => setEditingEmail(event.target.value)}
+                disabled={savingContactData}
+                className={selectClass}
+                placeholder="email@cliente.com"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="contact-notes"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
+                Observações
+              </label>
+              <textarea
+                id="contact-notes"
+                value={editingNotes}
+                onChange={(event) => setEditingNotes(event.target.value)}
+                disabled={savingContactData}
+                rows={3}
+                className={`${selectClass} resize-none`}
+                placeholder="Anotações importantes do cliente"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveContactData}
+              disabled={savingContactData}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingContactData ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Salvar dados do cliente
+            </button>
+          </div>
+        </div>
+
         {showVehicleControls && (
           <div className={cardClass}>
             <p className={sectionTitleClass}>Veículo do contato</p>

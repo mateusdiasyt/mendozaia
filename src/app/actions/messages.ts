@@ -218,6 +218,55 @@ export async function setConversationVehicleOil(
   return { success: true, oilSpec: value || null };
 }
 
+export async function updateConversationContactData(
+  conversationId: string,
+  data: {
+    name?: string | null;
+    email?: string | null;
+    notes?: string | null;
+  }
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select({ contactId: conversations.contactId })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const normalize = (value: string | null | undefined) => {
+    const trimmed = (value ?? "").trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  await db
+    .update(contacts)
+    .set({
+      name: normalize(data.name),
+      email: normalize(data.email),
+      notes: normalize(data.notes),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(eq(contacts.id, conv.contactId), eq(contacts.organizationId, org.id))
+    );
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  revalidatePath("/dashboard/conversas");
+  return { success: true };
+}
+
 export async function sendMessage(conversationId: string, text: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Não autorizado");

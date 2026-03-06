@@ -48,6 +48,8 @@ export default async function ConversaPage({
       contactId: conversations.contactId,
       contactName: contacts.name,
       contactPhone: contacts.phone,
+      contactEmail: contacts.email,
+      contactNotes: contacts.notes,
       sessionId: whatsappSessions.sessionId,
       aiDisabledUntil: conversations.aiDisabledUntil,
       conversationState: conversations.conversationState,
@@ -202,6 +204,10 @@ export default async function ConversaPage({
         <AIControlSidebar
           conversationId={id}
           aiDisabledUntil={conv.aiDisabledUntil}
+          contactName={conv.contactName}
+          contactPhone={conv.contactPhone}
+          contactEmail={conv.contactEmail}
+          contactNotes={conv.contactNotes}
           vehicleModel={vehicleModel}
           vehicleYear={vehicleYear}
           vehicleKm={vehicleKm}
