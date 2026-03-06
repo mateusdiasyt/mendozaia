@@ -21,7 +21,7 @@ interface ChatViewProps {
 
 const POLL_INTERVAL_MS = 4000; // 4 segundos
 const POLL_WHEN_HIDDEN_MS = 15000; // 15 segundos quando aba em background
-const MAX_RENDER_MESSAGES = 120;
+const MAX_RENDER_MESSAGES = 80;
 const SCROLL_BOTTOM_THRESHOLD_PX = 120;
 
 export function ChatView({

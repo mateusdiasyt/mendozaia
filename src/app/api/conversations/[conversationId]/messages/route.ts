@@ -61,7 +61,7 @@ export async function GET(
         : eq(messages.conversationId, conversationId)
     )
     .orderBy(parsedAfter ? asc(messages.createdAt) : desc(messages.createdAt))
-    .limit(parsedAfter ? 200 : 120);
+    .limit(parsedAfter ? 100 : 60);
 
   const orderedMessages = parsedAfter ? msgList : [...msgList].reverse();
 

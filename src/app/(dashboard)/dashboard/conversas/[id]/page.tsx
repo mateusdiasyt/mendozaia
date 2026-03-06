@@ -78,7 +78,7 @@ export default async function ConversaPage({
       .from(messages)
       .where(eq(messages.conversationId, id))
       .orderBy(desc(messages.createdAt))
-      .limit(120),
+      .limit(60),
     usesVehicleSlots
       ? db
           .select({ key: contactMemories.key, value: contactMemories.value })
