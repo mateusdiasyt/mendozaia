@@ -82,11 +82,14 @@ function looksLikeFallbackReservationReply(text: string): boolean {
 }
 
 function containsDateOrTimeHint(text: string): boolean {
-  const t = text.toLowerCase();
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   return (
     /\b\d{1,2}[:h]\d{0,2}\b/.test(t) ||
-    /\b(hoje|amanh[ãa]|dia\s+\d{1,2})\b/.test(t) ||
-    /\b(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t) ||
+    /\b(hoje|amanha|dia\s+\d{1,2})\b/.test(t) ||
+    /\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t) ||
     /\b\d{2}\/\d{2}(?:\/\d{2,4})?\b/.test(t)
   );
 }
@@ -1089,6 +1092,10 @@ function extractTime(text: string): { hour: number; minute: number } | null {
 }
 
 function extractDate(text: string, now: Date): { year: number; month: number; day: number } | null {
+  const normalizedText = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
   if (iso) {
     const year = Number(iso[1]);
@@ -1110,18 +1117,18 @@ function extractDate(text: string, now: Date): { year: number; month: number; da
     }
   }
 
-  if (/\bamanh[ãa]\b/i.test(text)) {
+  if (/\bamanha\b/i.test(normalizedText)) {
     const d = new Date(now);
     d.setDate(d.getDate() + 1);
     return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
   }
 
-  if (/\bhoje\b/i.test(text)) {
+  if (/\bhoje\b/i.test(normalizedText)) {
     return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
   }
 
   // Ex.: "dia 26 as 14h" (sem mês explícito) -> assume mês atual, ou próximo mês se já passou
-  const dayOnly = text.match(/\bdia\s+(\d{1,2})\b/i);
+  const dayOnly = normalizedText.match(/\bdia\s+(\d{1,2})\b/i);
   if (dayOnly) {
     const day = Number(dayOnly[1]);
     if (day >= 1 && day <= 31) {
@@ -1153,8 +1160,8 @@ function extractDate(text: string, now: Date): { year: number; month: number; da
     novembro: 11,
     dezembro: 12,
   };
-  const monthByName = text.match(
-    /\b(?:dia\s+)?(\d{1,2})\s*(?:de)?\s*(janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/i
+  const monthByName = normalizedText.match(
+    /\b(?:dia\s+)?(\d{1,2})\s*(?:de)?\s*(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/i
   );
   if (monthByName) {
     const day = Number(monthByName[1]);
