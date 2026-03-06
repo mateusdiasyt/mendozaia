@@ -200,10 +200,14 @@ function looksLikeAskKnownVehicle(text: string): boolean {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
-  return (
+  const hasDirectAsk =
     /\b(sabe|lembra|entendeu|tem|tenho)\b.*\b(carro|veiculo|modelo)\b/.test(t) ||
-    /\b(qual|que)\b.*\b(carro|veiculo|modelo)\b.*\b(tenho|ta|esta|cadastrado)\b/.test(t) ||
-    /\b(meu carro|meu veiculo|veiculo cadastrado|dados do carro)\b/.test(t)
+    /\b(qual|que)\b.*\b(carro|veiculo|modelo)\b.*\b(tenho|ta|esta|cadastrado)\b/.test(t);
+  if (hasDirectAsk) return true;
+  return (
+    /\b(veiculo cadastrado|dados do carro)\b/.test(t) ||
+    (/\b(meu carro|meu veiculo)\b/.test(t) &&
+      /\b(qual|sabe|lembra|tem|dados|cadastrado|registrado)\b/.test(t))
   );
 }
 
@@ -5093,7 +5097,11 @@ export async function processInboundMessage(
 
   const isAskVehicleButCarProblem =
     asksKnownVehicle && looksLikeCarProblemOrRepairIntent(ctx.messageContent);
-  if ((asksKnownName || asksKnownVehicle) && !isAskVehicleButCarProblem) {
+  if (
+    (asksKnownName || asksKnownVehicle) &&
+    !isAskVehicleButCarProblem &&
+    !looksLikeReservationIntent(intentProbeText)
+  ) {
     const knownName = contactName?.trim() || null;
     const knownVehicle = ctx.vehicleSlots ?? {};
     const hasKnownVehicle = !!(knownVehicle.modelo || knownVehicle.ano || knownVehicle.km);
@@ -5106,9 +5114,16 @@ export async function processInboundMessage(
       .join(" - ");
 
     let reply = "Ainda não tenho tudo salvo aqui.";
+    const greetingPrefix = buildAdaptiveGreeting(
+      intentProbeText,
+      new Date(),
+      ctx.reservationSchedule?.timezone
+    );
+    const botName = ctx.businessProfile?.botName?.trim();
+    const introPrefix = `${greetingPrefix}${botName ? ` Me chamo *${botName}*.` : ""}`;
     const wantsVehicleUpdate = looksLikeVehicleUpdateRequest(ctx.messageContent);
     if (asksKnownName && !knownName) {
-      reply = "Desculpa, ainda não sei seu nome. Qual seria o seu nome?";
+      reply = `${introPrefix} Desculpa, ainda não sei seu nome. Qual seria o seu nome?`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
     } else if (asksKnownVehicle && hasKnownVehicle && wantsVehicleUpdate) {
       const naturalVehicle = formatVehicleForNaturalSpeech(knownVehicle);
@@ -5134,7 +5149,7 @@ export async function processInboundMessage(
         awaitingConfirmation: true,
       });
     } else {
-      reply = "Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.";
+      reply = `${introPrefix} Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     }
@@ -6074,13 +6089,26 @@ export async function processInboundMessage(
       }
       const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
       const promptState = getPromptRepeatState(conversationMetadata, promptKey);
+      const baseProfileReply = buildSmartMissingReservationProfileReply(
+        missingNameProfile,
+        missingVehicleProfile,
+        promptState.repeatCount
+      );
+      const shouldIntroduceBeforeProfile =
+        missingNameProfile &&
+        promptState.repeatCount === 0 &&
+        !contactName &&
+        (looksLikeGreeting(intentProbeText) || intakeStage === null);
+      const introReply = shouldIntroduceBeforeProfile
+        ? `${buildAdaptiveGreeting(
+            intentProbeText,
+            new Date(),
+            ctx.reservationSchedule?.timezone
+          )}${ctx.businessProfile?.botName?.trim() ? ` Me chamo *${ctx.businessProfile.botName.trim()}*.` : ""} ${baseProfileReply}`.trim()
+        : baseProfileReply;
       await sendMessage(
         ctx.conversationId,
-        buildSmartMissingReservationProfileReply(
-          missingNameProfile,
-          missingVehicleProfile,
-          promptState.repeatCount
-        )
+        introReply
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_profile",
