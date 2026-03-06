@@ -67,6 +67,45 @@ interface WebhookPayload {
   };
 }
 
+const HUMAN_REPLY_AI_PAUSE_MS = 60 * 60 * 1000; // 1 hora
+
+function parseBooleanLike(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "sim"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "nao", "não"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function resolveFromMe(
+  payload: Record<string, unknown>,
+  body: WebhookPayload
+): boolean {
+  const bodyData = (body.data ?? {}) as Record<string, unknown>;
+  const payloadKey = payload.key as Record<string, unknown> | undefined;
+  const bodyDataKey = bodyData.key as Record<string, unknown> | undefined;
+
+  const candidates: unknown[] = [
+    payloadKey?.fromMe,
+    bodyDataKey?.fromMe,
+    payload.fromMe,
+    bodyData.fromMe,
+  ];
+
+  for (const candidate of candidates) {
+    const parsed = parseBooleanLike(candidate);
+    if (parsed !== null) return parsed;
+  }
+
+  return false;
+}
+
 function isMissingOnConflictConstraintError(err: unknown): boolean {
   const maybe = err as
     | { code?: string; cause?: { code?: string } }
@@ -219,7 +258,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 });
     }
 
-    const isInbound = !key?.fromMe;
+    const isInbound = !resolveFromMe(payload, body);
     let remoteJid = key?.remoteJid;
     if (typeof remoteJid === "string" && !remoteJid.includes("@")) {
       remoteJid = `${remoteJid}@s.whatsapp.net`;
@@ -234,7 +273,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true }); // Ignora grupos
     }
 
-    // MENSAGEM OUTBOUND (humano respondeu pelo WhatsApp): desativa IA por 3h
+    // MENSAGEM OUTBOUND (humano respondeu pelo WhatsApp): desativa IA por 1h
     if (!isInbound) {
       const phone = remoteJid.replace("@s.whatsapp.net", "");
 
@@ -306,11 +345,7 @@ export async function POST(request: NextRequest) {
               status: "sent",
             });
 
-            const isHumanControlState =
-              conversation.conversationState === "waiting_human" ||
-              conversation.conversationState === "human_active" ||
-              !!conversation.assignedToId;
-            const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+            const oneHourFromNow = new Date(Date.now() + HUMAN_REPLY_AI_PAUSE_MS);
 
             await db
               .update(conversations)
@@ -318,8 +353,8 @@ export async function POST(request: NextRequest) {
                 lastMessageAt: new Date(),
                 lastMessagePreview: preview,
                 updatedAt: new Date(),
-                // Só pausa IA quando conversa realmente está em fluxo humano
-                ...(isHumanControlState ? { aiDisabledUntil: threeHoursFromNow } : {}),
+                // Sempre pausa IA quando houver resposta humana outbound
+                aiDisabledUntil: oneHourFromNow,
               })
               .where(eq(conversations.id, conversation.id));
           }

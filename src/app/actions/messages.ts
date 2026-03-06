@@ -312,7 +312,7 @@ export async function sendMessage(conversationId: string, text: string) {
     );
   }
 
-  const threeHoursFromNow = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
 
   await db
     .update(conversations)
@@ -320,7 +320,7 @@ export async function sendMessage(conversationId: string, text: string) {
       lastMessageAt: new Date(),
       lastMessagePreview: text.slice(0, 100),
       updatedAt: new Date(),
-      aiDisabledUntil: threeHoursFromNow, // Humano respondeu: desativa IA por 3h
+      aiDisabledUntil: oneHourFromNow, // Humano respondeu: desativa IA por 1h
     })
     .where(eq(conversations.id, conversationId));
 
