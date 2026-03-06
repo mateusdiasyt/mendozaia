@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
@@ -99,7 +99,7 @@ export function AIControlSidebar({
         : null;
   const isForever =
     until &&
-    until.getTime() - Date.now() > 365 * 24 * 60 * 60 * 1000; // mais de 1 ano
+    until.getTime() - Date.now() > 365 * 24 * 60 * 60 * 1000;
   const untilFormatted =
     mounted && until && isDisabled
       ? isForever
@@ -119,7 +119,7 @@ export function AIControlSidebar({
       const result = await setConversationAIDisabled(conversationId, hours);
       setUntil(result.aiDisabledUntil ? new Date(result.aiDisabledUntil) : null);
     } catch {
-      // erro silencioso ou toast
+      //
     } finally {
       setLoading(false);
     }
@@ -203,34 +203,47 @@ export function AIControlSidebar({
     }
   }
 
+  const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
+  const sectionTitleClass =
+    "text-xs font-semibold uppercase tracking-[0.08em] text-slate-500";
+  const selectClass =
+    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60";
+
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-[#e9edef] bg-white">
-      <div className="border-b border-[#e9edef] px-4 py-3">
-        <h3 className="flex items-center gap-2 text-sm font-medium text-[#111b21]">
-          <Bot className="h-4 w-4 text-[#00a884]" />
+    <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
+      <div className="border-b border-slate-200 bg-white px-5 py-4">
+        <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          <Bot className="h-5 w-5 text-emerald-600" />
           Agente de IA
         </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          Controle do atendimento automático desta conversa
+        </p>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 p-4">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
         {showVehicleControls && (
-          <div className="rounded-lg border border-[#e9edef] bg-[#f8f9fa] p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
-              Veículo do contato
-            </p>
-            <div className="mt-2 space-y-1 text-sm text-[#111b21]">
-              <p>
-                Modelo: <span className="font-medium">{vehicleModel || "Não informado"}</span>
-              </p>
-              <p>
-                Ano: <span className="font-medium">{vehicleYear || "Não informado"}</span>
-              </p>
-              <p>
-                KM: <span className="font-medium">{vehicleKm || "Não informado"}</span>
-              </p>
+          <div className={cardClass}>
+            <p className={sectionTitleClass}>Veículo do contato</p>
+            <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-900">
+              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Modelo</span>
+                <span className="font-medium">{vehicleModel || "Não informado"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">Ano</span>
+                <span className="font-medium">{vehicleYear || "Não informado"}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                <span className="text-slate-500">KM</span>
+                <span className="font-medium">{vehicleKm || "Não informado"}</span>
+              </div>
             </div>
             <div className="mt-3">
-              <label htmlFor="vehicle-oil-spec" className="mb-1 block text-xs text-[#667781]">
+              <label
+                htmlFor="vehicle-oil-spec"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
                 Óleo
               </label>
               <select
@@ -238,12 +251,14 @@ export function AIControlSidebar({
                 disabled={updatingOil}
                 value={oilSpec}
                 onChange={(event) => handleSetOilSpec(event.target.value)}
-                className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+                className={selectClass}
               >
                 <option value="">Não informado</option>
                 {oilProducts.map((item) => {
                   const value = item.model?.trim() ? item.model.trim() : item.name.trim();
-                  const label = item.model?.trim() ? `${item.model.trim()} — ${item.name}` : item.name;
+                  const label = item.model?.trim()
+                    ? `${item.model.trim()} - ${item.name}`
+                    : item.name;
                   return (
                     <option key={item.id} value={value}>
                       {label}
@@ -255,15 +270,16 @@ export function AIControlSidebar({
           </div>
         )}
 
-        <div className="rounded-lg border border-[#e9edef] bg-white p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
-            Atendimento humano
-          </p>
-          <p className="mt-1 text-xs text-[#667781]">
+        <div className={cardClass}>
+          <p className={sectionTitleClass}>Atendimento humano</p>
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
             Marque quando a conversa estiver aguardando atendimento da equipe.
           </p>
           <div className="mt-3">
-            <label htmlFor="waiting-human" className="mb-1 block text-xs text-[#667781]">
+            <label
+              htmlFor="waiting-human"
+              className="mb-1.5 block text-xs font-medium text-slate-600"
+            >
               Aguardando atendimento humano
             </label>
             <select
@@ -271,7 +287,7 @@ export function AIControlSidebar({
               disabled={updatingHumanWaiting}
               value={isWaitingHuman ? "yes" : "no"}
               onChange={(event) => handleSetWaitingHuman(event.target.value === "yes")}
-              className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+              className={selectClass}
             >
               <option value="yes">Sim</option>
               <option value="no">Não</option>
@@ -280,15 +296,16 @@ export function AIControlSidebar({
         </div>
 
         {showVehicleControls && (
-          <div className="rounded-lg border border-[#e9edef] bg-white p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-[#667781]">
-              Carro na mecânica
-            </p>
-            <p className="mt-1 text-xs text-[#667781]">
+          <div className={cardClass}>
+            <p className={sectionTitleClass}>Carro na mecânica</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">
               Quando marcado como Sim, a IA fica desativada para atendimento humano.
             </p>
             <div className="mt-3">
-              <label htmlFor="car-in-shop" className="mb-1 block text-xs text-[#667781]">
+              <label
+                htmlFor="car-in-shop"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
                 Status
               </label>
               <select
@@ -296,7 +313,7 @@ export function AIControlSidebar({
                 disabled={updatingWorkshop}
                 value={carInWorkshop ? "yes" : "no"}
                 onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
-                className="w-full rounded-lg border border-[#e9edef] bg-white px-3 py-2 text-sm text-[#111b21] disabled:opacity-50"
+                className={selectClass}
               >
                 <option value="yes">Sim</option>
                 <option value="no">Não</option>
@@ -305,48 +322,75 @@ export function AIControlSidebar({
           </div>
         )}
 
-        {/* Status */}
         <div
-          className={`flex items-center gap-2 rounded-lg px-3 py-2.5 ${
-            !mounted ? "bg-[#f5f6f6]" : isDisabled ? "bg-amber-50" : "bg-emerald-50"
+          className={`rounded-xl border px-4 py-3 shadow-sm ${
+            !mounted
+              ? "border-slate-200 bg-white"
+              : isDisabled
+                ? "border-amber-200 bg-amber-50"
+                : "border-emerald-200 bg-emerald-50"
           }`}
         >
-          {!mounted ? (
-            <Bot className="h-5 w-5 shrink-0 text-[#667781]" />
-          ) : isDisabled ? (
-            <BotOff className="h-5 w-5 shrink-0 text-amber-600" />
-          ) : (
-            <Bot className="h-5 w-5 shrink-0 text-emerald-600" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-[#111b21]">
-              {!mounted ? "Carregando..." : isDisabled ? "IA desativada" : "IA ativa"}
-            </p>
-            <p className="text-xs text-[#667781]">
-              {isDisabled && disabledReason
-                ? disabledReason
-                : isDisabled && untilFormatted
-                  ? `Até ${untilFormatted}`
-                : !mounted
-                  ? "..."
-                  : "Respondendo automaticamente"}
-            </p>
-            {isDisabled && (isPriority || assignedToId || conversationState) && (
-              <p className="mt-1 text-[11px] text-[#667781]">
-                {`state=${conversationState ?? "init"}${isPriority ? " | prioridade=true" : ""}${assignedToId ? " | atribuído" : ""}`}
+          <div className="flex items-start gap-3">
+            <div
+              className={`rounded-full p-2 ${
+                !mounted
+                  ? "bg-slate-100 text-slate-500"
+                  : isDisabled
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700"
+              }`}
+            >
+              {!mounted ? (
+                <Bot className="h-4 w-4" />
+              ) : isDisabled ? (
+                <BotOff className="h-4 w-4" />
+              ) : (
+                <Bot className="h-4 w-4" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-slate-900">
+                  {!mounted ? "Carregando..." : isDisabled ? "IA desativada" : "IA ativa"}
+                </p>
+                {mounted && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      isDisabled
+                        ? "bg-amber-100 text-amber-700"
+                        : "bg-emerald-100 text-emerald-700"
+                    }`}
+                  >
+                    {isDisabled ? "Pausada" : "Online"}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                {isDisabled && disabledReason
+                  ? disabledReason
+                  : isDisabled && untilFormatted
+                    ? `Até ${untilFormatted}`
+                    : !mounted
+                      ? "..."
+                      : "Respondendo automaticamente"}
               </p>
-            )}
+              {isDisabled && (isPriority || assignedToId || conversationState) && (
+                <p className="mt-1 text-[11px] text-slate-500">
+                  {`state=${conversationState ?? "init"}${isPriority ? " | prioridade=true" : ""}${assignedToId ? " | atribuído" : ""}`}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Ações */}
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {isDisabled ? (
             <button
               type="button"
               onClick={handleEnable}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#00a884] bg-white px-3 py-2.5 text-sm font-medium text-[#00a884] transition-colors hover:bg-[#f0fdf4] disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-3 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -361,7 +405,7 @@ export function AIControlSidebar({
                 type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 disabled={loading}
-                className="flex w-full items-center justify-between rounded-lg border border-[#e9edef] bg-white px-3 py-2.5 text-sm font-medium text-[#111b21] transition-colors hover:bg-[#f5f6f6] disabled:opacity-50"
+                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Desativar IA
                 <ChevronDown
@@ -376,13 +420,13 @@ export function AIControlSidebar({
                     aria-hidden
                     onClick={() => setDropdownOpen(false)}
                   />
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-[#e9edef] bg-white py-1 shadow-lg">
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
                     {AI_DISABLE_DURATIONS.map(({ hours, label }) => (
                       <button
                         key={hours}
                         type="button"
                         onClick={() => handleDisable(hours)}
-                        className="w-full px-3 py-2 text-left text-sm text-[#111b21] hover:bg-[#f5f6f6]"
+                        className="w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"
                       >
                         Por {label}
                       </button>
@@ -398,7 +442,7 @@ export function AIControlSidebar({
           type="button"
           onClick={handleResetConversation}
           disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Trash2 className="h-4 w-4" />
           Resetar conversa (teste)
@@ -406,16 +450,17 @@ export function AIControlSidebar({
 
         <Link
           href={`/dashboard/logs-ia?conversationId=${conversationId}`}
-          className="flex w-full items-center justify-center rounded-lg border border-[#e9edef] bg-white px-3 py-2.5 text-sm font-medium text-[#111b21] transition-colors hover:bg-[#f5f6f6]"
+          className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
         >
           Ver logs IA desta conversa
         </Link>
 
-        {/* Info */}
-        <p className="mt-auto text-xs text-[#667781]">
-          Ao responder pela plataforma ou pelo WhatsApp, a IA é desativada
-          automaticamente por 3 horas nesta conversa.
-        </p>
+        <div className="mt-auto rounded-lg border border-slate-200 bg-white p-3">
+          <p className="text-xs leading-relaxed text-slate-600">
+            Ao responder pela plataforma ou pelo WhatsApp, a IA é desativada
+            automaticamente por 3 horas nesta conversa.
+          </p>
+        </div>
       </div>
     </aside>
   );
