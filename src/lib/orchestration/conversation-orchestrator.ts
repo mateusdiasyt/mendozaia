@@ -575,6 +575,49 @@ function evaluateVehicleServicePolicy(
   return { blocked: false, reason: null };
 }
 
+function extractTwoDigitVehicleYearHint(text: string): number | null {
+  const normalized = normalizeForSearch(text);
+  const match = normalized.match(/\b(?:ano\s*)?(\d{2})\b(?!\s*(?:km|mil))/i);
+  if (!match) return null;
+
+  const yy = Number(match[1]);
+  if (!Number.isFinite(yy)) return null;
+  if (yy >= 80) return 1900 + yy;
+  if (yy <= 35) return 2000 + yy;
+  return null;
+}
+
+async function hasRecentVehicleCoveragePrompt(
+  conversationId: string
+): Promise<boolean> {
+  const [lastOutbound] = await db
+    .select({
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (!lastOutbound?.content || !lastOutbound?.createdAt) return false;
+  const isRecent = Date.now() - lastOutbound.createdAt.getTime() <= 10 * 60 * 1000;
+  if (!isRecent) return false;
+
+  const content = normalizeForSearch(lastOutbound.content);
+  return (
+    content.includes("me informa o ano do") ||
+    content.includes("me passe outro modelo e ano") ||
+    content.includes("esse veiculo esta dentro") ||
+    content.includes("no momento nao estamos atendendo")
+  );
+}
+
 const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
 const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
 const INTENT_STITCH_MAX_MESSAGES = 3;
@@ -4002,10 +4045,23 @@ export async function processInboundMessage(
       };
     }
   }
-  if (ctx.usesVehicleSlots && looksLikeVehicleCoverageQuestion(intentProbeText)) {
-    const extractedQuestionSlots = extractVehicleSlotsFromText(intentProbeText);
-    const askedYear = extractedQuestionSlots.ano ?? null;
-    const askedModelRaw = extractedQuestionSlots.modelo ?? extractBrandMention(intentProbeText);
+  const extractedQuestionSlots = extractVehicleSlotsFromText(intentProbeText);
+  const shortYearHint = extractTwoDigitVehicleYearHint(intentProbeText);
+  const hasVehicleInfoInCoverageReply = Boolean(
+    extractedQuestionSlots.modelo || extractedQuestionSlots.ano || shortYearHint
+  );
+  const isCoverageFollowup =
+    ctx.usesVehicleSlots &&
+    !looksLikeVehicleCoverageQuestion(intentProbeText) &&
+    hasVehicleInfoInCoverageReply &&
+    (await hasRecentVehicleCoveragePrompt(ctx.conversationId));
+
+  if (ctx.usesVehicleSlots && (looksLikeVehicleCoverageQuestion(intentProbeText) || isCoverageFollowup)) {
+    const askedYear = extractedQuestionSlots.ano ?? shortYearHint ?? null;
+    const askedModelRaw =
+      extractedQuestionSlots.modelo ??
+      extractBrandMention(intentProbeText) ??
+      extractLooseVehicleModelFromReply(intentProbeText);
     const askedModel = askedModelRaw ? normalizeVehicleModelKey(askedModelRaw) : "";
     const policy = ctx.vehicleServicePolicy ?? {};
 
