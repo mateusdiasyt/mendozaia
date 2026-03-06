@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { sendMessage } from "@/app/actions/messages";
-import { Loader2, Send, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 
 interface Message {
   id: string;
@@ -35,8 +35,6 @@ export function ChatView({
   const router = useRouter();
 
   const [typing, setTyping] = useState(false);
-  const [feedbackSent, setFeedbackSent] = useState<"good" | "bad" | null>(null);
-  const [feedbackLoading, setFeedbackLoading] = useState(false);
 
   const fetchMessages = useCallback(async () => {
     try {
@@ -59,7 +57,7 @@ export function ChatView({
     } catch {
       // ignora erros de polling
     }
-  }, [conversationId]);
+  }, [conversationId, router]);
 
   useEffect(() => {
     fetchMessages(); // busca inicial
@@ -122,26 +120,9 @@ export function ChatView({
     }
   }
 
-  async function handleAIFeedback(type: "good" | "bad") {
-    if (feedbackLoading || feedbackSent) return;
-    setFeedbackLoading(true);
-    try {
-      const res = await fetch(`/api/conversations/${conversationId}/ai-feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type }),
-      });
-      if (res.ok) setFeedbackSent(type);
-    } finally {
-      setFeedbackLoading(false);
-    }
-  }
-
-  const hasOutbound = messages.some((m) => m.direction === "outbound");
-
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden">
-      {/* Fundo com padrão sutil - pointer-events-none para não bloquear cliques */}
+      {/* Fundo com padrÃ£o sutil - pointer-events-none para nÃ£o bloquear cliques */}
       <div
         className="pointer-events-none absolute inset-0 opacity-[0.05]"
         style={{
@@ -197,7 +178,7 @@ export function ChatView({
                     </a>
                   )
                 ) : (
-                  <p className="text-sm opacity-70">[Mídia]</p>
+                  <p className="text-sm opacity-70">[MÃ­dia]</p>
                 )}
                 <div className="mt-1 flex items-center justify-end gap-1">
                   <span className="text-[10px] text-[#667781]">
@@ -227,38 +208,6 @@ export function ChatView({
           </>
         )}
       </div>
-
-      {/* Feedback sobre última resposta da IA (Parte 9) */}
-      {hasOutbound && !feedbackSent && (
-        <div className="relative z-10 flex shrink-0 items-center justify-center gap-2 border-t border-[#e9edef] bg-[#f0f2f5] py-2">
-          <span className="text-xs text-[#667781]">
-            A última resposta da IA foi útil?
-          </span>
-          <button
-            type="button"
-            onClick={() => handleAIFeedback("good")}
-            disabled={feedbackLoading}
-            className="rounded-full p-1.5 text-[#00a884] transition hover:bg-[#e9edef] disabled:opacity-50"
-            title="Boa resposta"
-          >
-            <ThumbsUp className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => handleAIFeedback("bad")}
-            disabled={feedbackLoading}
-            className="rounded-full p-1.5 text-[#667781] transition hover:bg-[#e9edef] disabled:opacity-50"
-            title="Resposta ruim"
-          >
-            <ThumbsDown className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-      {feedbackSent && (
-        <div className="relative z-10 shrink-0 border-t border-[#e9edef] bg-[#f0f2f5] py-1.5 text-center text-xs text-[#667781]">
-          Obrigado pelo feedback.
-        </div>
-      )}
 
       {/* Input */}
       <form
@@ -293,3 +242,4 @@ export function ChatView({
     </div>
   );
 }
+
