@@ -1899,7 +1899,7 @@ function extractLooseVehicleModelFromReply(text: string): string | undefined {
   const trimmed = text.trim();
   if (!trimmed) return undefined;
 
-  let candidate = trimmed
+  const candidate = trimmed
     .replace(/[.,;!?]+$/g, "")
     .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/i, "")
     .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/i, "")
@@ -3647,20 +3647,6 @@ export async function processInboundMessage(
       extractedIssueVehicle
     );
     const missingIssueVehicle = getMissingSlots(mergedIssueVehicle);
-    const inferredIssueName = !contactName
-      ? extractCustomerName(ctx.messageContent, {
-          allowSingleWord: true,
-          blockedValues: [mergedIssueVehicle.modelo ?? ""],
-        })
-      : null;
-    if (!contactName && inferredIssueName) {
-      await db
-        .update(contacts)
-        .set({ name: inferredIssueName, updatedAt: new Date() })
-        .where(eq(contacts.id, ctx.contactId));
-      contactName = inferredIssueName;
-    }
-
     if (
       JSON.stringify(mergedIssueVehicle) !== JSON.stringify(ctx.vehicleSlots ?? {})
     ) {
@@ -4020,16 +4006,7 @@ export async function processInboundMessage(
   const allowSingleWordName =
     isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
-  const wantsNameUpdate = !!contactName && explicitNameIntro;
-  const hasFullVehicleProfileHere = hasAllVehicleSlots(ctx.vehicleSlots ?? {});
-  const canCaptureNameNow =
-    (!contactName &&
-      (explicitNameIntro ||
-        isCollectProfileStage ||
-        isAwaitingNameStage ||
-        isPendingWithoutName ||
-        (hasActiveOilFlow && hasFullVehicleProfileHere))) ||
-    wantsNameUpdate;
+  const canCaptureNameNow = isAwaitingNameStage;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(intentProbeText, {
@@ -4086,7 +4063,7 @@ export async function processInboundMessage(
       .set({ name: inferredName, updatedAt: new Date() })
       .where(eq(contacts.id, ctx.contactId));
     contactName = inferredName;
-  } else if (contactName && inferredName && explicitNameIntro) {
+  } else if (isAwaitingNameStage && contactName && inferredName && explicitNameIntro) {
     const normalize = (v: string) =>
       v
         .toLowerCase()
