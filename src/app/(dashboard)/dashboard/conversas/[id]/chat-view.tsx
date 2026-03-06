@@ -21,6 +21,8 @@ interface ChatViewProps {
 
 const POLL_INTERVAL_MS = 4000; // 4 segundos
 const POLL_WHEN_HIDDEN_MS = 15000; // 15 segundos quando aba em background
+const MAX_RENDER_MESSAGES = 120;
+const SCROLL_BOTTOM_THRESHOLD_PX = 120;
 
 export function ChatView({
   conversationId,
@@ -39,6 +41,7 @@ export function ChatView({
   const router = useRouter();
 
   const [typing, setTyping] = useState(false);
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true);
 
   useEffect(() => {
     if (initialMessages.length === 0) {
@@ -88,7 +91,7 @@ export function ChatView({
 
             next.push(msg);
           }
-          return next;
+          return next.slice(-MAX_RENDER_MESSAGES);
         });
         lastMessageAtRef.current = new Date(
           fetched[fetched.length - 1]!.createdAt
@@ -124,11 +127,19 @@ export function ChatView({
   }, [fetchMessages]);
 
   useEffect(() => {
+    if (!autoScrollEnabled) return;
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages]);
+  }, [messages, autoScrollEnabled]);
+
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAutoScrollEnabled(distanceToBottom <= SCROLL_BOTTOM_THRESHOLD_PX);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -140,9 +151,10 @@ export function ChatView({
     setInput("");
 
     try {
+      setAutoScrollEnabled(true);
       await sendMessage(conversationId, text);
       setMessages((prev) => [
-        ...prev,
+        ...prev.slice(-(MAX_RENDER_MESSAGES - 1)),
         {
           id: `temp-${Date.now()}`,
           direction: "outbound",
@@ -172,6 +184,7 @@ export function ChatView({
 
       <div
         ref={scrollRef}
+        onScroll={handleScroll}
         className="relative z-10 flex-1 overflow-y-auto p-6 space-y-2"
       >
         {messages.length === 0 && !typing ? (
