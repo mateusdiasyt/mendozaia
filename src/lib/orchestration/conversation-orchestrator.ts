@@ -4012,7 +4012,7 @@ export async function processInboundMessage(
     if (askedModel && !askedYear) {
       await sendMessage(
         ctx.conversationId,
-        `Consigo te confirmar sim. Me informa o *ano* do ${prettifyVehicleLabel(askedModel)} para eu validar certinho na nossa política de atendimento.`
+        `Claro! Me informa o *ano* do ${prettifyVehicleLabel(askedModel)} para eu te confirmar certinho.`
       );
       return {
         didReply: true,
@@ -4027,9 +4027,14 @@ export async function processInboundMessage(
         modelo: askedModel || undefined,
         ano: askedYear || undefined,
       });
+      const modelLabel = askedModel ? prettifyVehicleLabel(askedModel) : "esse veículo";
       const response = decision.blocked
-        ? `${decision.reason}\n\nSe preferir, me passe outro veículo (modelo e ano) que eu verifico na hora.`
-        : "Sim, esse veículo está dentro da nossa política de atendimento.";
+        ? askedYear
+          ? `No momento não estamos atendendo ${modelLabel} ${askedYear}.\n\nSe quiser, me passe outro modelo e ano que eu verifico para você agora.`
+          : `No momento não estamos atendendo esse modelo de veículo.\n\nSe quiser, me passe outro modelo e ano que eu verifico para você agora.`
+        : askedYear
+          ? `Sim, conseguimos atender ${modelLabel} ${askedYear}.`
+          : "Sim, conseguimos atender esse veículo.";
       await sendMessage(ctx.conversationId, response);
       return {
         didReply: true,
