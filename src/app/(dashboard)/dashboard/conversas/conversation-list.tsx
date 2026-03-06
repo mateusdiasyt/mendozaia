@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MessageSquare, Search } from "lucide-react";
@@ -18,14 +18,17 @@ interface Conv {
   isTyping?: boolean;
 }
 
-const POLL_INTERVAL_MS = 4_000;
-const POLL_WHEN_HIDDEN_MS = 12_000;
+const POLL_INTERVAL_MS = 1_500;
+const POLL_WHEN_HIDDEN_MS = 8_000;
+const ENTER_ANIMATION_MS = 450;
 
 export function ConversationList({ list }: { list: Conv[] }) {
   const pathname = usePathname();
   const [items, setItems] = useState<Conv[]>(list);
   const [tab, setTab] = useState<"active" | "waiting">("active");
   const [query, setQuery] = useState("");
+  const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
+  const previousIndexByIdRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     setItems(list);
@@ -57,6 +60,9 @@ export function ConversationList({ list }: { list: Conv[] }) {
 
     const onVisibilityChange = () => {
       clearInterval(intervalId);
+      if (!document.hidden) {
+        fetchConversationList();
+      }
       schedulePoll();
     };
 
@@ -91,6 +97,45 @@ export function ConversationList({ list }: { list: Conv[] }) {
       );
     });
   }, [baseList, normalizedQuery]);
+
+  useEffect(() => {
+    const currentIndexById = new Map<string, number>();
+    for (let i = 0; i < items.length; i++) {
+      currentIndexById.set(items[i]!.id, i);
+    }
+
+    const idsToAnimate: string[] = [];
+    const previousIndexById = previousIndexByIdRef.current;
+    for (const [id, currentIndex] of currentIndexById.entries()) {
+      const previousIndex = previousIndexById.get(id);
+      const isNew = previousIndex === undefined;
+      const movedUp = previousIndex !== undefined && currentIndex < previousIndex;
+      if (isNew || movedUp) {
+        idsToAnimate.push(id);
+      }
+    }
+
+    if (idsToAnimate.length > 0) {
+      setAnimatingIds((prev) => {
+        const next = new Set(prev);
+        idsToAnimate.forEach((id) => next.add(id));
+        return next;
+      });
+
+      const timer = setTimeout(() => {
+        setAnimatingIds((prev) => {
+          const next = new Set(prev);
+          idsToAnimate.forEach((id) => next.delete(id));
+          return next;
+        });
+      }, ENTER_ANIMATION_MS);
+
+      previousIndexByIdRef.current = currentIndexById;
+      return () => clearTimeout(timer);
+    }
+
+    previousIndexByIdRef.current = currentIndexById;
+  }, [items]);
 
   return (
     <div className="flex w-[400px] shrink-0 flex-col border-r border-slate-200 bg-white">
@@ -175,6 +220,14 @@ export function ConversationList({ list }: { list: Conv[] }) {
                 className={`flex items-center gap-3 border-b border-slate-100 px-4 py-3 transition-colors ${
                   isActive ? "bg-emerald-50/60" : "hover:bg-slate-50"
                 }`}
+                style={
+                  animatingIds.has(conv.id)
+                    ? {
+                        animation:
+                          "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+                      }
+                    : undefined
+                }
               >
                 <ContactAvatar
                   sessionId={conv.sessionId}
@@ -213,6 +266,18 @@ export function ConversationList({ list }: { list: Conv[] }) {
           })
         )}
       </div>
+      <style jsx>{`
+        @keyframes conversation-entry {
+          0% {
+            opacity: 0;
+            transform: translateY(10px) scale(0.985);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+      `}</style>
     </div>
   );
 }
