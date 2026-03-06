@@ -298,6 +298,10 @@ export function AIControlSidebar({
     "text-xs font-semibold uppercase tracking-[0.08em] text-slate-500";
   const selectClass =
     "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60";
+  const oilOptionValues = oilProducts.map((item) =>
+    item.model?.trim() ? item.model.trim() : item.name.trim()
+  );
+  const showCustomOilValue = !!oilSpec && !oilOptionValues.includes(oilSpec);
 
   return (
     <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
@@ -467,6 +471,9 @@ export function AIControlSidebar({
                 className={selectClass}
               >
                 <option value="">Não informado</option>
+                {showCustomOilValue ? (
+                  <option value={oilSpec}>{oilSpec} (salvo)</option>
+                ) : null}
                 {oilProducts.map((item) => {
                   const value = item.model?.trim() ? item.model.trim() : item.name.trim();
                   const label = item.model?.trim()

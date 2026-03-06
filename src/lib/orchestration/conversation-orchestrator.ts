@@ -1462,6 +1462,8 @@ function looksLikeReservationIntent(text: string): boolean {
     /\b(agendar|agendamento|reservar|reserva|horario|horarios|disponibilidade|vaga|vagas)\b/.test(
       t
     ) ||
+    /\b(levar|trazer)\b.*\b(carro|veiculo)\b/.test(t) ||
+    /\b(consigo|posso|quero|gostaria)\b.*\b(levar|trazer)\b/.test(t) ||
     containsDateOrTimeHint(t)
   );
 }
@@ -3384,6 +3386,8 @@ export async function processInboundMessage(
     ctx.reservationsEnabled &&
     (
       looksLikeReservationIntent(intentProbeText) ||
+      looksLikeReservationIntent(ctx.messageContent) ||
+      containsDateOrTimeHint(ctx.messageContent) ||
       containsDateOrTimeHint(intentProbeText) ||
       hasActiveOilFlow ||
       hasActiveReservationFlow ||
@@ -3599,26 +3603,35 @@ export async function processInboundMessage(
       }
     }
 
-    if (oilFlowState.awaitingOilScheduleConfirmation && looksLikeScheduleAgreement(ctx.messageContent)) {
+    if (
+      oilFlowState.awaitingOilScheduleConfirmation &&
+      (looksLikeScheduleAgreement(ctx.messageContent) || isSimpleAffirmative(ctx.messageContent))
+    ) {
       await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
-        serviceName: "Troca de Óleo",
+        serviceName: "Troca de Oleo",
         productName: reservationContext.productName,
       });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
+      const missingNameForSchedule = !contactName;
       const missingForSchedule = getMissingSlots(ctx.vehicleSlots ?? {});
-      const vehiclePart =
-        missingForSchedule.length === 0
-          ? ""
-          : ` e os dados do veículo (${missingForSchedule.map((s) => `*${s}*`).join(", ").replace(/, ([^,]*)$/, " e $1")})`;
-      await sendMessage(
-        ctx.conversationId,
-        `Perfeito! Para agendar, me informe seu *nome*${vehiclePart}.`
-      );
+      if (missingNameForSchedule || missingForSchedule.length > 0) {
+        await sendMessage(
+          ctx.conversationId,
+          buildMissingReservationProfileReply(missingNameForSchedule, missingForSchedule)
+        );
+      } else {
+        const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
+        const dateLabel = knownDate ? ` para *${formatDateForPtBr(knownDate)}*` : "";
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito! Vamos agendar${dateLabel}. Qual horario voce prefere?`
+        );
+      }
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Cliente confirmou agendamento de troca de óleo",
+        reason: "Cliente confirmou agendamento de troca de oleo",
         silence: false,
       };
     }
