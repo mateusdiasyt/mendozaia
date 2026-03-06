@@ -310,25 +310,22 @@ export function AIControlSidebar({
           <Bot className="h-5 w-5 text-emerald-600" />
           Agente de IA
         </h3>
-        <p className="mt-1 text-xs text-slate-500">
-          Controle do atendimento automático desta conversa
-        </p>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-3">
         <div className={cardClass}>
           <p className={sectionTitleClass}>Dados do cliente</p>
-          <div className="mt-3 space-y-3">
+          <div className="mt-2 space-y-2">
             <div>
-              <p className="mb-1.5 text-xs font-medium text-slate-600">Número</p>
-              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5 text-sm text-slate-900">
+              <p className="mb-1 text-xs font-medium text-slate-600">Número</p>
+              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-900">
                 {formatPhone(contactPhone)}
               </div>
             </div>
             <div>
               <label
                 htmlFor="contact-name"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-slate-600"
               >
                 Nome
               </label>
@@ -342,10 +339,78 @@ export function AIControlSidebar({
                 placeholder="Nome do cliente"
               />
             </div>
+            <button
+              type="button"
+              onClick={handleSaveContactData}
+              disabled={savingContactData}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingContactData ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Salvar nome
+            </button>
+          </div>
+        </div>
+
+        <div className={cardClass}>
+          <p className={sectionTitleClass}>Dados do agendamento</p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <div>
               <label
+                htmlFor="reservation-date"
+                className="mb-1 block text-xs font-medium text-slate-600"
+              >
+                Data
+              </label>
+              <input
+                id="reservation-date"
+                type="date"
+                value={editingReservationDate}
+                onChange={(event) => setEditingReservationDate(event.target.value)}
+                disabled={savingReservationDraft}
+                className={selectClass}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="reservation-time"
+                className="mb-1 block text-xs font-medium text-slate-600"
+              >
+                Horário
+              </label>
+              <input
+                id="reservation-time"
+                type="time"
+                value={editingReservationTime}
+                onChange={(event) => setEditingReservationTime(event.target.value)}
+                disabled={savingReservationDraft}
+                className={selectClass}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveReservationDraft}
+              disabled={savingReservationDraft}
+              className="col-span-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingReservationDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Salvar agendamento
+            </button>
+          </div>
+        </div>
+
+        <details className={cardClass}>
+          <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Mais opções
+          </summary>
+          <div className="mt-3 space-y-3">
+            <div className="grid grid-cols-1 gap-2">
+              <label
                 htmlFor="contact-email"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-slate-600"
               >
                 Email
               </label>
@@ -362,7 +427,7 @@ export function AIControlSidebar({
             <div>
               <label
                 htmlFor="contact-notes"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-slate-600"
               >
                 Observações
               </label>
@@ -371,176 +436,103 @@ export function AIControlSidebar({
                 value={editingNotes}
                 onChange={(event) => setEditingNotes(event.target.value)}
                 disabled={savingContactData}
-                rows={3}
+                rows={2}
                 className={`${selectClass} resize-none`}
-                placeholder="Anotações importantes do cliente"
+                placeholder="Anotações"
               />
             </div>
-            <button
-              type="button"
-              onClick={handleSaveContactData}
-              disabled={savingContactData}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {savingContactData ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : null}
-              Salvar dados do cliente
-            </button>
-          </div>
-        </div>
-
-        <div className={cardClass}>
-          <p className={sectionTitleClass}>Dados do agendamento</p>
-          <div className="mt-3 space-y-3">
-            <div>
-              <label
-                htmlFor="reservation-date"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
-              >
-                Data do agendamento
-              </label>
-              <input
-                id="reservation-date"
-                type="date"
-                value={editingReservationDate}
-                onChange={(event) => setEditingReservationDate(event.target.value)}
-                disabled={savingReservationDraft}
-                className={selectClass}
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="reservation-time"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
-              >
-                Horário do agendamento
-              </label>
-              <input
-                id="reservation-time"
-                type="time"
-                value={editingReservationTime}
-                onChange={(event) => setEditingReservationTime(event.target.value)}
-                disabled={savingReservationDraft}
-                className={selectClass}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleSaveReservationDraft}
-              disabled={savingReservationDraft}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {savingReservationDraft ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : null}
-              Salvar dados do agendamento
-            </button>
-          </div>
-        </div>
-
-        {showVehicleControls && (
-          <div className={cardClass}>
-            <p className={sectionTitleClass}>Veículo do contato</p>
-            <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-900">
-              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                <span className="text-slate-500">Modelo</span>
-                <span className="font-medium">{vehicleModel || "Não informado"}</span>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label
+                  htmlFor="waiting-human"
+                  className="mb-1 block text-xs font-medium text-slate-600"
+                >
+                  Humano
+                </label>
+                <select
+                  id="waiting-human"
+                  disabled={updatingHumanWaiting}
+                  value={isWaitingHuman ? "yes" : "no"}
+                  onChange={(event) => handleSetWaitingHuman(event.target.value === "yes")}
+                  className={selectClass}
+                >
+                  <option value="yes">Sim</option>
+                  <option value="no">Não</option>
+                </select>
               </div>
-              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                <span className="text-slate-500">Ano</span>
-                <span className="font-medium">{vehicleYear || "Não informado"}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
-                <span className="text-slate-500">KM</span>
-                <span className="font-medium">{vehicleKm || "Não informado"}</span>
-              </div>
+              {showVehicleControls && (
+                <div>
+                  <label
+                    htmlFor="car-in-shop"
+                    className="mb-1 block text-xs font-medium text-slate-600"
+                  >
+                    Na mecânica
+                  </label>
+                  <select
+                    id="car-in-shop"
+                    disabled={updatingWorkshop}
+                    value={carInWorkshop ? "yes" : "no"}
+                    onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
+                    className={selectClass}
+                  >
+                    <option value="yes">Sim</option>
+                    <option value="no">Não</option>
+                  </select>
+                </div>
+              )}
             </div>
-            <div className="mt-3">
-              <label
-                htmlFor="vehicle-oil-spec"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
-              >
-                Óleo
-              </label>
-              <select
-                id="vehicle-oil-spec"
-                disabled={updatingOil}
-                value={oilSpec}
-                onChange={(event) => handleSetOilSpec(event.target.value)}
-                className={selectClass}
-              >
-                <option value="">Não informado</option>
-                {showCustomOilValue ? (
-                  <option value={oilSpec}>{oilSpec} (salvo)</option>
-                ) : null}
-                {oilProducts.map((item) => {
-                  const value = item.model?.trim() ? item.model.trim() : item.name.trim();
-                  const label = item.model?.trim()
-                    ? `${item.model.trim()} - ${item.name}`
-                    : item.name;
-                  return (
-                    <option key={item.id} value={value}>
-                      {label}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </div>
-        )}
 
-        <div className={cardClass}>
-          <p className={sectionTitleClass}>Atendimento humano</p>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Marque quando a conversa estiver aguardando atendimento da equipe.
-          </p>
-          <div className="mt-3">
-            <label
-              htmlFor="waiting-human"
-              className="mb-1.5 block text-xs font-medium text-slate-600"
-            >
-              Aguardando atendimento humano
-            </label>
-            <select
-              id="waiting-human"
-              disabled={updatingHumanWaiting}
-              value={isWaitingHuman ? "yes" : "no"}
-              onChange={(event) => handleSetWaitingHuman(event.target.value === "yes")}
-              className={selectClass}
-            >
-              <option value="yes">Sim</option>
-              <option value="no">Não</option>
-            </select>
+            {showVehicleControls && (
+              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
+                <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
+                  <div>
+                    <p className="text-[11px] text-slate-500">Modelo</p>
+                    <p className="font-medium">{vehicleModel || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-500">Ano</p>
+                    <p className="font-medium">{vehicleYear || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-slate-500">KM</p>
+                    <p className="font-medium">{vehicleKm || "-"}</p>
+                  </div>
+                </div>
+                <div className="mt-2">
+                  <label
+                    htmlFor="vehicle-oil-spec"
+                    className="mb-1 block text-xs font-medium text-slate-600"
+                  >
+                    Óleo
+                  </label>
+                  <select
+                    id="vehicle-oil-spec"
+                    disabled={updatingOil}
+                    value={oilSpec}
+                    onChange={(event) => handleSetOilSpec(event.target.value)}
+                    className={selectClass}
+                  >
+                    <option value="">Não informado</option>
+                    {showCustomOilValue ? (
+                      <option value={oilSpec}>{oilSpec} (salvo)</option>
+                    ) : null}
+                    {oilProducts.map((item) => {
+                      const value = item.model?.trim() ? item.model.trim() : item.name.trim();
+                      const label = item.model?.trim()
+                        ? `${item.model.trim()} - ${item.name}`
+                        : item.name;
+                      return (
+                        <option key={item.id} value={value}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
-
-        {showVehicleControls && (
-          <div className={cardClass}>
-            <p className={sectionTitleClass}>Carro na mecânica</p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              Quando marcado como Sim, a IA fica desativada para atendimento humano.
-            </p>
-            <div className="mt-3">
-              <label
-                htmlFor="car-in-shop"
-                className="mb-1.5 block text-xs font-medium text-slate-600"
-              >
-                Status
-              </label>
-              <select
-                id="car-in-shop"
-                disabled={updatingWorkshop}
-                value={carInWorkshop ? "yes" : "no"}
-                onChange={(event) => handleSetCarInShop(event.target.value === "yes")}
-                className={selectClass}
-              >
-                <option value="yes">Sim</option>
-                <option value="no">Não</option>
-              </select>
-            </div>
-          </div>
-        )}
+        </details>
 
         <div
           className={`rounded-xl border px-4 py-3 shadow-sm ${
@@ -658,29 +650,29 @@ export function AIControlSidebar({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleResetConversation}
-          disabled={loading}
-          className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2.5 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <Trash2 className="h-4 w-4" />
-          Resetar conversa (teste)
-        </button>
+        <details className="rounded-lg border border-slate-200 bg-white p-2">
+          <summary className="cursor-pointer list-none px-1 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Ferramentas
+          </summary>
+          <div className="mt-2 space-y-2">
+            <button
+              type="button"
+              onClick={handleResetConversation}
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 className="h-4 w-4" />
+              Resetar conversa
+            </button>
 
-        <Link
-          href={`/dashboard/logs-ia?conversationId=${conversationId}`}
-          className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
-        >
-          Ver logs IA desta conversa
-        </Link>
-
-        <div className="mt-auto rounded-lg border border-slate-200 bg-white p-3">
-          <p className="text-xs leading-relaxed text-slate-600">
-            Ao responder pela plataforma ou pelo WhatsApp, a IA é desativada
-            automaticamente por 3 horas nesta conversa.
-          </p>
-        </div>
+            <Link
+              href={`/dashboard/logs-ia?conversationId=${conversationId}`}
+              className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+            >
+              Ver logs da IA
+            </Link>
+          </div>
+        </details>
       </div>
     </aside>
   );
