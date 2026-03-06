@@ -399,10 +399,20 @@ function prettifyVehicleLabel(value: string): string {
 
 function looksLikeVehicleCoverageQuestion(text: string): boolean {
   const t = normalizeForSearch(text);
+  const asksIfHandlesVehicle =
+    /\b(voces|você|vc|vocês)\b.*\b(arruma\w*|conserta\w*|mexe\w*|pega\w*|trabalha\w*\s+com)\b/.test(
+      t
+    ) ||
+    /\b(arruma\w*|conserta\w*|mexe\w*|pega\w*|trabalha\w*\s+com)\b.*\b(carro|veiculo|modelo|marca)\b/.test(
+      t
+    ) ||
+    /\b(arruma\w*|conserta\w*|mexe\w*|pega\w*)\b.*\bisso\b/.test(t);
+
   return (
     /\b(voces|você|vc|vocês)\b.*\b(atende|atendem|aceita|aceitam)\b/.test(t) ||
     /\b(atende|atendem|aceita|aceitam)\b.*\b(carro|veiculo|modelo|marca)\b/.test(t) ||
-    /\b(quais|qual)\b.*\b(carros|modelos|anos)\b.*\b(atende|atendem|aceita|aceitam)\b/.test(t)
+    /\b(quais|qual)\b.*\b(carros|modelos|anos)\b.*\b(atende|atendem|aceita|aceitam)\b/.test(t) ||
+    asksIfHandlesVehicle
   );
 }
 
