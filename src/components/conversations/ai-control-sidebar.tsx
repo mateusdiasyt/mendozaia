@@ -17,6 +17,7 @@ import {
   setConversationHumanWaiting,
   setConversationVehicleOil,
   updateConversationContactData,
+  updateConversationReservationDraft,
   resetConversationForTesting,
 } from "@/app/actions/messages";
 import { useRouter } from "next/navigation";
@@ -33,6 +34,8 @@ interface AIControlSidebarProps {
   vehicleYear?: string | null;
   vehicleKm?: string | null;
   vehicleOilSpec?: string | null;
+  reservationDateStr?: string | null;
+  reservationTimeStr?: string | null;
   oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
   waitingHuman?: boolean;
@@ -54,6 +57,8 @@ export function AIControlSidebar({
   vehicleYear,
   vehicleKm,
   vehicleOilSpec,
+  reservationDateStr = null,
+  reservationTimeStr = null,
   oilProducts = [],
   carInShop = false,
   waitingHuman = false,
@@ -79,6 +84,13 @@ export function AIControlSidebar({
   const [editingEmail, setEditingEmail] = useState(contactEmail ?? "");
   const [editingNotes, setEditingNotes] = useState(contactNotes ?? "");
   const [savingContactData, setSavingContactData] = useState(false);
+  const [editingReservationDate, setEditingReservationDate] = useState(
+    reservationDateStr ?? ""
+  );
+  const [editingReservationTime, setEditingReservationTime] = useState(
+    reservationTimeStr ?? ""
+  );
+  const [savingReservationDraft, setSavingReservationDraft] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -111,6 +123,14 @@ export function AIControlSidebar({
   useEffect(() => {
     setEditingNotes(contactNotes ?? "");
   }, [contactNotes]);
+
+  useEffect(() => {
+    setEditingReservationDate(reservationDateStr ?? "");
+  }, [reservationDateStr]);
+
+  useEffect(() => {
+    setEditingReservationTime(reservationTimeStr ?? "");
+  }, [reservationTimeStr]);
 
   const isDisabledByTime = mounted && !!(until && until > new Date());
   const isDisabledByColumn = inHumanColumn || carInWorkshop || isWaitingHuman;
@@ -244,6 +264,21 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleSaveReservationDraft() {
+    setSavingReservationDraft(true);
+    try {
+      await updateConversationReservationDraft(conversationId, {
+        dateStr: editingReservationDate || null,
+        timeStr: editingReservationTime || null,
+      });
+      router.refresh();
+    } catch {
+      //
+    } finally {
+      setSavingReservationDraft(false);
+    }
+  }
+
   const formatPhone = (phone: string | null | undefined): string => {
     if (!phone) return "Não informado";
     const digits = phone.replace(/\D/g, "");
@@ -347,6 +382,55 @@ export function AIControlSidebar({
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : null}
               Salvar dados do cliente
+            </button>
+          </div>
+        </div>
+
+        <div className={cardClass}>
+          <p className={sectionTitleClass}>Dados do agendamento</p>
+          <div className="mt-3 space-y-3">
+            <div>
+              <label
+                htmlFor="reservation-date"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
+                Data do agendamento
+              </label>
+              <input
+                id="reservation-date"
+                type="date"
+                value={editingReservationDate}
+                onChange={(event) => setEditingReservationDate(event.target.value)}
+                disabled={savingReservationDraft}
+                className={selectClass}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="reservation-time"
+                className="mb-1.5 block text-xs font-medium text-slate-600"
+              >
+                Horário do agendamento
+              </label>
+              <input
+                id="reservation-time"
+                type="time"
+                value={editingReservationTime}
+                onChange={(event) => setEditingReservationTime(event.target.value)}
+                disabled={savingReservationDraft}
+                className={selectClass}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveReservationDraft}
+              disabled={savingReservationDraft}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {savingReservationDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              Salvar dados do agendamento
             </button>
           </div>
         </div>

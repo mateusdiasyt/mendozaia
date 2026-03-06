@@ -267,6 +267,92 @@ export async function updateConversationContactData(
   return { success: true };
 }
 
+export async function updateConversationReservationDraft(
+  conversationId: string,
+  data: {
+    dateStr?: string | null;
+    timeStr?: string | null;
+  }
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
+
+  const [conv] = await db
+    .select({
+      id: conversations.id,
+      conversationStateMetadata: conversations.conversationStateMetadata,
+    })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
+
+  const normalizeDate = (value: string | null | undefined) => {
+    const trimmed = (value ?? "").trim();
+    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
+  };
+  const normalizeTime = (value: string | null | undefined) => {
+    const trimmed = (value ?? "").trim();
+    return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null;
+  };
+
+  const dateStr = normalizeDate(data.dateStr);
+  const timeStr = normalizeTime(data.timeStr);
+  const currentMetadata =
+    (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
+  const nextMetadata: Record<string, unknown> = { ...currentMetadata };
+  const nowIso = new Date().toISOString();
+
+  if (dateStr) {
+    const currentPeriodFlow =
+      (currentMetadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
+    nextMetadata.reservationPeriodFlow = {
+      ...currentPeriodFlow,
+      dateStr,
+      updatedAt: nowIso,
+    };
+  } else {
+    delete nextMetadata.reservationPeriodFlow;
+  }
+
+  if (dateStr && timeStr) {
+    const currentPending =
+      (currentMetadata.pendingReservation as Record<string, unknown> | undefined) ?? {};
+    nextMetadata.pendingReservation = {
+      dateStr,
+      timeStr,
+      durationMinutes:
+        typeof currentPending.durationMinutes === "number"
+          ? currentPending.durationMinutes
+          : 60,
+      updatedAt: nowIso,
+    };
+  } else {
+    delete nextMetadata.pendingReservation;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  return { success: true, dateStr, timeStr };
+}
+
 export async function sendMessage(conversationId: string, text: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("Não autorizado");

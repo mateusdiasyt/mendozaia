@@ -116,8 +116,22 @@ export default async function ConversaPage({
   const vehicleYear = memoryByKey.vehicle_year ?? null;
   const vehicleKm = memoryByKey.vehicle_km ?? null;
   const vehicleOilSpec = memoryByKey.vehicle_oil_spec ?? null;
+  const conversationMetadata =
+    (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
+  const pendingReservation =
+    (conversationMetadata.pendingReservation as Record<string, unknown> | undefined) ?? {};
+  const reservationPeriodFlow =
+    (conversationMetadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
+  const reservationDateStr =
+    typeof pendingReservation.dateStr === "string"
+      ? pendingReservation.dateStr
+      : typeof reservationPeriodFlow.dateStr === "string"
+        ? reservationPeriodFlow.dateStr
+        : null;
+  const reservationTimeStr =
+    typeof pendingReservation.timeStr === "string" ? pendingReservation.timeStr : null;
   const workshopFlow =
-    (conv.conversationStateMetadata as Record<string, unknown> | undefined)?.workshopFlow as
+    (conversationMetadata.workshopFlow as Record<string, unknown> | undefined) as
       | Record<string, unknown>
       | undefined;
   const carInShop = workshopFlow?.carInShop === true;
@@ -210,6 +224,8 @@ export default async function ConversaPage({
           vehicleYear={vehicleYear}
           vehicleKm={vehicleKm}
           vehicleOilSpec={vehicleOilSpec}
+          reservationDateStr={reservationDateStr}
+          reservationTimeStr={reservationTimeStr}
           oilProducts={oilProducts}
           carInShop={carInShop}
           waitingHuman={waitingHuman}

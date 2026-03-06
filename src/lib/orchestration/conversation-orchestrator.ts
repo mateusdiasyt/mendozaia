@@ -1294,6 +1294,16 @@ function getReservationPeriodSelection(
   return { dateStr, period };
 }
 
+function getKnownReservationDate(
+  metadata: Record<string, unknown>,
+  pendingReservation?: OrchestrationContext["pendingReservation"]
+): string | null {
+  if (pendingReservation?.dateStr) return pendingReservation.dateStr;
+  const periodSelection = getReservationPeriodSelection(metadata);
+  if (periodSelection?.dateStr) return periodSelection.dateStr;
+  return null;
+}
+
 type RestaurantReservationFlow = {
   dateStr?: string;
   timeStr?: string;
@@ -5973,6 +5983,7 @@ export async function processInboundMessage(
       intakeStage === "awaiting_reservation_profile";
 
     if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
+      const parsedDateOnlyForPending = extractReservationDateOnly(ctx.messageContent);
       const parsedForPending =
         extractReservationDateTime(ctx.messageContent) ??
         (await findLatestInboundReservationDateTime(ctx.conversationId));
@@ -5987,6 +5998,13 @@ export async function processInboundMessage(
             }
           : ctx.pendingReservation ?? null
       );
+      if (parsedDateOnlyForPending) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          { dateStr: parsedDateOnlyForPending.dateStr }
+        );
+      }
       const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
       const promptState = getPromptRepeatState(conversationMetadata, promptKey);
       await sendMessage(
@@ -6384,7 +6402,7 @@ export async function processInboundMessage(
       const friendlyDate = formatDateForPtBr(parsedDateOnly.dateStr);
       await sendMessage(
         ctx.conversationId,
-        `Perfeito, para *${friendlyDate}*. Você prefere *manhã* ou *tarde*? Atendemos das *${reservationWindowLabel}*.`
+        `Perfeito, para *${friendlyDate}*. Qual horário você prefere? Atendemos das *${reservationWindowLabel}*.`
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_datetime",
@@ -6931,8 +6949,10 @@ export async function processInboundMessage(
         };
       }
 
-      const reply =
-        "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
+      const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
+      const reply = knownDate
+        ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(knownDate)}*, qual horário prefere?`
+        : "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
       await sendMessage(ctx.conversationId, reply);
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_datetime",
