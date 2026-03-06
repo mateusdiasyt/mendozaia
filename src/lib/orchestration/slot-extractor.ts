@@ -198,10 +198,33 @@ function extractModelo(text: string): string | undefined {
   }
   let candidate: string | undefined;
 
+  // Frases comuns: "tenho um onix 2022", "estou com um gol 2018", etc.
+  if (!candidate && ano) {
+    const ownershipBeforeYear = trimmed.match(
+      new RegExp(
+        String.raw`\b(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com|uso|dirijo)\s+(?:um|uma|o|a)?\s*([a-záàâãéêíóôõúç0-9\s-]{2,40})\s+${ano}\b`,
+        "i"
+      )
+    );
+    if (ownershipBeforeYear && !/^\d+$/.test(ownershipBeforeYear[1].trim())) {
+      candidate = ownershipBeforeYear[1].trim();
+    }
+  }
+
+  // Variante sem ano explícito próximo: "tenho um onix com 80mil km"
+  if (!candidate) {
+    const ownershipModel = trimmed.match(
+      /\b(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com|uso|dirijo)\s+(?:um|uma|o|a)?\s*([a-záàâãéêíóôõúç0-9\s-]{2,30})(?=\s+(?:com|ano|km|quilometragem)\b|[,.!?;]|$)/i
+    );
+    if (ownershipModel && !/^\d+$/.test(ownershipModel[1].trim())) {
+      candidate = ownershipModel[1].trim();
+    }
+  }
+
   const beforeYear = ano
     ? trimmed.match(new RegExp(`(.+?)\\s+${ano}\\b`, "i"))
     : null;
-  if (beforeYear) {
+  if (!candidate && beforeYear) {
     candidate = beforeYear[1].replace(/\b(é|um|uma|o|a)\s+/gi, "").trim();
   }
 
