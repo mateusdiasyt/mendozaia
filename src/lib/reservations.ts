@@ -16,6 +16,12 @@ function toMinutes(time: string): number {
   return h * 60 + m;
 }
 
+function toTimeStrFromMinutes(totalMinutes: number): string {
+  const hour = Math.floor(totalMinutes / 60);
+  const minute = totalMinutes % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 function isValidDateForSchedule(
   dateStr: string,
   workingDays: number[],
@@ -33,7 +39,19 @@ export async function checkAvailabilityForOrg(
   dateStr: string,
   timeStr: string,
   durationMinutes: number = 60
-): Promise<{ available: boolean; message: string }> {
+): Promise<{
+  available: boolean;
+  message: string;
+  reason:
+    | "ok"
+    | "reservations_disabled"
+    | "date_not_allowed"
+    | "outside_business_hours"
+    | "slot_unavailable";
+  start?: string;
+  end?: string;
+  suggestedSlots?: string[];
+}> {
   const [org] = await db
     .select({ settings: organizations.settings })
     .from(organizations)
@@ -46,7 +64,11 @@ export async function checkAvailabilityForOrg(
   const businessHours =
     (settings.businessHours as Record<string, unknown> | undefined) ?? {};
   if (!(settings.reservationsEnabled as boolean)) {
-    return { available: false, message: "Sistema de reservas não está ativado" };
+    return {
+      available: false,
+      message: "Sistema de reservas não está ativado",
+      reason: "reservations_disabled",
+    };
   }
 
   const start = (schedule.start as string | undefined) || (businessHours.start as string | undefined) || "09:00";
@@ -59,7 +81,13 @@ export async function checkAvailabilityForOrg(
     : [];
 
   if (!isValidDateForSchedule(dateStr, workingDays, blockedDates)) {
-    return { available: false, message: "Não atendemos nessa data." };
+    return {
+      available: false,
+      message: "Não atendemos nessa data.",
+      reason: "date_not_allowed",
+      start,
+      end,
+    };
   }
 
   const year = parseInt(dateStr.slice(0, 4), 10);
@@ -83,6 +111,9 @@ export async function checkAvailabilityForOrg(
     return {
       available: false,
       message: `Atendimento disponível apenas entre ${start} e ${end}.`,
+      reason: "outside_business_hours",
+      start,
+      end,
     };
   }
 
@@ -111,11 +142,45 @@ export async function checkAvailabilityForOrg(
     return r.startAt < endAt && rEnd > startAt;
   });
 
+  const suggestedSlots =
+    hasOverlap
+      ? (() => {
+          const available: string[] = [];
+          for (
+            let candidateStart = openMinutes;
+            candidateStart + durationMinutes <= closeMinutes;
+            candidateStart += 60
+          ) {
+            if (candidateStart === startMinutes) continue;
+            const candidateEnd = candidateStart + durationMinutes;
+            const overlaps = dayReservations.some((r) => {
+              const reservationStartMinutes =
+                r.startAt.getHours() * 60 + r.startAt.getMinutes();
+              const reservationDuration = r.durationMinutes || 60;
+              const reservationEndMinutes = reservationStartMinutes + reservationDuration;
+              return (
+                reservationStartMinutes < candidateEnd &&
+                reservationEndMinutes > candidateStart
+              );
+            });
+            if (!overlaps) {
+              available.push(toTimeStrFromMinutes(candidateStart));
+            }
+            if (available.length >= 5) break;
+          }
+          return available;
+        })()
+      : undefined;
+
   return {
     available: !hasOverlap,
     message: hasOverlap
       ? "Não há disponibilidade neste horário."
       : "Horário disponível para reserva.",
+    reason: hasOverlap ? "slot_unavailable" : "ok",
+    start,
+    end,
+    suggestedSlots,
   };
 }
 

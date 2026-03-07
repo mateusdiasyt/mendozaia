@@ -89,6 +89,7 @@ function containsDateOrTimeHint(text: string): boolean {
   return (
     /\b\d{1,2}[:h]\d{0,2}\b/.test(t) ||
     /\b(hoje|amanha|dia\s+\d{1,2})\b/.test(t) ||
+    /\b(segunda(?:[\s-]?feira)?|terca(?:[\s-]?feira)?|quarta(?:[\s-]?feira)?|quinta(?:[\s-]?feira)?|sexta(?:[\s-]?feira)?|sabado|domingo)\b/.test(t) ||
     /\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t) ||
     /\b\d{2}\/\d{2}(?:\/\d{2,4})?\b/.test(t)
   );
@@ -1127,6 +1128,38 @@ function extractDate(text: string, now: Date): { year: number; month: number; da
     return { year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() };
   }
 
+  const weekdayMap: Record<string, number> = {
+    domingo: 0,
+    segunda: 1,
+    terca: 2,
+    quarta: 3,
+    quinta: 4,
+    sexta: 5,
+    sabado: 6,
+  };
+  const weekdayMatch = normalizedText.match(
+    /\b(segunda(?:[\s-]?feira)?|terca(?:[\s-]?feira)?|quarta(?:[\s-]?feira)?|quinta(?:[\s-]?feira)?|sexta(?:[\s-]?feira)?|sabado|domingo)\b/i
+  );
+  if (weekdayMatch) {
+    const normalizedWeekday = weekdayMatch[1]
+      .replace(/[\s-]*feira$/i, "")
+      .trim()
+      .toLowerCase();
+    const targetDay = weekdayMap[normalizedWeekday];
+    if (typeof targetDay === "number") {
+      const currentDay = now.getDay();
+      let diffDays = (targetDay - currentDay + 7) % 7;
+      if (diffDays === 0) diffDays = 7;
+      const d = new Date(now);
+      d.setDate(d.getDate() + diffDays);
+      return {
+        year: d.getFullYear(),
+        month: d.getMonth() + 1,
+        day: d.getDate(),
+      };
+    }
+  }
+
   // Ex.: "dia 26 as 14h" (sem mês explícito) -> assume mês atual, ou próximo mês se já passou
   const dayOnly = normalizedText.match(/\bdia\s+(\d{1,2})\b/i);
   if (dayOnly) {
@@ -2033,9 +2066,33 @@ function extractLooseVehicleModelFromReply(text: string): string | undefined {
   return undefined;
 }
 
-function buildAvailabilityReply(parsed: { dateStr: string; timeStr: string }, available: boolean): string {
+function buildAvailabilityReply(
+  parsed: { dateStr: string; timeStr: string },
+  availability: {
+    available: boolean;
+    reason?: string;
+    start?: string;
+    end?: string;
+    suggestedSlots?: string[];
+  }
+): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
-  return available
+  if (availability.available) {
+    return `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`;
+  }
+  if (availability.reason === "outside_business_hours") {
+    const start = availability.start ?? "09:00";
+    const end = availability.end ?? "17:00";
+    return `Esse horário fica fora do nosso atendimento. Atendemos das ${start} às ${end}. Quer agendar em outro horário nesse intervalo?`;
+  }
+  if (availability.reason === "slot_unavailable") {
+    const options = availability.suggestedSlots?.slice(0, 4) ?? [];
+    if (options.length > 0) {
+      return `Esse horário em ${friendlyDate} já está ocupado. Tenho disponível: ${options.join(", ")}. Qual você prefere?`;
+    }
+    return `Esse horário em ${friendlyDate} não está disponível. Se quiser, me diga outro horário que eu consulto agora.`;
+  }
+  return availability.available
     ? `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`
     : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
 }
@@ -3405,7 +3462,10 @@ export async function processInboundMessage(
     let nextMetadata = conversationMetadata;
     let changed = false;
 
-    if (parsedDateOnlyHint?.dateStr) {
+    const canPersistDateOnlyHint =
+      parsedDateOnlyHint?.dateStr &&
+      isDateAllowedForReservation(parsedDateOnlyHint.dateStr, ctx.reservationSchedule);
+    if (canPersistDateOnlyHint && parsedDateOnlyHint?.dateStr) {
       nextMetadata = {
         ...nextMetadata,
         reservationPeriodFlow: {
@@ -3417,7 +3477,15 @@ export async function processInboundMessage(
       changed = true;
     }
 
-    if (parsedDateTimeHint?.dateStr && parsedDateTimeHint?.timeStr) {
+    const canPersistDateTimeHint =
+      parsedDateTimeHint?.dateStr &&
+      parsedDateTimeHint?.timeStr &&
+      isDateAllowedForReservation(parsedDateTimeHint.dateStr, ctx.reservationSchedule) &&
+      isReservationTimeAllowed(parsedDateTimeHint.timeStr, {
+        start: ctx.reservationSchedule?.start ?? "09:00",
+        end: ctx.reservationSchedule?.end ?? "17:00",
+      });
+    if (canPersistDateTimeHint && parsedDateTimeHint?.dateStr && parsedDateTimeHint?.timeStr) {
       nextMetadata = {
         ...nextMetadata,
         reservationPeriodFlow: {
@@ -6741,7 +6809,7 @@ export async function processInboundMessage(
       };
       await sendMessage(
         ctx.conversationId,
-        buildAvailabilityReply(parsedWithContext, availability.available)
+        buildAvailabilityReply(parsedWithContext, availability)
       );
       await savePendingReservation(
         ctx.conversationId,
@@ -6789,6 +6857,11 @@ export async function processInboundMessage(
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
+    const reservationWindow = {
+      start: ctx.reservationSchedule?.start ?? "09:00",
+      end: ctx.reservationSchedule?.end ?? "17:00",
+    };
+    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
     const missingVehicle = ctx.usesVehicleSlots
       ? getMissingSlots(ctx.vehicleSlots ?? {})
       : [];
@@ -6797,6 +6870,112 @@ export async function processInboundMessage(
       ctx.botConfig?.segment === "restaurante" &&
       !getRestaurantReservationFlow(conversationMetadata)?.peopleCount &&
       !missingName;
+
+    const parsedNewDateTime = extractReservationDateTime(ctx.messageContent);
+    const parsedNewDateOnly = parsedNewDateTime
+      ? null
+      : extractReservationDateOnly(ctx.messageContent);
+    const parsedNewTimeOnly = extractTime(ctx.messageContent);
+    const hasNewDateTimeHint = containsDateOrTimeHint(ctx.messageContent);
+    const hasPendingDateOrTimeUpdate =
+      hasNewDateTimeHint &&
+      !!(
+        parsedNewDateTime ||
+        parsedNewDateOnly ||
+        parsedNewTimeOnly
+      );
+
+    if (hasPendingDateOrTimeUpdate) {
+      const candidateDateStr =
+        parsedNewDateTime?.dateStr ??
+        parsedNewDateOnly?.dateStr ??
+        pending.dateStr;
+      const candidateTimeStr = parsedNewDateTime?.timeStr
+        ? parsedNewDateTime.timeStr
+        : parsedNewTimeOnly
+          ? toTimeStr(parsedNewTimeOnly.hour, parsedNewTimeOnly.minute)
+          : pending.timeStr;
+
+      if (!isDateAllowedForReservation(candidateDateStr, ctx.reservationSchedule)) {
+        await savePendingReservation(ctx.conversationId, conversationMetadata, null);
+        await persistReservationPeriodSelection(ctx.conversationId, conversationMetadata, null);
+        await sendMessage(
+          ctx.conversationId,
+          `Nessa data não temos atendimento disponível. Atendemos em nossa agenda (${reservationWindowLabel}). Me diga outro dia e horário para eu consultar agora.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data atualizada pelo cliente, porém fora dos dias de atendimento",
+          silence: false,
+        };
+      }
+
+      if (!isReservationTimeAllowed(candidateTimeStr, reservationWindow)) {
+        await savePendingReservation(ctx.conversationId, conversationMetadata, null);
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          { dateStr: candidateDateStr }
+        );
+        await sendMessage(
+          ctx.conversationId,
+          `Atendemos das *${reservationWindowLabel}*. Qual horário você prefere dentro desse intervalo para *${formatDateForPtBr(candidateDateStr)}*?`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data/horário atualizados; horário fora da janela de atendimento",
+          silence: false,
+        };
+      }
+
+      const availability = await checkAvailabilityForOrg(
+        ctx.organizationId,
+        candidateDateStr,
+        candidateTimeStr,
+        pending.durationMinutes
+      );
+      const parsedCandidate = {
+        dateStr: candidateDateStr,
+        timeStr: candidateTimeStr,
+      };
+
+      await sendMessage(
+        ctx.conversationId,
+        buildAvailabilityReply(parsedCandidate, availability)
+      );
+      await savePendingReservation(
+        ctx.conversationId,
+        conversationMetadata,
+        availability.available
+          ? {
+              dateStr: candidateDateStr,
+              timeStr: candidateTimeStr,
+              durationMinutes: pending.durationMinutes,
+            }
+          : null
+      );
+      if (availability.available) {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+      } else {
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          { dateStr: candidateDateStr }
+        );
+      }
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Reserva pendente atualizada com nova data/horário informados pelo cliente",
+        silence: false,
+      };
+    }
 
     if (!looksLikeReservationConfirmation(ctx.messageContent)) {
       if (missingRestaurantPeople) {
@@ -7090,7 +7269,7 @@ export async function processInboundMessage(
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability.available);
+      const reply = buildAvailabilityReply(parsed, availability);
 
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
@@ -7245,7 +7424,7 @@ export async function processInboundMessage(
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability.available);
+      const reply = buildAvailabilityReply(parsed, availability);
 
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
@@ -7478,7 +7657,7 @@ export async function processInboundMessage(
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability.available);
+      const reply = buildAvailabilityReply(parsed, availability);
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
         ctx.conversationId,
