@@ -4374,7 +4374,15 @@ export async function processInboundMessage(
   const allowSingleWordName =
     isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
-  const canCaptureNameNow = isAwaitingNameStage;
+  const canCaptureNameNow =
+    isAwaitingNameStage ||
+    (!contactName &&
+      (
+        intakeStage === "awaiting_reservation_profile" ||
+        reservationFlow.collectionStage === "collect_profile" ||
+        isPendingWithoutName ||
+        isReservationProfileCollection
+      ));
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(intentProbeText, {
