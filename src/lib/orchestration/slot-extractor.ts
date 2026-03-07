@@ -23,7 +23,13 @@ const INVALID_MODELO_TERMS = new Set([
   "as",
   "às",
   "dia",
-]);
+  "olhada",
+  "olhar",
+  "atendimento",
+  "agenda",
+  "agendamento",
+  "agendar",
+  ]);
 
 const ALLOWED_SHORT_MODELS = new Set([
   "gol",
@@ -48,6 +54,12 @@ const INVALID_MODELO_PHRASES = [
   "serviço",
   "agendar",
   "agendamento",
+  "dar uma olhada",
+  "da uma olhada",
+  "dá uma olhada",
+  "dar olhada",
+  "pra dar uma olhada",
+  "para dar uma olhada",
   "meu carro",
   "do meu carro",
 ];
