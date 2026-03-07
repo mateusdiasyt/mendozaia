@@ -5407,9 +5407,6 @@ export async function processInboundMessage(
     !looksLikeRestaurantReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
-    const missingVehicleAfterGreeting = getMissingSlots(ctx.vehicleSlots ?? {});
-    const mustCollectVehicleBeforeNeed =
-      hasKnownName && missingVehicleAfterGreeting.length > 0;
     const botName = ctx.businessProfile?.botName?.trim() || "";
     const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
@@ -5458,6 +5455,9 @@ export async function processInboundMessage(
     !looksLikeReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
+    const missingVehicleAfterGreeting = getMissingSlots(ctx.vehicleSlots ?? {});
+    const mustCollectVehicleBeforeNeed =
+      hasKnownName && missingVehicleAfterGreeting.length > 0;
     const botName = ctx.businessProfile?.botName?.trim() || "";
     const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
