@@ -353,6 +353,59 @@ export function AIControlSidebar({
           </div>
         </div>
 
+        {showVehicleControls && (
+          <div className={cardClass}>
+            <p className={sectionTitleClass}>Veículo do contato</p>
+            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2">
+              <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
+                <div>
+                  <p className="text-[11px] text-slate-500">Modelo</p>
+                  <p className="font-medium">{vehicleModel || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">Ano</p>
+                  <p className="font-medium">{vehicleYear || "-"}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] text-slate-500">KM</p>
+                  <p className="font-medium">{vehicleKm || "-"}</p>
+                </div>
+              </div>
+              <div className="mt-2">
+                <label
+                  htmlFor="vehicle-oil-spec"
+                  className="mb-1 block text-xs font-medium text-slate-600"
+                >
+                  Óleo
+                </label>
+                <select
+                  id="vehicle-oil-spec"
+                  disabled={updatingOil}
+                  value={oilSpec}
+                  onChange={(event) => handleSetOilSpec(event.target.value)}
+                  className={selectClass}
+                >
+                  <option value="">Não informado</option>
+                  {showCustomOilValue ? (
+                    <option value={oilSpec}>{oilSpec} (salvo)</option>
+                  ) : null}
+                  {oilProducts.map((item) => {
+                    const value = item.model?.trim() ? item.model.trim() : item.name.trim();
+                    const label = item.model?.trim()
+                      ? `${item.model.trim()} - ${item.name}`
+                      : item.name;
+                    return (
+                      <option key={item.id} value={value}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className={cardClass}>
           <p className={sectionTitleClass}>Dados do agendamento</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -482,55 +535,6 @@ export function AIControlSidebar({
               )}
             </div>
 
-            {showVehicleControls && (
-              <div className="rounded-lg border border-slate-100 bg-slate-50 p-2">
-                <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
-                  <div>
-                    <p className="text-[11px] text-slate-500">Modelo</p>
-                    <p className="font-medium">{vehicleModel || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-500">Ano</p>
-                    <p className="font-medium">{vehicleYear || "-"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[11px] text-slate-500">KM</p>
-                    <p className="font-medium">{vehicleKm || "-"}</p>
-                  </div>
-                </div>
-                <div className="mt-2">
-                  <label
-                    htmlFor="vehicle-oil-spec"
-                    className="mb-1 block text-xs font-medium text-slate-600"
-                  >
-                    Óleo
-                  </label>
-                  <select
-                    id="vehicle-oil-spec"
-                    disabled={updatingOil}
-                    value={oilSpec}
-                    onChange={(event) => handleSetOilSpec(event.target.value)}
-                    className={selectClass}
-                  >
-                    <option value="">Não informado</option>
-                    {showCustomOilValue ? (
-                      <option value={oilSpec}>{oilSpec} (salvo)</option>
-                    ) : null}
-                    {oilProducts.map((item) => {
-                      const value = item.model?.trim() ? item.model.trim() : item.name.trim();
-                      const label = item.model?.trim()
-                        ? `${item.model.trim()} - ${item.name}`
-                        : item.name;
-                      return (
-                        <option key={item.id} value={value}>
-                          {label}
-                        </option>
-                      );
-                    })}
-                  </select>
-                </div>
-              </div>
-            )}
           </div>
         </details>
 
