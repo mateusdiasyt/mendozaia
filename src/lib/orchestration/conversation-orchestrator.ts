@@ -3764,11 +3764,25 @@ export async function processInboundMessage(
         );
       } else {
         const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
-        const dateLabel = knownDate ? ` para *${formatDateForPtBr(knownDate)}*` : "";
-        await sendMessage(
-          ctx.conversationId,
-          `Perfeito! Vamos agendar${dateLabel}. Qual horario voce prefere?`
-        );
+        const reservationWindowLabel = `${
+          ctx.reservationSchedule?.start ?? "09:00"
+        } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
+        if (knownDate && !isDateAllowedForReservation(knownDate, ctx.reservationSchedule)) {
+          await sendMessage(
+            ctx.conversationId,
+            buildDateClosedSuggestionReply(
+              knownDate,
+              reservationWindowLabel,
+              ctx.reservationSchedule
+            )
+          );
+        } else {
+          const dateLabel = knownDate ? ` para *${formatDateForPtBr(knownDate)}*` : "";
+          await sendMessage(
+            ctx.conversationId,
+            `Perfeito! Vamos agendar${dateLabel}. Qual horario voce prefere?`
+          );
+        }
       }
       return {
         didReply: true,
@@ -7459,6 +7473,37 @@ export async function processInboundMessage(
         (await findLatestInboundReservationDateOnly(ctx.conversationId))?.dateStr ??
         null;
       const effectiveKnownDate = knownDate ?? knownDateFromRecentMessage;
+      const reservationWindowLabel = `${
+        ctx.reservationSchedule?.start ?? "09:00"
+      } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
+      if (
+        effectiveKnownDate &&
+        !isDateAllowedForReservation(effectiveKnownDate, ctx.reservationSchedule)
+      ) {
+        await sendMessage(
+          ctx.conversationId,
+          buildDateClosedSuggestionReply(
+            effectiveKnownDate,
+            reservationWindowLabel,
+            ctx.reservationSchedule
+          )
+        );
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_datetime",
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data conhecida indisponível; solicitando nova data",
+          silence: false,
+        };
+      }
       const reply = knownDate
         ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(knownDate)}*, qual horário prefere?`
         : "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
