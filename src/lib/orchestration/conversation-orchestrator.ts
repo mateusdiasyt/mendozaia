@@ -4612,20 +4612,79 @@ export async function processInboundMessage(
     !hasActiveOilFlow &&
     !hasActiveReservationFlow
   ) {
+    const vehicleSlotsFromVehicleStage = { ...vehicleSlotsFromCurrentMessage };
+    if (!vehicleSlotsFromVehicleStage.modelo) {
+      const looseVehicleModel = extractLooseVehicleModelFromReply(ctx.messageContent);
+      if (looseVehicleModel) {
+        vehicleSlotsFromVehicleStage.modelo = looseVehicleModel;
+      }
+    }
+    const mergedVehicleSlotsForVehicleStage = mergeVehicleSlots(
+      ctx.vehicleSlots ?? {},
+      vehicleSlotsFromVehicleStage
+    );
+    if (
+      JSON.stringify(mergedVehicleSlotsForVehicleStage) !==
+      JSON.stringify(ctx.vehicleSlots ?? {})
+    ) {
+      conversationMetadata = {
+        ...conversationMetadata,
+        vehicleSlots: mergedVehicleSlotsForVehicleStage,
+        vehicleSlotsUpdatedAt: new Date().toISOString(),
+      };
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: conversationMetadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      if (mergedVehicleSlotsForVehicleStage.modelo) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_model",
+          mergedVehicleSlotsForVehicleStage.modelo
+        );
+      }
+      if (mergedVehicleSlotsForVehicleStage.ano) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_year",
+          String(mergedVehicleSlotsForVehicleStage.ano)
+        );
+      }
+      if (mergedVehicleSlotsForVehicleStage.km) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_km",
+          String(mergedVehicleSlotsForVehicleStage.km)
+        );
+      }
+    }
+
     const requiresFullVehicleProfile =
       reservationContext.serviceName === "Revisão" ||
       reservationContext.serviceName === "Troca de Óleo";
     const hasVehicleProfileForCurrentNeed = requiresFullVehicleProfile
-      ? hasFullVehicleProfile
-      : hasModelAndYearProfile;
+      ? hasAllVehicleSlots(mergedVehicleSlotsForVehicleStage)
+      : !!(
+          mergedVehicleSlotsForVehicleStage.modelo &&
+          mergedVehicleSlotsForVehicleStage.ano
+        );
     if (hasVehicleProfileForCurrentNeed) {
       const vehicleLabel = [
-        ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
-        ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
+        mergedVehicleSlotsForVehicleStage.modelo
+          ? mergedVehicleSlotsForVehicleStage.modelo
+          : null,
+        mergedVehicleSlotsForVehicleStage.ano
+          ? String(mergedVehicleSlotsForVehicleStage.ano)
+          : null,
       ]
         .filter(Boolean)
         .join(" ");
-      const kmHint = ctx.vehicleSlots?.km ? "" : "\nSe souber, me passe também o *km* para deixar o orçamento mais preciso.";
+      const kmHint = mergedVehicleSlotsForVehicleStage.km
+        ? ""
+        : "\nSe souber, me passe também o *km* para deixar o orçamento mais preciso.";
 
       if (reservationContext.serviceName === "Revisão") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
@@ -4670,9 +4729,10 @@ export async function processInboundMessage(
       }
 
       if (reservationContext.serviceName === "Verificação") {
-        const hasKm = !!ctx.vehicleSlots?.km;
+        const hasKm = !!mergedVehicleSlotsForVehicleStage.km;
         const providedModelOrYearNow = Boolean(
-          vehicleSlotsFromCurrentMessage.modelo || vehicleSlotsFromCurrentMessage.ano
+          vehicleSlotsFromVehicleStage.modelo ||
+            vehicleSlotsFromVehicleStage.ano
         );
         if (hasKm) {
           await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
@@ -4779,12 +4839,12 @@ export async function processInboundMessage(
       };
     }
 
-    const requiredMissing = getMissingSlots(ctx.vehicleSlots ?? {});
+    const requiredMissing = getMissingSlots(mergedVehicleSlotsForVehicleStage);
     const missingRequiredVehicle = requiresFullVehicleProfile
       ? requiredMissing
       : requiredMissing.filter((slot) => slot !== "km");
-    const capturedModelNow = !!vehicleSlotsFromCurrentMessage.modelo;
-    const capturedYearNow = !!vehicleSlotsFromCurrentMessage.ano;
+    const capturedModelNow = !!vehicleSlotsFromVehicleStage.modelo;
+    const capturedYearNow = !!vehicleSlotsFromVehicleStage.ano;
     if (capturedModelNow && missingRequiredVehicle.includes("ano")) {
       await sendMessage(
         ctx.conversationId,
@@ -4804,7 +4864,9 @@ export async function processInboundMessage(
         ctx.conversationId,
         requiresFullVehicleProfile
           ? "Para continuar esse atendimento, me informe *modelo, ano e km* do veículo."
-          : buildMissingVehicleRequiredReply(getMissingSlots(ctx.vehicleSlots ?? {}))
+          : buildMissingVehicleRequiredReply(
+              getMissingSlots(mergedVehicleSlotsForVehicleStage)
+            )
       );
     }
 
