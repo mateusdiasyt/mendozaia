@@ -628,8 +628,8 @@ async function hasRecentVehicleCoveragePrompt(
 
 const VEHICLE_CONFIRMATION_STALE_MS = 24 * 60 * 60 * 1000; // 24h
 const INTENT_STITCH_WINDOW_MS = 15 * 1000; // 15s
-const INTENT_STITCH_MAX_MESSAGES = 3;
-const INTENT_STITCH_MAX_CHARS = 280;
+const INTENT_STITCH_MAX_MESSAGES = 8;
+const INTENT_STITCH_MAX_CHARS = 700;
 const INBOUND_BLOCK_MAX_MESSAGES = 12;
 const INBOUND_BLOCK_MAX_CHARS = 700;
 const NAME_PROMPT_REPEAT_WINDOW_MS = 45 * 1000; // 45s
@@ -1488,6 +1488,41 @@ function isDateAllowedForReservation(
   return workingDays.includes(dt.getDay());
 }
 
+function findNextAllowedReservationDate(
+  fromDateStr: string,
+  schedule?: { workingDays?: number[]; blockedDates?: string[] }
+): string | null {
+  const [year, month, day] = fromDateStr.split("-").map(Number);
+  const base = new Date(year, month - 1, day, 0, 0, 0);
+  if (Number.isNaN(base.getTime())) return null;
+
+  for (let offset = 1; offset <= 21; offset++) {
+    const candidate = new Date(base);
+    candidate.setDate(candidate.getDate() + offset);
+    const candidateStr = toDateStr(
+      candidate.getFullYear(),
+      candidate.getMonth() + 1,
+      candidate.getDate()
+    );
+    if (isDateAllowedForReservation(candidateStr, schedule)) {
+      return candidateStr;
+    }
+  }
+  return null;
+}
+
+function buildDateClosedSuggestionReply(
+  dateStr: string,
+  reservationWindowLabel: string,
+  schedule?: { workingDays?: number[]; blockedDates?: string[] }
+): string {
+  const nextAllowed = findNextAllowedReservationDate(dateStr, schedule);
+  if (nextAllowed) {
+    return `Nessa data não temos atendimento. A próxima data disponível é *${formatDateForPtBr(nextAllowed)}*. Quer agendar nela? Nosso horário é ${reservationWindowLabel}.`;
+  }
+  return `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`;
+}
+
 function looksLikeVehicleInfoMessage(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -1942,6 +1977,29 @@ async function findLatestInboundReservationDateTime(
     if (row.direction !== "inbound" || !row.content?.trim()) continue;
     const parsed = extractReservationDateTime(row.content);
     if (parsed) return parsed;
+  }
+
+  return null;
+}
+
+async function findLatestInboundReservationDateOnly(
+  conversationId: string
+): Promise<{ dateStr: string } | null> {
+  const recent = await db
+    .select({ direction: messages.direction, content: messages.content })
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(desc(messages.createdAt))
+    .limit(20);
+
+  for (const row of recent) {
+    if (row.direction !== "inbound" || !row.content?.trim()) continue;
+    const parsedDateTime = extractReservationDateTime(row.content);
+    if (parsedDateTime?.dateStr) {
+      return { dateStr: parsedDateTime.dateStr };
+    }
+    const parsedDateOnly = extractReservationDateOnly(row.content);
+    if (parsedDateOnly?.dateStr) return parsedDateOnly;
   }
 
   return null;
@@ -6273,14 +6331,19 @@ export async function processInboundMessage(
     );
     const hasReservationSignal =
       looksLikeReservationIntent(ctx.messageContent) ||
+      looksLikeReservationIntent(intentProbeText) ||
       !!ctx.pendingReservation ||
       hasVehicleInfoInCurrentMessage ||
       intakeStage === "awaiting_reservation_profile";
 
     if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
-      const parsedDateOnlyForPending = extractReservationDateOnly(ctx.messageContent);
+      const parsedDateOnlyForPending =
+        extractReservationDateOnly(ctx.messageContent) ??
+        extractReservationDateOnly(intentProbeText) ??
+        (await findLatestInboundReservationDateOnly(ctx.conversationId));
       const parsedForPending =
         extractReservationDateTime(ctx.messageContent) ??
+        extractReservationDateTime(intentProbeText) ??
         (await findLatestInboundReservationDateTime(ctx.conversationId));
       await savePendingReservation(
         ctx.conversationId,
@@ -6693,7 +6756,11 @@ export async function processInboundMessage(
       if (!isDateAllowedForReservation(parsedDateOnly.dateStr, ctx.reservationSchedule)) {
         await sendMessage(
           ctx.conversationId,
-          `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`
+          buildDateClosedSuggestionReply(
+            parsedDateOnly.dateStr,
+            reservationWindowLabel,
+            ctx.reservationSchedule
+          )
         );
         return {
           didReply: true,
@@ -6917,7 +6984,11 @@ export async function processInboundMessage(
         await persistReservationPeriodSelection(ctx.conversationId, conversationMetadata, null);
         await sendMessage(
           ctx.conversationId,
-          `Nessa data não temos atendimento disponível. Atendemos em nossa agenda (${reservationWindowLabel}). Me diga outro dia e horário para eu consultar agora.`
+          buildDateClosedSuggestionReply(
+            candidateDateStr,
+            reservationWindowLabel,
+            ctx.reservationSchedule
+          )
         );
         return {
           didReply: true,
@@ -7370,7 +7441,9 @@ export async function processInboundMessage(
 
       const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
       const knownDateFromRecentMessage =
-        extractReservationDateOnly(intentProbeText)?.dateStr ?? null;
+        extractReservationDateOnly(intentProbeText)?.dateStr ??
+        (await findLatestInboundReservationDateOnly(ctx.conversationId))?.dateStr ??
+        null;
       const effectiveKnownDate = knownDate ?? knownDateFromRecentMessage;
       const reply = knownDate
         ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(knownDate)}*, qual horário prefere?`
@@ -7644,7 +7717,11 @@ export async function processInboundMessage(
     const parsedFromCurrent = extractReservationDateTime(ctx.messageContent);
     const parsedDateOnlyFromCurrent = parsedFromCurrent
       ? null
-      : extractReservationDateOnly(ctx.messageContent);
+      : (
+          extractReservationDateOnly(ctx.messageContent) ??
+          extractReservationDateOnly(intentProbeText) ??
+          (await findLatestInboundReservationDateOnly(ctx.conversationId))
+        );
     const parsed =
       parsedFromCurrent ??
       (!containsDateOrTimeHint(ctx.messageContent)
@@ -7655,7 +7732,11 @@ export async function processInboundMessage(
       if (!isDateAllowedForReservation(parsedDateOnlyFromCurrent.dateStr, ctx.reservationSchedule)) {
         await sendMessage(
           ctx.conversationId,
-          `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`
+          buildDateClosedSuggestionReply(
+            parsedDateOnlyFromCurrent.dateStr,
+            reservationWindowLabel,
+            ctx.reservationSchedule
+          )
         );
         return {
           didReply: true,

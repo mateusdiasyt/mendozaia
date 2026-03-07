@@ -18,6 +18,7 @@ import {
   processConversation,
   tryAcquireConversationLock,
   releaseConversationLock,
+  CONVERSATION_DEBOUNCE_MS,
 } from "@/lib/conversation-engine/debouncer";
 import { getRedis } from "@/lib/redis/redis-client";
 import { logOrchestration } from "@/lib/orchestration/logger";
@@ -713,6 +714,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
       }
       try {
+        // Sem QStash, aplica debounce local para agrupar mensagens quebradas.
+        await sleep(CONVERSATION_DEBOUNCE_MS);
         await processConversation(conversation.id);
       } finally {
         await releaseConversationLock(conversation.id);
