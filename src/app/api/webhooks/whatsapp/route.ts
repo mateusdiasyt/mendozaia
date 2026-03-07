@@ -11,7 +11,7 @@ import {
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
-import { eq, and, desc, gte } from "drizzle-orm";
+import { eq, and, desc, gte, asc } from "drizzle-orm";
 import {
   scheduleConversationProcessing,
   incrementFloodCount,
@@ -19,6 +19,7 @@ import {
   tryAcquireConversationLock,
   releaseConversationLock,
 } from "@/lib/conversation-engine/debouncer";
+import { getRedis } from "@/lib/redis/redis-client";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
 // Formato esperado da Evolution API (texto e mídia)
@@ -68,6 +69,50 @@ interface WebhookPayload {
 }
 
 const HUMAN_REPLY_AI_PAUSE_MS = 60 * 60 * 1000; // 1 hora
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function buildWebhookPhoneLockKey(sessionId: string, phone: string): string {
+  return `lock:webhook:session:${sessionId}:phone:${phone}`;
+}
+
+async function acquireWebhookPhoneLock(
+  sessionId: string,
+  phone: string
+): Promise<{ key: string; token: string; acquired: boolean }> {
+  const key = buildWebhookPhoneLockKey(sessionId, phone);
+  const token = crypto.randomUUID();
+  try {
+    const redis = getRedis();
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const ok = await redis.set(key, token, { nx: true, ex: 10 });
+      if (ok === "OK") {
+        return { key, token, acquired: true };
+      }
+      await sleep(50);
+    }
+  } catch {
+    // Se Redis indisponível, segue sem lock para não bloquear webhook.
+  }
+  return { key, token, acquired: false };
+}
+
+async function releaseWebhookPhoneLock(
+  lock: { key: string; token: string; acquired: boolean }
+): Promise<void> {
+  if (!lock.acquired) return;
+  try {
+    const redis = getRedis();
+    const current = await redis.get<string>(lock.key);
+    if (current === lock.token) {
+      await redis.del(lock.key);
+    }
+  } catch {
+    // noop
+  }
+}
 
 function parseBooleanLike(value: unknown): boolean | null {
   if (typeof value === "boolean") return value;
@@ -200,21 +245,32 @@ export async function POST(request: NextRequest) {
       const isTyping = presence.presence === "composing" || presence.presence === "recording";
 
       const [wsSession] = await db
-        .select({ id: whatsappSessions.id })
+        .select({
+          id: whatsappSessions.id,
+          organizationId: whatsappSessions.organizationId,
+        })
         .from(whatsappSessions)
         .where(eq(whatsappSessions.sessionId, presence.sessionId))
         .limit(1);
 
       if (wsSession) {
         const [conv] = await db
-          .select({ id: conversations.id })
+          .select({
+            id: conversations.id,
+          })
           .from(conversations)
           .innerJoin(contacts, eq(conversations.contactId, contacts.id))
           .where(
             and(
+              eq(contacts.organizationId, wsSession.organizationId),
               eq(contacts.phone, phone),
               eq(conversations.whatsappSessionId, wsSession.id)
             )
+          )
+          .orderBy(
+            desc(conversations.lastMessageAt),
+            desc(conversations.updatedAt),
+            asc(conversations.createdAt)
           )
           .limit(1);
 
@@ -284,80 +340,77 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (session) {
-        const [contact] = await db
-          .select()
-          .from(contacts)
+        const [convRow] = await db
+          .select({
+            conversation: conversations,
+          })
+          .from(conversations)
+          .innerJoin(contacts, eq(conversations.contactId, contacts.id))
           .where(
             and(
               eq(contacts.organizationId, session.organizationId),
-              eq(contacts.phone, phone)
+              eq(contacts.phone, phone),
+              eq(conversations.whatsappSessionId, session.id)
             )
           )
+          .orderBy(
+            desc(conversations.lastMessageAt),
+            desc(conversations.updatedAt),
+            asc(conversations.createdAt)
+          )
           .limit(1);
+        const conversation = convRow?.conversation;
 
-        if (contact) {
-          const [conversation] = await db
-            .select()
-            .from(conversations)
-            .where(
-              and(
-                eq(conversations.contactId, contact.id),
-                eq(conversations.whatsappSessionId, session.id)
-              )
-            )
-            .limit(1);
+        if (conversation) {
+          let outboundText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
+          if (msg?.imageMessage) outboundText = msg.imageMessage.caption ?? outboundText;
+          if (msg?.videoMessage) outboundText = msg.videoMessage?.caption ?? outboundText;
+          if (msg?.documentMessage) outboundText = msg.documentMessage?.caption ?? outboundText;
 
-          if (conversation) {
-            let outboundText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
-            if (msg?.imageMessage) outboundText = msg.imageMessage.caption ?? outboundText;
-            if (msg?.videoMessage) outboundText = msg.videoMessage?.caption ?? outboundText;
-            if (msg?.documentMessage) outboundText = msg.documentMessage?.caption ?? outboundText;
+          const preview =
+            outboundText?.slice(0, 100) || "[mídia]";
 
-            const preview =
-              outboundText?.slice(0, 100) || "[mídia]";
-
-            // Evita tratar eco da própria resposta da IA como "resposta humana"
-            const outboundTrimmed = outboundText?.trim();
-            if (outboundTrimmed) {
-              const since45s = new Date(Date.now() - 45 * 1000);
-              const [echo] = await db
-                .select({ id: messages.id })
-                .from(messages)
-                .where(
-                  and(
-                    eq(messages.conversationId, conversation.id),
-                    eq(messages.direction, "outbound"),
-                    eq(messages.content, outboundTrimmed),
-                    gte(messages.createdAt, since45s)
-                  )
+          // Evita tratar eco da própria resposta da IA como "resposta humana"
+          const outboundTrimmed = outboundText?.trim();
+          if (outboundTrimmed) {
+            const since45s = new Date(Date.now() - 45 * 1000);
+            const [echo] = await db
+              .select({ id: messages.id })
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.conversationId, conversation.id),
+                  eq(messages.direction, "outbound"),
+                  eq(messages.content, outboundTrimmed),
+                  gte(messages.createdAt, since45s)
                 )
-                .limit(1);
-              if (echo) {
-                return NextResponse.json({ ok: true, ignoredBotEcho: true });
-              }
+              )
+              .limit(1);
+            if (echo) {
+              return NextResponse.json({ ok: true, ignoredBotEcho: true });
             }
-
-            await db.insert(messages).values({
-              conversationId: conversation.id,
-              direction: "outbound",
-              contentType: "text",
-              content: outboundText || null,
-              status: "sent",
-            });
-
-            const oneHourFromNow = new Date(Date.now() + HUMAN_REPLY_AI_PAUSE_MS);
-
-            await db
-              .update(conversations)
-              .set({
-                lastMessageAt: new Date(),
-                lastMessagePreview: preview,
-                updatedAt: new Date(),
-                // Sempre pausa IA quando houver resposta humana outbound
-                aiDisabledUntil: oneHourFromNow,
-              })
-              .where(eq(conversations.id, conversation.id));
           }
+
+          await db.insert(messages).values({
+            conversationId: conversation.id,
+            direction: "outbound",
+            contentType: "text",
+            content: outboundText || null,
+            status: "sent",
+          });
+
+          const oneHourFromNow = new Date(Date.now() + HUMAN_REPLY_AI_PAUSE_MS);
+
+          await db
+            .update(conversations)
+            .set({
+              lastMessageAt: new Date(),
+              lastMessagePreview: preview,
+              updatedAt: new Date(),
+              // Sempre pausa IA quando houver resposta humana outbound
+              aiDisabledUntil: oneHourFromNow,
+            })
+            .where(eq(conversations.id, conversation.id));
         }
       }
       return NextResponse.json({ ok: true });
@@ -412,131 +465,155 @@ export async function POST(request: NextRequest) {
     }
 
     const phone = remoteJid.replace("@s.whatsapp.net", "");
-
-    // Buscar ou criar contato
-    let [contact] = await db
-      .select()
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.organizationId, session.organizationId),
-          eq(contacts.phone, phone)
-        )
-      )
-      .limit(1);
-
-    if (!contact) {
-      let inserted:
-        | Array<(typeof contacts.$inferSelect)>
-        | undefined;
-      try {
-        inserted = await db
-          .insert(contacts)
-          .values({
-            organizationId: session.organizationId,
-            phone,
-          })
-          .onConflictDoNothing({
-            target: [contacts.organizationId, contacts.phone],
-          })
-          .returning();
-      } catch (err) {
-        // Banco ainda sem índice único novo: fallback seguro para não bloquear recebimento.
-        if (!isMissingOnConflictConstraintError(err)) throw err;
-        inserted = await db
-          .insert(contacts)
-          .values({
-            organizationId: session.organizationId,
-            phone,
-          })
-          .returning();
-      }
-      [contact] = inserted;
-      if (!contact) {
-        [contact] = await db
-          .select()
-          .from(contacts)
-          .where(
-            and(
-              eq(contacts.organizationId, session.organizationId),
-              eq(contacts.phone, phone)
-            )
-          )
-          .orderBy(desc(contacts.createdAt))
-          .limit(1);
-      }
-    }
-
-    if (!contact) {
-      return NextResponse.json(
-        { error: "Failed to get/create contact" },
-        { status: 500 }
-      );
-    }
-
-    // Buscar ou criar conversa
-    let [conversation] = await db
-      .select()
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.contactId, contact.id),
-          eq(conversations.whatsappSessionId, session.id)
-        )
-      )
-      .limit(1);
+    const webhookPhoneLock = await acquireWebhookPhoneLock(msgSessionId, phone);
 
     const messagePreview =
       contentType === "text"
         ? messageText?.slice(0, 100)
         : `[${contentType}] ${messageText?.slice(0, 80) || ""}`.trim();
-
-    if (!conversation) {
-      let inserted:
-        | Array<(typeof conversations.$inferSelect)>
-        | undefined;
-      try {
-        inserted = await db
-          .insert(conversations)
-          .values({
-            organizationId: session.organizationId,
-            contactId: contact.id,
-            whatsappSessionId: session.id,
-            lastMessageAt: new Date(),
-            lastMessagePreview: messagePreview,
-          })
-          .onConflictDoNothing({
-            target: [conversations.contactId, conversations.whatsappSessionId],
-          })
-          .returning();
-      } catch (err) {
-        // Banco ainda sem índice único novo: fallback seguro para não bloquear recebimento.
-        if (!isMissingOnConflictConstraintError(err)) throw err;
-        inserted = await db
-          .insert(conversations)
-          .values({
-            organizationId: session.organizationId,
-            contactId: contact.id,
-            whatsappSessionId: session.id,
-            lastMessageAt: new Date(),
-            lastMessagePreview: messagePreview,
-          })
-          .returning();
-      }
-      [conversation] = inserted;
-      if (!conversation) {
-        [conversation] = await db
-          .select()
-          .from(conversations)
-          .where(
-            and(
-              eq(conversations.contactId, contact.id),
-              eq(conversations.whatsappSessionId, session.id)
-            )
+    let contact: typeof contacts.$inferSelect | undefined;
+    let conversation: typeof conversations.$inferSelect | undefined;
+    try {
+      // Buscar contato canônico (mais antigo) por organização + número
+      [contact] = await db
+        .select()
+        .from(contacts)
+        .where(
+          and(
+            eq(contacts.organizationId, session.organizationId),
+            eq(contacts.phone, phone)
           )
-          .orderBy(desc(conversations.createdAt))
-          .limit(1);
+        )
+        .orderBy(asc(contacts.createdAt))
+        .limit(1);
+
+      if (!contact) {
+        let inserted:
+          | Array<(typeof contacts.$inferSelect)>
+          | undefined;
+        try {
+          inserted = await db
+            .insert(contacts)
+            .values({
+              organizationId: session.organizationId,
+              phone,
+            })
+            .onConflictDoNothing({
+              target: [contacts.organizationId, contacts.phone],
+            })
+            .returning();
+        } catch (err) {
+          if (!isMissingOnConflictConstraintError(err)) throw err;
+          inserted = await db
+            .insert(contacts)
+            .values({
+              organizationId: session.organizationId,
+              phone,
+            })
+            .returning();
+        }
+        [contact] = inserted;
+        if (!contact) {
+          [contact] = await db
+            .select()
+            .from(contacts)
+            .where(
+              and(
+                eq(contacts.organizationId, session.organizationId),
+                eq(contacts.phone, phone)
+              )
+            )
+            .orderBy(asc(contacts.createdAt))
+            .limit(1);
+        }
       }
+
+      if (!contact) {
+        return NextResponse.json(
+          { error: "Failed to get/create contact" },
+          { status: 500 }
+        );
+      }
+
+      // Buscar conversa canônica por sessão + número (independente de contactId duplicado)
+      const [existingConv] = await db
+        .select({
+          conversation: conversations,
+        })
+        .from(conversations)
+        .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+        .where(
+          and(
+            eq(contacts.organizationId, session.organizationId),
+            eq(contacts.phone, phone),
+            eq(conversations.whatsappSessionId, session.id)
+          )
+        )
+        .orderBy(
+          desc(conversations.lastMessageAt),
+          desc(conversations.updatedAt),
+          asc(conversations.createdAt)
+        )
+        .limit(1);
+      conversation = existingConv?.conversation;
+
+      if (!conversation) {
+        let inserted:
+          | Array<(typeof conversations.$inferSelect)>
+          | undefined;
+        try {
+          inserted = await db
+            .insert(conversations)
+            .values({
+              organizationId: session.organizationId,
+              contactId: contact.id,
+              whatsappSessionId: session.id,
+              lastMessageAt: new Date(),
+              lastMessagePreview: messagePreview,
+            })
+            .onConflictDoNothing({
+              target: [conversations.contactId, conversations.whatsappSessionId],
+            })
+            .returning();
+        } catch (err) {
+          if (!isMissingOnConflictConstraintError(err)) throw err;
+          inserted = await db
+            .insert(conversations)
+            .values({
+              organizationId: session.organizationId,
+              contactId: contact.id,
+              whatsappSessionId: session.id,
+              lastMessageAt: new Date(),
+              lastMessagePreview: messagePreview,
+            })
+            .returning();
+        }
+        [conversation] = inserted;
+        if (!conversation) {
+          const [fallbackConv] = await db
+            .select({
+              conversation: conversations,
+            })
+            .from(conversations)
+            .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+            .where(
+              and(
+                eq(contacts.organizationId, session.organizationId),
+                eq(contacts.phone, phone),
+                eq(conversations.whatsappSessionId, session.id)
+              )
+            )
+            .orderBy(
+              desc(conversations.lastMessageAt),
+              desc(conversations.updatedAt),
+              asc(conversations.createdAt)
+            )
+            .limit(1);
+          conversation = fallbackConv?.conversation;
+        }
+      }
+    } finally {
+      await releaseWebhookPhoneLock(webhookPhoneLock);
     }
 
     if (!conversation) {
