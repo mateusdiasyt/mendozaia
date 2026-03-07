@@ -3462,10 +3462,15 @@ export async function processInboundMessage(
       intakeStage === "awaiting_reservation_profile"
     )
   ) {
-    const parsedDateTimeHint = extractReservationDateTime(ctx.messageContent);
+    const parsedDateTimeHint =
+      extractReservationDateTime(ctx.messageContent) ??
+      extractReservationDateTime(intentProbeText);
     const parsedDateOnlyHint = parsedDateTimeHint
       ? null
-      : extractReservationDateOnly(ctx.messageContent);
+      : (
+          extractReservationDateOnly(ctx.messageContent) ??
+          extractReservationDateOnly(intentProbeText)
+        );
     const currentPeriodFlow =
       (conversationMetadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
     const currentPending =
@@ -7364,10 +7369,16 @@ export async function processInboundMessage(
       }
 
       const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
+      const knownDateFromRecentMessage =
+        extractReservationDateOnly(intentProbeText)?.dateStr ?? null;
+      const effectiveKnownDate = knownDate ?? knownDateFromRecentMessage;
       const reply = knownDate
         ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(knownDate)}*, qual horário prefere?`
         : "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
-      await sendMessage(ctx.conversationId, reply);
+      const replyWithRecentDate = !knownDate && effectiveKnownDate
+        ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(effectiveKnownDate)}*, qual horário prefere?`
+        : reply;
+      await sendMessage(ctx.conversationId, replyWithRecentDate);
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "collect_datetime",
         slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
@@ -7583,6 +7594,11 @@ export async function processInboundMessage(
   if (ctx.reservationsEnabled && containsDateOrTimeHint(ctx.messageContent)) {
     const slots = ctx.vehicleSlots ?? {};
     const missing = getMissingSlots(slots);
+    const reservationWindow = {
+      start: ctx.reservationSchedule?.start ?? "09:00",
+      end: ctx.reservationSchedule?.end ?? "17:00",
+    };
+    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
 
     if (ctx.usesVehicleSlots && missing.length > 0) {
       const parsedForPending =
@@ -7626,11 +7642,44 @@ export async function processInboundMessage(
     }
 
     const parsedFromCurrent = extractReservationDateTime(ctx.messageContent);
+    const parsedDateOnlyFromCurrent = parsedFromCurrent
+      ? null
+      : extractReservationDateOnly(ctx.messageContent);
     const parsed =
       parsedFromCurrent ??
       (!containsDateOrTimeHint(ctx.messageContent)
         ? await findLatestInboundReservationDateTime(ctx.conversationId)
         : null);
+
+    if (parsedDateOnlyFromCurrent) {
+      if (!isDateAllowedForReservation(parsedDateOnlyFromCurrent.dateStr, ctx.reservationSchedule)) {
+        await sendMessage(
+          ctx.conversationId,
+          `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fail-safe: data informada sem horário, mas fora dos dias de atendimento",
+          silence: false,
+        };
+      }
+      await persistReservationPeriodSelection(
+        ctx.conversationId,
+        conversationMetadata,
+        { dateStr: parsedDateOnlyFromCurrent.dateStr }
+      );
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, para *${formatDateForPtBr(parsedDateOnlyFromCurrent.dateStr)}*. Qual horário você prefere? Atendemos das *${reservationWindowLabel}*.`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fail-safe: data informada sem horário, solicitando horário",
+        silence: false,
+      };
+    }
 
     if (parsed) {
       if (missingNameProfile || missing.length > 0) {
