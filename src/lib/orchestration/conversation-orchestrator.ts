@@ -4545,6 +4545,40 @@ export async function processInboundMessage(
       };
     }
 
+    const missingVehicleAfterName = ctx.usesVehicleSlots
+      ? getMissingSlots(ctx.vehicleSlots ?? {})
+      : [];
+    if (ctx.usesVehicleSlots && missingVehicleAfterName.length > 0) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+      await sendMessage(
+        ctx.conversationId,
+        `Prazer, *${contactName}*! Para seguir, preciso dos dados do veículo. ${buildMissingVehicleRequiredReply(
+          missingVehicleAfterName
+        )}`
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "intake_name_captured",
+        decision: "tool_then_ai",
+        reason: "Nome capturado; iniciando coleta obrigatória de dados do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.profile",
+        decisionCode: "INTAKE_NAME_CAPTURED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          contactName,
+          missingVehicle: missingVehicleAfterName,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Nome confirmado; solicitando dados obrigatórios do veículo",
+        silence: false,
+      };
+    }
+
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
     const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
     await sendMessage(
@@ -5373,6 +5407,9 @@ export async function processInboundMessage(
     !looksLikeRestaurantReservationIntent(intentProbeText)
   ) {
     const hasKnownName = !!contactName?.trim();
+    const missingVehicleAfterGreeting = getMissingSlots(ctx.vehicleSlots ?? {});
+    const mustCollectVehicleBeforeNeed =
+      hasKnownName && missingVehicleAfterGreeting.length > 0;
     const botName = ctx.businessProfile?.botName?.trim() || "";
     const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
@@ -5430,7 +5467,11 @@ export async function processInboundMessage(
     );
     const triageReply = !hasKnownName
       ? `${greetingPrefix}${botIntro} ${getRandomNameQuestion()}`
-      : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
+      : mustCollectVehicleBeforeNeed
+        ? `${greetingPrefix}${botIntro} *${contactName!.trim()}*, para seguir preciso dos dados do veículo. ${buildMissingVehicleRequiredReply(
+            missingVehicleAfterGreeting
+          )}`
+        : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
     await sendMessage(
       ctx.conversationId,
       applyToneToText(triageReply, ctx.botConfig?.tone)
@@ -5438,16 +5479,22 @@ export async function processInboundMessage(
     await persistIntakeStage(
       ctx.conversationId,
       conversationMetadata,
-      !hasKnownName ? "awaiting_name" : "awaiting_need"
+      !hasKnownName
+        ? "awaiting_name"
+        : mustCollectVehicleBeforeNeed
+          ? "awaiting_vehicle"
+          : "awaiting_need"
     );
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
       event: "intake_greeting",
       decision: "tool_then_ai",
-      reason: hasKnownName
-        ? "Saudação recebida; iniciando descoberta da necessidade"
-        : "Saudação recebida; iniciando identificação de nome",
+      reason: !hasKnownName
+        ? "Saudação recebida; iniciando identificação de nome"
+        : mustCollectVehicleBeforeNeed
+          ? "Saudação recebida; coletando dados obrigatórios do veículo"
+          : "Saudação recebida; iniciando descoberta da necessidade",
       traceId: params.traceId,
       stage: "orchestrator.reservations",
       decisionCode: "INTAKE_GREETING",
