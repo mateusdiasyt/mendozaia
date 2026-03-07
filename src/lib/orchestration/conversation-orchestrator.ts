@@ -4691,10 +4691,17 @@ export async function processInboundMessage(
       ? getMissingSlots(ctx.vehicleSlots ?? {})
       : [];
     if (ctx.usesVehicleSlots && missingVehicleAfterName.length > 0) {
+      const missingRequiredAfterName = missingVehicleAfterName.filter(
+        (slot) => slot !== "km"
+      );
+      const vehiclePrefixAfterName =
+        missingRequiredAfterName.length > 0
+          ? "Para seguir, preciso dos dados do veículo."
+          : "Perfeito.";
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
       await sendMessage(
         ctx.conversationId,
-        `Prazer, *${contactName}*! Para seguir, preciso dos dados do veículo. ${buildMissingVehicleRequiredReply(
+        `Prazer, *${contactName}*! ${vehiclePrefixAfterName} ${buildMissingVehicleRequiredReply(
           missingVehicleAfterName
         )}`
       );
@@ -5660,6 +5667,9 @@ export async function processInboundMessage(
   ) {
     const hasKnownName = !!contactName?.trim();
     const missingVehicleAfterGreeting = getMissingSlots(ctx.vehicleSlots ?? {});
+    const missingRequiredAfterGreeting = missingVehicleAfterGreeting.filter(
+      (slot) => slot !== "km"
+    );
     const mustCollectVehicleBeforeNeed =
       hasKnownName && missingVehicleAfterGreeting.length > 0;
     const botName = ctx.businessProfile?.botName?.trim() || "";
@@ -5672,7 +5682,11 @@ export async function processInboundMessage(
     const triageReply = !hasKnownName
       ? `${greetingPrefix}${botIntro} ${getRandomNameQuestion()}`
       : mustCollectVehicleBeforeNeed
-        ? `${greetingPrefix}${botIntro} *${contactName!.trim()}*, para seguir preciso dos dados do veículo. ${buildMissingVehicleRequiredReply(
+        ? `${greetingPrefix}${botIntro} *${contactName!.trim()}*, ${
+            missingRequiredAfterGreeting.length > 0
+              ? "para seguir preciso dos dados do veículo."
+              : "perfeito."
+          } ${buildMissingVehicleRequiredReply(
             missingVehicleAfterGreeting
           )}`
         : `${greetingPrefix}${botIntro} *${contactName!.trim()}*, qual sua dúvida?`;
