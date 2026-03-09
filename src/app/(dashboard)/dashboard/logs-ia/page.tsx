@@ -57,9 +57,9 @@ function decisionBadgeClass(decision: string | null): string {
   return "bg-slate-100 text-slate-700";
 }
 
-function compactJson(value: unknown): string {
+function prettyJson(value: unknown): string {
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value, null, 2);
   } catch {
     return "{}";
   }
@@ -80,18 +80,19 @@ function formatLogLineForClipboard(log: {
   const code = getMetaString(metadata, "decisionCode") ?? "-";
   const durationMs = getMetaNumber(metadata, "durationMs");
   return [
-    `[${formatDate(log.createdAt)}]`,
-    `trace=${traceId}`,
-    `event=${log.event}`,
-    `code=${code}`,
-    `decision=${log.decision ?? "-"}`,
-    `reason=${log.reason ?? "-"}`,
-    `duration=${durationLabel(durationMs)}`,
-    `conversation=${log.conversationId}`,
-    `stateBefore=${log.stateBefore ?? "-"}`,
-    `stateAfter=${log.stateAfter ?? "-"}`,
-    `metadata=${compactJson(metadata)}`,
-  ].join(" | ");
+    `Data/Hora   : ${formatDate(log.createdAt)}`,
+    `Evento      : ${log.event}`,
+    `Codigo      : ${code}`,
+    `Trace       : ${traceId}`,
+    `Decision    : ${log.decision ?? "-"}`,
+    `Duracao     : ${durationLabel(durationMs)}`,
+    `Conversa    : ${log.conversationId}`,
+    `State Before: ${log.stateBefore ?? "-"}`,
+    `State After : ${log.stateAfter ?? "-"}`,
+    `Reason      : ${log.reason ?? "-"}`,
+    "Metadata:",
+    prettyJson(metadata),
+  ].join("\n");
 }
 
 export default async function LogsIAPage({
@@ -131,7 +132,12 @@ export default async function LogsIAPage({
     )
     .orderBy(desc(orchestrationLogs.createdAt))
     .limit(200);
-  const logsForClipboard = logs.map((log) => formatLogLineForClipboard(log)).join("\n");
+  const logsForClipboard = logs
+    .map((log, index) => {
+      const header = `=========== LOG ${index + 1} ===========`;
+      return `${header}\n${formatLogLineForClipboard(log)}`;
+    })
+    .join("\n\n");
 
   return (
     <div className="p-8">
@@ -173,11 +179,9 @@ export default async function LogsIAPage({
         <p className="mt-2 text-xs text-slate-500">
           Copie este bloco para enviar diagnóstico sem screenshot.
         </p>
-        <textarea
-          readOnly
-          value={logsForClipboard}
-          className="mt-2 h-40 w-full rounded-lg border border-slate-200 bg-slate-50 p-2 font-mono text-xs text-slate-700"
-        />
+        <pre className="mt-2 max-h-[50vh] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs leading-5 text-slate-700">
+          {logsForClipboard}
+        </pre>
       </details>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
