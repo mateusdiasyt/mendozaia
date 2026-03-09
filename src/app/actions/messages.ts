@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
@@ -23,10 +23,10 @@ export async function setConversationAIDisabled(
   hours: number
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select()
@@ -39,7 +39,7 @@ export async function setConversationAIDisabled(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   const until = new Date(Date.now() + hours * 60 * 60 * 1000);
 
@@ -54,10 +54,10 @@ export async function setConversationAIDisabled(
 
 export async function setConversationAIEnabled(conversationId: string) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select()
@@ -70,7 +70,7 @@ export async function setConversationAIEnabled(conversationId: string) {
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   await db
     .update(conversations)
@@ -94,10 +94,10 @@ export async function setConversationHumanWaiting(
   waitingHuman: boolean
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select()
@@ -110,7 +110,7 @@ export async function setConversationHumanWaiting(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   await db
     .update(conversations)
@@ -134,10 +134,10 @@ export async function setConversationCarInShop(
   carInShop: boolean
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select()
@@ -150,7 +150,7 @@ export async function setConversationCarInShop(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   const currentMetadata =
     (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
@@ -185,10 +185,10 @@ export async function setConversationVehicleOil(
   oilSpec: string | null
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select({ id: conversations.id, contactId: conversations.contactId })
@@ -201,7 +201,7 @@ export async function setConversationVehicleOil(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   const value = (oilSpec ?? "").trim();
   if (!value) {
@@ -230,10 +230,10 @@ export async function updateConversationContactData(
   }
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select({ contactId: conversations.contactId })
@@ -246,7 +246,7 @@ export async function updateConversationContactData(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   const normalize = (value: string | null | undefined) => {
     const trimmed = (value ?? "").trim();
@@ -279,10 +279,10 @@ export async function updateConversationReservationDraft(
   }
 ) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
+  if (!session?.user?.id) throw new Error("NÃƒÂ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
+  if (!org) throw new Error("OrganizaÃƒÂ§ÃƒÂ£o nÃƒÂ£o encontrada");
 
   const [conv] = await db
     .select({
@@ -298,7 +298,7 @@ export async function updateConversationReservationDraft(
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa nÃ£o encontrada");
+  if (!conv) throw new Error("Conversa nÃƒÂ£o encontrada");
 
   const normalizeDate = (value: string | null | undefined) => {
     const trimmed = (value ?? "").trim();
@@ -381,10 +381,10 @@ export async function updateConversationReservationDraft(
 
 export async function getConversationOrchestrationLogs(conversationId: string) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select({ id: conversations.id })
@@ -397,7 +397,7 @@ export async function getConversationOrchestrationLogs(conversationId: string) {
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
   const logs = await db
     .select({
@@ -432,121 +432,140 @@ export async function getConversationOrchestrationLogs(conversationId: string) {
   }));
 }
 
-export async function sendMessage(conversationId: string, text: string) {
-  const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
-
-  const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
-
-  const [conv] = await db
-    .select()
-    .from(conversations)
-    .where(
-      and(
-        eq(conversations.id, conversationId),
-        eq(conversations.organizationId, org.id)
-      )
-    )
-    .limit(1);
-
-  if (!conv) throw new Error("Conversa não encontrada");
-
-  const [contact] = await db
-    .select({ phone: contacts.phone })
-    .from(contacts)
-    .where(eq(contacts.id, conv.contactId))
-    .limit(1);
-
-  const [wsSession] = await db
-    .select({ sessionId: whatsappSessions.sessionId })
-    .from(whatsappSessions)
-    .where(eq(whatsappSessions.id, conv.whatsappSessionId))
-    .limit(1);
-
-  if (!contact || !wsSession) throw new Error("Dados da conversa inválidos");
-
-  const apiUrl = process.env.WHATSAPP_API_URL;
-  if (!apiUrl) throw new Error("API WhatsApp não configurada");
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (process.env.EVOLUTION_API_KEY) {
-    headers["apikey"] = process.env.EVOLUTION_API_KEY;
-  }
-
-  const number = contact.phone.replace(/\D/g, "");
-  const instanceName = wsSession.sessionId;
-
-  const res = await fetch(
-    `${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`,
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ number, text }),
+export async function sendMessage(
+  conversationId: string,
+  text: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return { ok: false, error: "Sessao expirada. Recarregue a pagina." };
     }
-  );
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      (err as { response?: { message?: string[] }; error?: string })
-        ?.response?.message?.[0] ??
-        (err as { error?: string })?.error ??
-        `Erro ao enviar mensagem (${res.status})`
-    );
-  }
+    const org = await getCurrentOrganization();
+    if (!org) {
+      return { ok: false, error: "Organizacao nao encontrada." };
+    }
 
-  await db.insert(messages).values({
-    conversationId,
-    direction: "outbound",
-    contentType: "text",
-    content: text,
-    status: "sent",
-  });
-
-  // Aprendizado com atendimento humano - Parte 4
-  const [lastInbound] = await db
-    .select({ content: messages.content })
-    .from(messages)
-    .where(
-      and(
-        eq(messages.conversationId, conversationId),
-        eq(messages.direction, "inbound")
+    const [conv] = await db
+      .select()
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.id, conversationId),
+          eq(conversations.organizationId, org.id)
+        )
       )
-    )
-    .orderBy(desc(messages.createdAt))
-    .limit(1);
-  if (lastInbound?.content?.trim()) {
-    await learnFromHumanMessage(
-      lastInbound.content.trim(),
-      text,
-      conv.organizationId
+      .limit(1);
+
+    if (!conv) {
+      return { ok: false, error: "Conversa nao encontrada." };
+    }
+
+    const [contact] = await db
+      .select({ phone: contacts.phone })
+      .from(contacts)
+      .where(eq(contacts.id, conv.contactId))
+      .limit(1);
+
+    const [wsSession] = await db
+      .select({ sessionId: whatsappSessions.sessionId })
+      .from(whatsappSessions)
+      .where(eq(whatsappSessions.id, conv.whatsappSessionId))
+      .limit(1);
+
+    if (!contact || !wsSession) {
+      return { ok: false, error: "Dados da conversa invalidos." };
+    }
+
+    const apiUrl = process.env.WHATSAPP_API_URL;
+    if (!apiUrl) {
+      return { ok: false, error: "API do WhatsApp nao configurada." };
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (process.env.EVOLUTION_API_KEY) {
+      headers["apikey"] = process.env.EVOLUTION_API_KEY;
+    }
+
+    const number = contact.phone.replace(/\D/g, "");
+    const instanceName = wsSession.sessionId;
+
+    const res = await fetch(
+      `${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ number, text }),
+      }
     );
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const apiMessage =
+        (err as { response?: { message?: string[] }; error?: string })?.response
+          ?.message?.[0] ??
+        (err as { error?: string })?.error ??
+        `Erro ao enviar mensagem (${res.status})`;
+      return { ok: false, error: String(apiMessage) };
+    }
+
+    await db.insert(messages).values({
+      conversationId,
+      direction: "outbound",
+      contentType: "text",
+      content: text,
+      status: "sent",
+    });
+
+    // Aprendizado com atendimento humano - Parte 4
+    const [lastInbound] = await db
+      .select({ content: messages.content })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.conversationId, conversationId),
+          eq(messages.direction, "inbound")
+        )
+      )
+      .orderBy(desc(messages.createdAt))
+      .limit(1);
+    if (lastInbound?.content?.trim()) {
+      await learnFromHumanMessage(
+        lastInbound.content.trim(),
+        text,
+        conv.organizationId
+      );
+    }
+
+    const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+
+    await db
+      .update(conversations)
+      .set({
+        lastMessageAt: new Date(),
+        lastMessagePreview: text.slice(0, 100),
+        updatedAt: new Date(),
+        aiDisabledUntil: oneHourFromNow, // Humano respondeu: desativa IA por 1h
+      })
+      .where(eq(conversations.id, conversationId));
+
+    revalidatePath(`/dashboard/conversas/${conversationId}`);
+    return { ok: true };
+  } catch (error) {
+    console.error("[sendMessage action] unexpected error", error);
+    return { ok: false, error: "Nao foi possivel enviar agora. Tente novamente." };
   }
-
-  const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
-
-  await db
-    .update(conversations)
-    .set({
-      lastMessageAt: new Date(),
-      lastMessagePreview: text.slice(0, 100),
-      updatedAt: new Date(),
-      aiDisabledUntil: oneHourFromNow, // Humano respondeu: desativa IA por 1h
-    })
-    .where(eq(conversations.id, conversationId));
-
-  revalidatePath(`/dashboard/conversas/${conversationId}`);
 }
 
 export async function resetConversationForTesting(conversationId: string) {
   const session = await auth();
-  if (!session?.user?.id) throw new Error("Não autorizado");
+  if (!session?.user?.id) throw new Error("NÃ£o autorizado");
 
   const org = await getCurrentOrganization();
-  if (!org) throw new Error("Organização não encontrada");
+  if (!org) throw new Error("OrganizaÃ§Ã£o nÃ£o encontrada");
 
   const [conv] = await db
     .select()
@@ -559,10 +578,10 @@ export async function resetConversationForTesting(conversationId: string) {
     )
     .limit(1);
 
-  if (!conv) throw new Error("Conversa não encontrada");
+  if (!conv) throw new Error("Conversa nÃ£o encontrada");
 
-  // Apaga o contato para forçar recriação limpa no próximo inbound.
-  // Com FK cascade, conversa/mensagens relacionadas também são removidas.
+  // Apaga o contato para forÃ§ar recriaÃ§Ã£o limpa no prÃ³ximo inbound.
+  // Com FK cascade, conversa/mensagens relacionadas tambÃ©m sÃ£o removidas.
   await db
     .delete(contacts)
     .where(

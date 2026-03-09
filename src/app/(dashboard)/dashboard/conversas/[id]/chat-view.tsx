@@ -152,7 +152,12 @@ export function ChatView({
 
     try {
       setAutoScrollEnabled(true);
-      await sendMessage(conversationId, text);
+      const result = await sendMessage(conversationId, text);
+      if (!result.ok) {
+        setError(result.error || "Erro ao enviar");
+        setInput(text);
+        return;
+      }
       setMessages((prev) => [
         ...prev.slice(-(MAX_RENDER_MESSAGES - 1)),
         {
