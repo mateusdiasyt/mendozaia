@@ -162,6 +162,36 @@ function getHourInTimezone(now: Date, timezone?: string): number {
   }
 }
 
+function getNowInTimezone(timezone?: string): Date {
+  if (!timezone) return new Date();
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    });
+    const parts = formatter.formatToParts(new Date());
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      Number(parts.find((p) => p.type === type)?.value ?? "0");
+    return new Date(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      get("hour"),
+      get("minute"),
+      get("second"),
+      0
+    );
+  } catch {
+    return new Date();
+  }
+}
+
 function getCurrentGreeting(
   now: Date,
   timezone?: string
@@ -3594,14 +3624,15 @@ export async function processInboundMessage(
       intakeStage === "awaiting_reservation_profile"
     )
   ) {
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const parsedDateTimeHint =
-      extractReservationDateTime(ctx.messageContent) ??
-      extractReservationDateTime(intentProbeText);
+      extractReservationDateTime(ctx.messageContent, nowRef) ??
+      extractReservationDateTime(intentProbeText, nowRef);
     const parsedDateOnlyHint = parsedDateTimeHint
       ? null
       : (
-          extractReservationDateOnly(ctx.messageContent) ??
-          extractReservationDateOnly(intentProbeText)
+          extractReservationDateOnly(ctx.messageContent, nowRef) ??
+          extractReservationDateOnly(intentProbeText, nowRef)
         );
     const currentPeriodFlow =
       (conversationMetadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
@@ -6460,13 +6491,14 @@ export async function processInboundMessage(
       intakeStage === "awaiting_reservation_profile";
 
     if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
+      const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
       const parsedDateOnlyForPending =
-        extractReservationDateOnly(ctx.messageContent) ??
-        extractReservationDateOnly(intentProbeText) ??
+        extractReservationDateOnly(ctx.messageContent, nowRef) ??
+        extractReservationDateOnly(intentProbeText, nowRef) ??
         (await findLatestInboundReservationDateOnly(ctx.conversationId));
       const parsedForPending =
-        extractReservationDateTime(ctx.messageContent) ??
-        extractReservationDateTime(intentProbeText) ??
+        extractReservationDateTime(ctx.messageContent, nowRef) ??
+        extractReservationDateTime(intentProbeText, nowRef) ??
         (await findLatestInboundReservationDateTime(ctx.conversationId));
       await savePendingReservation(
         ctx.conversationId,
@@ -6562,7 +6594,7 @@ export async function processInboundMessage(
     ctx.botConfig?.segment === "restaurante" &&
     (looksLikeReservationIntent(intentProbeText) || looksLikeRestaurantReservationIntent(intentProbeText))
   ) {
-    const nowRef = new Date();
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
@@ -6858,7 +6890,7 @@ export async function processInboundMessage(
   }
 
   if (ctx.reservationsEnabled && ctx.usesVehicleSlots && !ctx.pendingReservation) {
-    const nowRef = new Date();
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
@@ -7079,10 +7111,11 @@ export async function processInboundMessage(
       !getRestaurantReservationFlow(conversationMetadata)?.peopleCount &&
       !missingName;
 
-    const parsedNewDateTime = extractReservationDateTime(ctx.messageContent);
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
+    const parsedNewDateTime = extractReservationDateTime(ctx.messageContent, nowRef);
     const parsedNewDateOnly = parsedNewDateTime
       ? null
-      : extractReservationDateOnly(ctx.messageContent);
+      : extractReservationDateOnly(ctx.messageContent, nowRef);
     const parsedNewTimeOnly = extractTime(ctx.messageContent);
     const hasNewDateTimeHint = containsDateOrTimeHint(ctx.messageContent);
     const hasExplicitDateInMessage = containsExplicitDateHint(ctx.messageContent);
@@ -7445,7 +7478,8 @@ export async function processInboundMessage(
   // Fluxo determinístico de reservas: não depende do fallback da IA.
   // Se já temos dados do veículo, guiamos o próximo passo mesmo com useAsFallback=false.
   if (ctx.reservationsEnabled && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
-    const parsedCurrentMessage = extractReservationDateTime(ctx.messageContent);
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
+    const parsedCurrentMessage = extractReservationDateTime(ctx.messageContent, nowRef);
     const vehicleSlotsFromCurrent = extractVehicleSlotsFromText(ctx.messageContent);
     const hasVehicleInfoInCurrentMessage = Boolean(
       vehicleSlotsFromCurrent.modelo ||
@@ -7653,7 +7687,8 @@ export async function processInboundMessage(
   // Fluxo determinístico para reservas gerais (sem exigir slots de veículo):
   // se cliente informar data/hora e reservas estiverem ativas, consulta disponibilidade.
   if (ctx.reservationsEnabled && !ctx.usesVehicleSlots) {
-    const parsed = extractReservationDateTime(ctx.messageContent);
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
+    const parsed = extractReservationDateTime(ctx.messageContent, nowRef);
     if (parsed) {
       if (missingNameProfile || missingVehicleProfile.length > 0) {
         const promptKey = buildProfilePromptKey(missingNameProfile, missingVehicleProfile);
@@ -7740,13 +7775,14 @@ export async function processInboundMessage(
   // Fluxo determinístico para oficinas: mesmo sem fallback da IA, o sistema continua
   // guiando o cliente no agendamento (evita "silêncio" com useAsFallback=false).
   if (ctx.reservationsEnabled && ctx.usesVehicleSlots) {
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const hasDateOrTime = containsDateOrTimeHint(ctx.messageContent);
     const slots = ctx.vehicleSlots ?? {};
     const missing = getMissingSlots(slots);
 
     if (hasDateOrTime && missing.length > 0) {
       const parsedForPending =
-        extractReservationDateTime(ctx.messageContent) ??
+        extractReservationDateTime(ctx.messageContent, nowRef) ??
         (await findLatestInboundReservationDateTime(ctx.conversationId));
       await savePendingReservation(
         ctx.conversationId,
@@ -7836,6 +7872,7 @@ export async function processInboundMessage(
   // se houver intenção clara de agendamento (data/hora), nunca deixa cair em silêncio
   // por causa de fallback desativado.
   if (ctx.reservationsEnabled && containsDateOrTimeHint(ctx.messageContent)) {
+    const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const slots = ctx.vehicleSlots ?? {};
     const missing = getMissingSlots(slots);
     const reservationWindow = {
@@ -7846,7 +7883,7 @@ export async function processInboundMessage(
 
     if (ctx.usesVehicleSlots && missing.length > 0) {
       const parsedForPending =
-        extractReservationDateTime(ctx.messageContent) ??
+        extractReservationDateTime(ctx.messageContent, nowRef) ??
         (await findLatestInboundReservationDateTime(ctx.conversationId));
       await savePendingReservation(
         ctx.conversationId,
@@ -7885,12 +7922,12 @@ export async function processInboundMessage(
       };
     }
 
-    const parsedFromCurrent = extractReservationDateTime(ctx.messageContent);
+    const parsedFromCurrent = extractReservationDateTime(ctx.messageContent, nowRef);
     const parsedDateOnlyFromCurrent = parsedFromCurrent
       ? null
       : (
-          extractReservationDateOnly(ctx.messageContent) ??
-          extractReservationDateOnly(intentProbeText) ??
+          extractReservationDateOnly(ctx.messageContent, nowRef) ??
+          extractReservationDateOnly(intentProbeText, nowRef) ??
           (await findLatestInboundReservationDateOnly(ctx.conversationId))
         );
     const parsed =
