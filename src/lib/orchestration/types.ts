@@ -74,6 +74,7 @@ export interface OrchestrationContext {
   };
   vehicleServicePolicy?: {
     minAllowedYear?: number | null;
+    supportedModels?: string[];
     blockedModels?: string[];
     blockedModelYears?: Array<{
       model: string;

@@ -44,6 +44,7 @@ export interface BotPersonalizationConfig {
 
 export interface VehicleServicePolicyConfig {
   minAllowedYear?: number | null;
+  supportedModels?: string[];
   blockedModels?: string[];
   blockedModelYears?: Array<{
     model: string;
@@ -279,6 +280,18 @@ export async function updateVehicleServicePolicyConfig(
       )
     : [];
 
+  const supportedModels = Array.isArray(config.supportedModels)
+    ? Array.from(
+        new Set(
+          config.supportedModels
+            .filter((m): m is string => typeof m === "string")
+            .map((m) => m.trim())
+            .filter((m) => m.length >= 2 && m.length <= 80)
+            .map((m) => m.toLowerCase())
+        )
+      )
+    : [];
+
   const blockedModelYears = Array.isArray(config.blockedModelYears)
     ? Array.from(
         new Map(
@@ -309,6 +322,7 @@ export async function updateVehicleServicePolicyConfig(
         ...settings,
         vehicleServicePolicy: {
           minAllowedYear,
+          supportedModels,
           blockedModels,
           blockedModelYears,
           updatedAt: new Date().toISOString(),

@@ -546,10 +546,25 @@ function extractBrandMention(text: string): string | null {
 
 function buildVehiclePolicySummaryText(policy: {
   minAllowedYear?: number | null;
+  supportedModels?: string[];
   blockedModels?: string[];
   blockedModelYears?: Array<{ model: string; year?: number | null }>;
 }): string {
   const chunks: string[] = [];
+  const supportedModels = (policy.supportedModels ?? [])
+    .map((model) => normalizeVehicleModelKey(model))
+    .filter(Boolean);
+  if (supportedModels.length > 0) {
+    const preview = supportedModels
+      .slice(0, 8)
+      .map((model) => prettifyVehicleLabel(model));
+    const moreCount = supportedModels.length - preview.length;
+    const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
+    chunks.push(
+      `Modelos atendidos cadastrados: *${supportedModels.length}* (ex.: ${preview.join(", ")}${suffix}).`
+    );
+  }
+
   if (policy.minAllowedYear) {
     chunks.push(`Atendemos veículos a partir de *${policy.minAllowedYear}*.`);
   } else {
@@ -589,6 +604,7 @@ function evaluateVehicleServicePolicy(
   policy:
     | {
         minAllowedYear?: number | null;
+        supportedModels?: string[];
         blockedModels?: string[];
         blockedModelYears?: Array<{ model: string; year?: number | null }>;
       }
@@ -631,6 +647,20 @@ function evaluateVehicleServicePolicy(
         reason: `No momento, não atendemos *${slots.modelo} ${slots.ano}*.`,
       };
     }
+  }
+
+  const supportedModelsNormalized = new Set(
+    (policy.supportedModels ?? []).map((model) => normalizeVehicleModelKey(model))
+  );
+  if (
+    normalizedModel &&
+    supportedModelsNormalized.size > 0 &&
+    !supportedModelsNormalized.has(normalizedModel)
+  ) {
+    return {
+      blocked: true,
+      reason: `No momento não estamos atendendo o modelo *${slots.modelo}*.`,
+    };
   }
 
   return { blocked: false, reason: null };
@@ -3270,6 +3300,9 @@ export async function loadConversationContext(
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
           ? vehicleServicePolicySettings.minAllowedYear
           : null,
+      supportedModels: Array.isArray(vehicleServicePolicySettings.supportedModels)
+        ? (vehicleServicePolicySettings.supportedModels as string[])
+        : [],
       blockedModels: Array.isArray(vehicleServicePolicySettings.blockedModels)
         ? (vehicleServicePolicySettings.blockedModels as string[])
         : [],

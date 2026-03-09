@@ -144,6 +144,9 @@ export default async function ConfiguracoesPage() {
                 typeof vehicleServicePolicy.minAllowedYear === "number"
                   ? vehicleServicePolicy.minAllowedYear
                   : null,
+              supportedModels: Array.isArray(vehicleServicePolicy.supportedModels)
+                ? (vehicleServicePolicy.supportedModels as string[])
+                : [],
               blockedModels: Array.isArray(vehicleServicePolicy.blockedModels)
                 ? (vehicleServicePolicy.blockedModels as string[])
                 : [],
