@@ -625,8 +625,10 @@ export async function POST(request: NextRequest) {
     }
     const traceId = crypto.randomUUID();
 
-    // Anti-flood: não inserir duplicata (mesma conversa + mesmo conteúdo nos últimos 60s)
-    const since60s = new Date(Date.now() - 60 * 1000);
+    // Anti-flood: não inserir duplicata técnica de webhook retry (janela curta).
+    // Janela longa engole respostas legítimas repetidas do cliente (ex.: "Mateus" novamente).
+    const DUPLICATE_TEXT_WINDOW_MS = 8 * 1000;
+    const sinceDuplicateWindow = new Date(Date.now() - DUPLICATE_TEXT_WINDOW_MS);
     if (messageText?.trim()) {
       const [dupe] = await db
         .select({ id: messages.id })
@@ -636,7 +638,7 @@ export async function POST(request: NextRequest) {
             eq(messages.conversationId, conversation.id),
             eq(messages.direction, "inbound"),
             eq(messages.content, messageText.trim()),
-            gte(messages.createdAt, since60s)
+            gte(messages.createdAt, sinceDuplicateWindow)
           )
         )
         .limit(1);
