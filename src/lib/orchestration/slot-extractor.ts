@@ -41,6 +41,10 @@ const ALLOWED_SHORT_MODELS = new Set([
 ]);
 
 const INVALID_MODELO_PHRASES = [
+  "me chamo",
+  "meu nome",
+  "sou o",
+  "sou a",
   "gostaria",
   "quero",
   "preciso",
@@ -65,6 +69,10 @@ const INVALID_MODELO_PHRASES = [
 ];
 
 const VEHICLE_NOISE_WORDS = new Set([
+  "me",
+  "chamo",
+  "nome",
+  "sou",
   "meu",
   "minha",
   "carro",

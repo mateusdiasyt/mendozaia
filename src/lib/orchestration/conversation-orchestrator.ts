@@ -7100,6 +7100,10 @@ export async function processInboundMessage(
   // Se já existe horário pendente de confirmação e cliente confirmou, cria a reserva.
   if (ctx.reservationsEnabled && ctx.pendingReservation) {
     const pending = ctx.pendingReservation;
+    const reservationCollectionStage =
+      typeof reservationFlow.collectionStage === "string"
+        ? reservationFlow.collectionStage
+        : null;
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
@@ -7236,6 +7240,27 @@ export async function processInboundMessage(
         didReply: true,
         decision: "tool_then_ai",
         reason: "Reserva pendente atualizada com nova data/horário informados pelo cliente",
+        silence: false,
+      };
+    }
+
+    if (
+      looksLikeReservationConfirmation(ctx.messageContent) &&
+      reservationCollectionStage !== "confirm_reservation"
+    ) {
+      const friendlyDate = formatDateForPtBr(pending.dateStr);
+      await sendMessage(
+        ctx.conversationId,
+        `Antes de confirmar: você quer fechar a reserva para *${friendlyDate}* às *${pending.timeStr}*?`
+      );
+      await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+        collectionStage: "confirm_reservation",
+        slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Confirmação recebida sem etapa de confirmação explícita; pedindo confirmação final",
         silence: false,
       };
     }

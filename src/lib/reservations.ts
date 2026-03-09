@@ -149,7 +149,7 @@ export async function checkAvailabilityForOrg(
           for (
             let candidateStart = openMinutes;
             candidateStart + durationMinutes <= closeMinutes;
-            candidateStart += 60
+            candidateStart += 30
           ) {
             if (candidateStart === startMinutes) continue;
             const candidateEnd = candidateStart + durationMinutes;
