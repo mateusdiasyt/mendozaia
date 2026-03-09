@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { createWhatsAppSession } from "@/app/actions/whatsapp";
@@ -15,7 +15,7 @@ export function WhatsAppConnect({
     e.preventDefault();
     setLoading(true);
     try {
-      await createWhatsAppSession(organizationId, sessionName || "Sessão 1");
+      await createWhatsAppSession(organizationId, sessionName || "Sessao 1");
       window.location.reload();
     } catch (err) {
       console.error(err);
@@ -29,7 +29,7 @@ export function WhatsAppConnect({
         type="text"
         value={sessionName}
         onChange={(e) => setSessionName(e.target.value)}
-        placeholder="Nome da sessão (opcional)"
+        placeholder="Nome da conexao (opcional)"
         className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
       />
       <button
@@ -37,7 +37,7 @@ export function WhatsAppConnect({
         disabled={loading}
         className="rounded-xl bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:opacity-50"
       >
-        {loading ? "Conectando..." : "Nova sessão"}
+        {loading ? "Conectando..." : "Conectar WhatsApp"}
       </button>
     </form>
   );
