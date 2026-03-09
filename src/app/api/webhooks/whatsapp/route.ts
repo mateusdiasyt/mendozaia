@@ -208,7 +208,14 @@ function parsePresenceUpdate(body: WebhookPayload): {
 
   const data = (body.data ?? body) as Record<string, unknown>;
   const key = data?.key as { remoteJid?: string } | undefined;
-  let remoteJid = (data?.id ?? data?.remoteJid ?? key?.remoteJid) as string | undefined;
+  let remoteJid = (
+    data?.id ??
+    data?.remoteJid ??
+    data?.participant ??
+    data?.from ??
+    data?.sender ??
+    key?.remoteJid
+  ) as string | undefined;
   const presences = data?.presences as Record<string, { lastKnownPresence?: string }> | undefined;
   let presence = (data?.lastKnownPresence ?? data?.presence ?? (remoteJid && presences?.[remoteJid]?.lastKnownPresence)) as string | undefined;
 
@@ -223,7 +230,9 @@ function parsePresenceUpdate(body: WebhookPayload): {
   }
 
   if (!remoteJid || typeof remoteJid !== "string") return null;
-  if (!remoteJid.includes("@")) remoteJid = `${remoteJid}@s.whatsapp.net`;
+  if (!remoteJid.includes("@")) {
+    remoteJid = `${String(remoteJid).replace(/\D/g, "")}@s.whatsapp.net`;
+  }
   if (remoteJid.endsWith("@g.us")) return null; // ignora grupos
 
   const validPresence = ["composing", "paused", "available", "unavailable", "recording"].includes(
@@ -375,13 +384,17 @@ export async function POST(request: NextRequest) {
         }
 
         if (conv) {
-          await db
-            .update(conversations)
-            .set({
-              contactTypingAt: isTyping ? new Date() : null,
-              updatedAt: new Date(),
-            })
-            .where(eq(conversations.id, conv.id));
+          // Nao limpa imediatamente quando chega "paused"/"available" para evitar flicker
+          // e dar tempo do frontend capturar o estado digitando.
+          if (isTyping) {
+            await db
+              .update(conversations)
+              .set({
+                contactTypingAt: new Date(),
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, conv.id));
+          }
         }
       }
       return NextResponse.json({ ok: true });
