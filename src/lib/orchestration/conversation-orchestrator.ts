@@ -2270,6 +2270,14 @@ function buildAvailabilityReply(
     : `Nao ha disponibilidade em ${friendlyDate} as ${parsed.timeStr}. Se quiser, me diga outro dia e horario que eu consulto agora.`;
 }
 
+function pickVariant(seed: string, options: string[]): string {
+  if (options.length === 0) return "";
+  const hash = Math.abs(
+    seed.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+  );
+  return options[hash % options.length]!;
+}
+
 function normalizePlainText(value: string): string {
   return value
     .toLowerCase()
@@ -6881,7 +6889,11 @@ export async function processInboundMessage(
       const friendlyDate = formatDateForPtBr(rf.dateStr);
       await sendMessage(
         ctx.conversationId,
-        `Perfeito. Reserva para *${peopleCount}* pessoa(s) em *${friendlyDate}* às *${rf.timeStr}*. Responda *sim* para confirmar.`
+        pickVariant(`${rf.dateStr}|${rf.timeStr}|${peopleCount}|restaurant_confirm`, [
+          `Perfeito. Reserva para *${peopleCount}* pessoa(s) em *${friendlyDate}* às *${rf.timeStr}*. Responda *sim* para confirmar.`,
+          `Tudo certo: *${peopleCount}* pessoa(s), *${friendlyDate}* às *${rf.timeStr}*. Se estiver ok, responde *sim* para confirmar.`,
+          `Posso confirmar sua reserva para *${peopleCount}* pessoa(s) em *${friendlyDate}* às *${rf.timeStr}*? Se sim, responde *sim*.`,
+        ])
       );
       return {
         didReply: true,
@@ -7249,9 +7261,17 @@ export async function processInboundMessage(
       reservationCollectionStage !== "confirm_reservation"
     ) {
       const friendlyDate = formatDateForPtBr(pending.dateStr);
+      const askConfirmation = pickVariant(
+        `${pending.dateStr}|${pending.timeStr}|ask_confirm_final`,
+        [
+          `Antes de confirmar: você quer fechar a reserva para *${friendlyDate}* às *${pending.timeStr}*?`,
+          `Só confirmando: deseja reservar para *${friendlyDate}* às *${pending.timeStr}*?`,
+          `Posso confirmar sua reserva em *${friendlyDate}* às *${pending.timeStr}*?`,
+        ]
+      );
       await sendMessage(
         ctx.conversationId,
-        `Antes de confirmar: você quer fechar a reserva para *${friendlyDate}* às *${pending.timeStr}*?`
+        askConfirmation
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "confirm_reservation",
@@ -7325,7 +7345,11 @@ export async function processInboundMessage(
 
       await sendMessage(
         ctx.conversationId,
-        "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva."
+        pickVariant(`${pending.dateStr}|${pending.timeStr}|await_confirm`, [
+          "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva.",
+          "Se esse horário estiver ok pra você, me confirme com *sim* e eu fecho a reserva.",
+          "Quer que eu confirme agora? Se sim, me responde *sim*.",
+        ])
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "confirm_reservation",
@@ -7405,7 +7429,11 @@ export async function processInboundMessage(
       await savePendingReservation(ctx.conversationId, conversationMetadata, null);
       await sendMessage(
         ctx.conversationId,
-        "Esse horário acabou de ficar indisponível. Me diga outro dia e horário que eu consulto agora."
+        pickVariant(`${pending.dateStr}|${pending.timeStr}|became_unavailable`, [
+          "Esse horário acabou de ficar indisponível. Me diga outro dia e horário que eu consulto agora.",
+          "Esse horário já foi preenchido agora. Me fala outro horário que eu verifico na hora.",
+          "Não consegui confirmar porque esse horário acabou de ocupar. Me manda outro que eu te passo as opções.",
+        ])
       );
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -7473,7 +7501,11 @@ export async function processInboundMessage(
           : "";
       await sendMessage(
         ctx.conversationId,
-        `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`
+        pickVariant(`${pending.dateStr}|${pending.timeStr}|confirmed`, [
+          `Perfeito. Reserva confirmada para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`,
+          `Fechado! Sua reserva está confirmada para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`,
+          `Tudo certo, confirmei sua reserva para ${friendlyDate} às ${pending.timeStr}${peopleLabel}.`,
+        ])
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
         collectionStage: "completed",
