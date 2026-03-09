@@ -2311,7 +2311,9 @@ function extractCustomerName(
   const lower = trimmed.toLowerCase();
   if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
 
-  const explicit = trimmed.match(/\b(?:meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú' ]{2,40})$/i);
+  const explicit = trimmed.match(
+    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
+  );
   if (explicit?.[1]) {
     const name = explicit[1].replace(/\s+/g, " ").trim();
     return name.length >= 2 ? name : null;
@@ -6442,32 +6444,34 @@ export async function processInboundMessage(
     }
 
     if (getIntakeStage(conversationMetadata) === "awaiting_issue") {
-      const fallbackReservation =
-        "Entendi. Nesse caso, posso te ajudar com o agendamento para avaliarmos melhor. Me informe seu nome e os dados do veículo (modelo, ano e km).";
-      await sendMessage(ctx.conversationId, fallbackReservation);
-      await persistIntakeStage(
+      const fallbackToHuman =
+        "Entendi. Para esse caso mais específico, vou te encaminhar para um atendente humano confirmar certinho e te orientar da melhor forma.";
+      await sendMessage(ctx.conversationId, fallbackToHuman);
+      const handoff = await handoffToHuman(
         ctx.conversationId,
-        conversationMetadata,
-        "awaiting_reservation_profile"
+        ctx.organizationId,
+        "Sem match de serviço no catálogo após triagem; encaminhado para atendimento humano"
       );
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
-        event: "intake_fallback_to_reservation",
+        event: "intake_fallback_to_human",
         decision: "tool_then_ai",
-        reason: "Sem match no catálogo após detalhamento; migrando para reserva",
+        reason: "Sem match no catálogo após detalhamento; encaminhando para humano",
         traceId: params.traceId,
-        stage: "orchestrator.reservations",
-        decisionCode: "INTAKE_FALLBACK_TO_RESERVATION",
+        stage: "orchestrator.handoff",
+        decisionCode: "INTAKE_FALLBACK_TO_HUMAN",
         durationMs: Date.now() - startedAt,
         metadata: {
           messageContent: ctx.messageContent,
+          handoffSuccess: handoff.success,
         },
       });
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Sem match no catálogo; iniciando coleta para agendamento",
+        reason: "Sem match no catálogo; encaminhando para humano",
         silence: false,
       };
     }
@@ -6487,7 +6491,6 @@ export async function processInboundMessage(
       looksLikeReservationIntent(ctx.messageContent) ||
       looksLikeReservationIntent(intentProbeText) ||
       !!ctx.pendingReservation ||
-      hasVehicleInfoInCurrentMessage ||
       intakeStage === "awaiting_reservation_profile";
 
     if (hasReservationSignal && (missingNameProfile || missingVehicleProfile.length > 0)) {
@@ -7477,7 +7480,12 @@ export async function processInboundMessage(
 
   // Fluxo determinístico de reservas: não depende do fallback da IA.
   // Se já temos dados do veículo, guiamos o próximo passo mesmo com useAsFallback=false.
-  if (ctx.reservationsEnabled && ctx.vehicleSlots && hasAllVehicleSlots(ctx.vehicleSlots)) {
+if (
+  ctx.reservationsEnabled &&
+  ctx.vehicleSlots &&
+  hasAllVehicleSlots(ctx.vehicleSlots) &&
+  (!!reservationContext.serviceName || ctx.botConfig?.segment === "restaurante")
+) {
     const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const parsedCurrentMessage = extractReservationDateTime(ctx.messageContent, nowRef);
     const vehicleSlotsFromCurrent = extractVehicleSlotsFromText(ctx.messageContent);
