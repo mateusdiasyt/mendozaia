@@ -14,6 +14,7 @@ import { notFound } from "next/navigation";
 import { ChatView } from "./chat-view";
 import { AIControlSidebar } from "@/components/conversations/ai-control-sidebar";
 import { ContactAvatar } from "@/components/conversations/contact-avatar";
+import { ConversationHeaderActions } from "@/components/conversations/conversation-header-actions";
 
 function formatPhoneNumber(phone: string): string {
   const digits = phone.replace(/\D/g, "");
@@ -183,6 +184,7 @@ export default async function ConversaPage({
           </div>
         </div>
         <div className="flex items-center gap-1">
+          <ConversationHeaderActions conversationId={id} />
           <button
             type="button"
             className="rounded-full p-2.5 text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-deep)]"
@@ -230,9 +232,6 @@ export default async function ConversaPage({
           conversationId={id}
           aiDisabledUntil={conv.aiDisabledUntil}
           contactName={conv.contactName}
-          contactPhone={conv.contactPhone}
-          contactEmail={conv.contactEmail}
-          contactNotes={conv.contactNotes}
           vehicleModel={vehicleModel}
           vehicleYear={vehicleYear}
           vehicleKm={vehicleKm}
