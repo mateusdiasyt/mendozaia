@@ -713,7 +713,19 @@ export async function POST(request: NextRequest) {
       });
       const acquired = await tryAcquireConversationLock(conversation.id);
       if (!acquired) {
-        return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
+        // Sem QStash, se o lock estiver ocupado, tenta novamente após o debounce.
+        // Isso evita "engolir" mensagens quando vários webhooks chegam em sequência.
+        await sleep(CONVERSATION_DEBOUNCE_MS);
+        const retryAcquired = await tryAcquireConversationLock(conversation.id);
+        if (!retryAcquired) {
+          return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
+        }
+        try {
+          await processConversation(conversation.id);
+        } finally {
+          await releaseConversationLock(conversation.id);
+        }
+        return NextResponse.json({ ok: true, fallbackRetried: "lock_acquired_after_wait" });
       }
       try {
         // Sem QStash, aplica debounce local para agrupar mensagens quebradas.
