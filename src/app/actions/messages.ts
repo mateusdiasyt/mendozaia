@@ -9,11 +9,14 @@ import {
   contacts,
   contactMemories,
   messages,
+  orchestrationLogs,
   whatsappSessions,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { saveContactMemory } from "@/lib/contact-memories";
 import { learnFromHumanMessage } from "@/lib/ai-training";
+
+type OrchestrationLogMetadata = Record<string, unknown> | null;
 
 export async function setConversationAIDisabled(
   conversationId: string,
@@ -351,6 +354,59 @@ export async function updateConversationReservationDraft(
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
   return { success: true, dateStr, timeStr };
+}
+
+export async function getConversationOrchestrationLogs(conversationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const logs = await db
+    .select({
+      id: orchestrationLogs.id,
+      event: orchestrationLogs.event,
+      decision: orchestrationLogs.decision,
+      reason: orchestrationLogs.reason,
+      stateBefore: orchestrationLogs.stateBefore,
+      stateAfter: orchestrationLogs.stateAfter,
+      metadata: orchestrationLogs.metadata,
+      createdAt: orchestrationLogs.createdAt,
+    })
+    .from(orchestrationLogs)
+    .where(
+      and(
+        eq(orchestrationLogs.organizationId, org.id),
+        eq(orchestrationLogs.conversationId, conversationId)
+      )
+    )
+    .orderBy(desc(orchestrationLogs.createdAt))
+    .limit(200);
+
+  return logs.map((log) => ({
+    id: log.id,
+    event: log.event,
+    decision: log.decision,
+    reason: log.reason,
+    stateBefore: log.stateBefore,
+    stateAfter: log.stateAfter,
+    metadata: (log.metadata as OrchestrationLogMetadata) ?? null,
+    createdAt: log.createdAt.toISOString(),
+  }));
 }
 
 export async function sendMessage(conversationId: string, text: string) {

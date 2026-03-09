@@ -1,7 +1,6 @@
 ﻿"use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
 import {
   Bot,
   BotOff,
@@ -10,8 +9,10 @@ import {
   Loader2,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 import {
+  getConversationOrchestrationLogs,
   setConversationAIDisabled,
   setConversationAIEnabled,
   setConversationCarInShop,
@@ -45,6 +46,17 @@ interface AIControlSidebarProps {
   conversationState?: string | null;
   assignedToId?: string | null;
   segment?: "mecanica" | "restaurante" | "geral";
+}
+
+interface ConversationLogItem {
+  id: string;
+  event: string;
+  decision: string | null;
+  reason: string | null;
+  stateBefore: string | null;
+  stateAfter: string | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 export function AIControlSidebar({
@@ -92,6 +104,12 @@ export function AIControlSidebar({
     reservationTimeStr ?? ""
   );
   const [savingReservationDraft, setSavingReservationDraft] = useState(false);
+  const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState<string | null>(null);
+  const [conversationLogs, setConversationLogs] = useState<ConversationLogItem[]>(
+    []
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -280,6 +298,59 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleOpenLogs() {
+    setIsLogsOpen(true);
+    setLogsLoading(true);
+    setLogsError(null);
+    try {
+      const logs = await getConversationOrchestrationLogs(conversationId);
+      setConversationLogs(logs);
+    } catch {
+      setLogsError("Não foi possível carregar os logs desta conversa.");
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  function formatLogDate(dateString: string): string {
+    return new Intl.DateTimeFormat("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "medium",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(dateString));
+  }
+
+  function getMetadataString(metadata: Record<string, unknown> | null): string {
+    if (!metadata) return "-";
+    try {
+      return JSON.stringify(metadata, null, 2);
+    } catch {
+      return "-";
+    }
+  }
+
+  function getMetadataValue(
+    metadata: Record<string, unknown> | null,
+    key: string
+  ): string {
+    if (!metadata) return "-";
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return "-";
+  }
+
+  function decisionClass(decision: string | null): string {
+    if (!decision) return "bg-slate-100 text-slate-700";
+    if (decision === "tool_then_ai" || decision === "ai_respond") {
+      return "bg-emerald-100 text-emerald-700";
+    }
+    if (decision === "automation_only") return "bg-indigo-100 text-indigo-700";
+    if (decision === "human_only") return "bg-amber-100 text-amber-700";
+    if (decision === "silence") return "bg-rose-100 text-rose-700";
+    return "bg-slate-100 text-slate-700";
+  }
+
   const formatPhone = (phone: string | null | undefined): string => {
     if (!phone) return "Não informado";
     const digits = phone.replace(/\D/g, "");
@@ -306,6 +377,7 @@ export function AIControlSidebar({
   const showCustomOilValue = !!oilSpec && !oilOptionValues.includes(oilSpec);
 
   return (
+    <>
     <aside className="flex w-80 shrink-0 flex-col border-l border-[var(--brand-muted)]/25 bg-[var(--brand-surface)]">
       <div className="border-b border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-5 py-4">
         <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--brand-deep)]">
@@ -671,18 +743,122 @@ export function AIControlSidebar({
               <Trash2 className="h-4 w-4" />
             </button>
 
-            <Link
-              href={`/dashboard/logs-ia?conversationId=${conversationId}`}
+            <button
+              type="button"
+              onClick={handleOpenLogs}
               title="Ver logs da IA"
               aria-label="Ver logs da IA"
               className="flex items-center justify-center rounded-lg border border-[var(--brand-muted)]/30 bg-white py-2 text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
             >
               <FileText className="h-4 w-4" />
-            </Link>
+            </button>
           </div>
         </div>
       </div>
     </aside>
+    {isLogsOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4">
+        <div className="flex h-[min(82vh,720px)] w-[min(96vw,980px)] flex-col overflow-hidden rounded-2xl border border-[var(--brand-muted)]/20 bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-[var(--brand-muted)]/20 px-4 py-3">
+            <div>
+              <h4 className="text-sm font-semibold text-[var(--brand-deep)]">
+                Logs desta conversa
+              </h4>
+              <p className="text-xs text-[var(--brand-muted)]">
+                Conversa {conversationId}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsLogsOpen(false)}
+              className="rounded-lg border border-[var(--brand-muted)]/30 p-2 text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
+              aria-label="Fechar logs"
+              title="Fechar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--brand-surface)] p-3">
+            {logsLoading && (
+              <div className="flex items-center gap-2 rounded-lg border border-[var(--brand-muted)]/20 bg-white px-3 py-2 text-sm text-[var(--brand-deep)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando logs...
+              </div>
+            )}
+
+            {!logsLoading && logsError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {logsError}
+              </div>
+            )}
+
+            {!logsLoading && !logsError && conversationLogs.length === 0 && (
+              <div className="rounded-lg border border-[var(--brand-muted)]/20 bg-white px-3 py-2 text-sm text-[var(--brand-muted)]">
+                Nenhum log encontrado para esta conversa.
+              </div>
+            )}
+
+            {!logsLoading && !logsError && conversationLogs.length > 0 && (
+              <div className="space-y-2">
+                {conversationLogs.map((log) => (
+                  <article
+                    key={log.id}
+                    className="rounded-lg border border-[var(--brand-muted)]/20 bg-white p-3"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-[var(--brand-deep)]">
+                        {formatLogDate(log.createdAt)}
+                      </span>
+                      <span className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[11px] font-semibold text-[var(--brand-deep)]">
+                        {log.event}
+                      </span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${decisionClass(
+                          log.decision
+                        )}`}
+                      >
+                        {log.decision ?? "-"}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-[var(--brand-muted)] sm:grid-cols-2">
+                      <p>
+                        <span className="font-semibold text-[var(--brand-deep)]">Código:</span>{" "}
+                        {getMetadataValue(log.metadata, "decisionCode")}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-[var(--brand-deep)]">Trace:</span>{" "}
+                        {getMetadataValue(log.metadata, "traceId")}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-[var(--brand-deep)]">Antes:</span>{" "}
+                        {log.stateBefore ?? "-"}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-[var(--brand-deep)]">Depois:</span>{" "}
+                        {log.stateAfter ?? "-"}
+                      </p>
+                    </div>
+                    {log.reason ? (
+                      <p className="mt-2 text-xs text-[var(--brand-deep)]">{log.reason}</p>
+                    ) : null}
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs font-semibold text-[var(--brand-muted)]">
+                        Metadata
+                      </summary>
+                      <pre className="mt-2 max-h-40 overflow-auto rounded bg-[var(--brand-soft)] p-2 text-[11px] text-[var(--brand-deep)]">
+                        {getMetadataString(log.metadata)}
+                      </pre>
+                    </details>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

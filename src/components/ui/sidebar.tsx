@@ -14,7 +14,6 @@ import {
   MessageCircle,
   LayoutDashboard,
   Calendar,
-  Activity,
   Package,
   Wrench,
   ShieldCheck,
@@ -85,7 +84,6 @@ export function Sidebar({
                 },
               ]
             : []),
-          ...(isAdmin ? [{ href: "/dashboard/logs-ia", label: "Logs IA", icon: Activity }] : []),
           ...(isAdmin
             ? [{ href: "/dashboard/admin/fluxo", label: "Admin Fluxo", icon: ShieldCheck }]
             : []),
