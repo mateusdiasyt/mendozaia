@@ -697,6 +697,22 @@ export async function POST(request: NextRequest) {
     // Debounce distribuído (Redis + QStash): agenda processamento em 3s; nova mensagem cancela e reinicia.
     try {
       await scheduleConversationProcessing(conversation.id);
+      await logOrchestration({
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        event: "webhook_schedule_queued",
+        reason: "Processamento agendado com sucesso no debouncer",
+        traceId,
+        stage: "webhook.schedule",
+        decisionCode: "WEBHOOK_SCHEDULE_QUEUED",
+        metadata: {
+          debounceMs: CONVERSATION_DEBOUNCE_MS,
+          hasQstashToken: !!process.env.QSTASH_TOKEN,
+          hasQstashSigningKeys:
+            !!process.env.QSTASH_CURRENT_SIGNING_KEY &&
+            !!process.env.QSTASH_NEXT_SIGNING_KEY,
+        },
+      });
     } catch (scheduleErr) {
       console.error("[webhook whatsapp] schedule failed, fallback inline:", scheduleErr);
       await logOrchestration({
