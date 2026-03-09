@@ -41,6 +41,15 @@ const INVALID_MODELO_TERMS = new Set([
   "orçamento",
   "revisao",
   "revisão",
+  "levar",
+  "trazer",
+  "consigo",
+  "consegue",
+  "quero",
+  "queria",
+  "gostaria",
+  "posso",
+  "pode",
   ]);
 
 const ALLOWED_SHORT_MODELS = new Set([
@@ -78,6 +87,15 @@ const INVALID_MODELO_PHRASES = [
   "para dar uma olhada",
   "meu carro",
   "do meu carro",
+  "levar",
+  "trazer",
+  "consigo levar",
+  "quero levar",
+  "queria levar",
+  "gostaria de levar",
+  "posso levar",
+  "pra levar",
+  "para levar",
 ];
 
 const VEHICLE_NOISE_WORDS = new Set([
@@ -114,6 +132,18 @@ const VEHICLE_NOISE_WORDS = new Set([
   "tenho",
   "to",
   "tô",
+  "consigo",
+  "consegue",
+  "conseguimos",
+  "quero",
+  "queria",
+  "gostaria",
+  "posso",
+  "pode",
+  "levar",
+  "trazer",
+  "pra",
+  "para",
 ]);
 
 const KNOWN_BRAND_ALIASES: Record<string, string> = {
@@ -272,13 +302,6 @@ function extractModelo(text: string): string | undefined {
     }
   }
 
-  const beforeYear = ano
-    ? trimmed.match(new RegExp(`(.+?)\\s+${ano}\\b`, "i"))
-    : null;
-  if (!candidate && beforeYear) {
-    candidate = beforeYear[1].replace(/\b(é|um|uma|o|a)\s+/gi, "").trim();
-  }
-
   // Fallback robusto: captura até 3 tokens imediatamente antes do ano.
   // Ex.: "onix 2022", "new fiesta 2018", "gol g5 2010"
   if (!candidate && ano) {
@@ -290,6 +313,24 @@ function extractModelo(text: string): string | undefined {
     );
     if (nearYear && !/^\d+$/.test(nearYear[1].trim())) {
       candidate = nearYear[1].trim();
+    }
+  }
+
+  // Fallback amplo: trecho anterior ao ano, mas reduzido para os últimos 3 tokens
+  // para evitar salvar frases longas como modelo.
+  const beforeYear = ano
+    ? trimmed.match(new RegExp(`(.+?)\\s+${ano}\\b`, "i"))
+    : null;
+  if (!candidate && beforeYear) {
+    const beforeYearTokens = beforeYear[1]
+      .replace(/\b(é|um|uma|o|a)\s+/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const shortened = beforeYearTokens.slice(-3).join(" ").trim();
+    if (shortened && !/^\d+$/.test(shortened)) {
+      candidate = shortened;
     }
   }
 
@@ -317,6 +358,8 @@ function extractModelo(text: string): string | undefined {
       .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/, "")
       .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/, "")
       .replace(/^(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com)\s+/, "")
+      .replace(/^(?:consigo|consegue|conseguimos|quero|queria|gostaria|posso|pode)\s+/, "")
+      .replace(/^(?:levar|trazer)\s+/, "")
       .replace(/^(?:e|é|eh)\s+/, "")
       .replace(/^(?:um|uma|o|a)\s+/, "")
       // Remove ano capturado junto no modelo (ex.: "onix 2022")

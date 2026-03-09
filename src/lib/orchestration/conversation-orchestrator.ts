@@ -2405,12 +2405,21 @@ function sanitizeNameCandidate(
     .filter(Boolean);
 
   const stopTokens = new Set([
+    "e",
+    "que",
+    "q",
+    "mas",
     "consigo",
+    "consegue",
+    "conseguimos",
     "quero",
+    "queria",
     "preciso",
     "gostaria",
     "posso",
     "pode",
+    "tenho",
+    "tinha",
     "hoje",
     "amanha",
     "amanhã",
@@ -2466,7 +2475,7 @@ function extractCustomerName(
   const trimmed = text.trim();
   if (!trimmed) return null;
   const explicit = trimmed.match(
-    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,5})\b/i
+    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
   );
   if (explicit?.[1]) {
     return sanitizeNameCandidate(explicit[1], options?.blockedValues);
@@ -4761,6 +4770,7 @@ export async function processInboundMessage(
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
   const canCaptureNameNow =
     isAwaitingNameStage ||
+    (!contactName && explicitNameIntro) ||
     (!contactName &&
       (
         intakeStage === "awaiting_reservation_profile" ||
