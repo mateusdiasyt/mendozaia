@@ -6,6 +6,7 @@ import {
   Bot,
   BotOff,
   ChevronDown,
+  FileText,
   Loader2,
   RefreshCw,
   Trash2,
@@ -654,29 +655,32 @@ export function AIControlSidebar({
           )}
         </div>
 
-        <details className="rounded-lg border border-[var(--brand-muted)]/30 bg-white p-2">
-          <summary className="cursor-pointer list-none px-1 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--brand-muted)]">
+        <div className="rounded-lg border border-[var(--brand-muted)]/30 bg-white p-2">
+          <p className="px-1 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--brand-muted)]">
             Ferramentas
-          </summary>
-          <div className="mt-2 space-y-2">
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={handleResetConversation}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              title="Resetar conversa"
+              aria-label="Resetar conversa"
+              className="flex items-center justify-center rounded-lg border border-red-200 bg-white py-2 text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <Trash2 className="h-4 w-4" />
-              Resetar conversa
             </button>
 
             <Link
               href={`/dashboard/logs-ia?conversationId=${conversationId}`}
-              className="flex w-full items-center justify-center rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
+              title="Ver logs da IA"
+              aria-label="Ver logs da IA"
+              className="flex items-center justify-center rounded-lg border border-[var(--brand-muted)]/30 bg-white py-2 text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
             >
-              Ver logs da IA
+              <FileText className="h-4 w-4" />
             </Link>
           </div>
-        </details>
+        </div>
       </div>
     </aside>
   );
