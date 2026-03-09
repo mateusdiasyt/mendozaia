@@ -98,6 +98,62 @@ export async function fetchInstanceStatus(instanceName: string) {
   return data?.instance?.state ?? null;
 }
 
+function normalizeDigits(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function extractPhoneCandidate(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const source = payload as Record<string, unknown>;
+
+  const candidates: unknown[] = [
+    source.number,
+    source.phone,
+    source.owner,
+    source.wid,
+    source.jid,
+    source.wuid,
+    (source.instance as Record<string, unknown> | undefined)?.number,
+    (source.instance as Record<string, unknown> | undefined)?.phone,
+    (source.instance as Record<string, unknown> | undefined)?.owner,
+    (source.instance as Record<string, unknown> | undefined)?.wid,
+    (source.instance as Record<string, unknown> | undefined)?.jid,
+    (source.instance as Record<string, unknown> | undefined)?.wuid,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const withoutSuffix = candidate.replace("@s.whatsapp.net", "");
+    const digits = normalizeDigits(withoutSuffix);
+    if (digits.length >= 10 && digits.length <= 15) return digits;
+  }
+
+  return null;
+}
+
+export async function fetchInstanceConnectionInfo(instanceName: string): Promise<{
+  state: string | null;
+  phoneNumber: string | null;
+}> {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}/instance/connectionState/${instanceName}`, {
+    method: "GET",
+    headers: getHeaders(),
+  });
+
+  if (!res.ok) {
+    return { state: null, phoneNumber: null };
+  }
+
+  const data = (await res.json()) as Record<string, unknown>;
+  const state =
+    ((data.instance as Record<string, unknown> | undefined)?.state as string | undefined) ??
+    (typeof data.state === "string" ? data.state : null);
+  const phoneNumber = extractPhoneCandidate(data);
+
+  return { state: state ?? null, phoneNumber };
+}
+
 export async function fetchProfilePictureUrl(
   instanceName: string,
   number: string

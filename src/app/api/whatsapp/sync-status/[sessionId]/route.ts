@@ -9,7 +9,10 @@ import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { whatsappSessions } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
-import { fetchInstanceStatus, setInstanceWebhook } from "@/lib/evolution-api";
+import {
+  fetchInstanceConnectionInfo,
+  setInstanceWebhook,
+} from "@/lib/evolution-api";
 
 export async function POST(
   _request: NextRequest,
@@ -56,7 +59,8 @@ export async function POST(
       await setInstanceWebhook(sessionId, webhookUrl);
     }
 
-    const state = await fetchInstanceStatus(sessionId);
+    const connectionInfo = await fetchInstanceConnectionInfo(sessionId);
+    const state = connectionInfo.state;
     const status =
       state === "open" || state === "connected" ? "connected" : "disconnected";
 
@@ -64,6 +68,7 @@ export async function POST(
       .update(whatsappSessions)
       .set({
         status,
+        phoneNumber: connectionInfo.phoneNumber ?? wsSession.phoneNumber ?? null,
         lastConnectedAt: status === "connected" ? new Date() : undefined,
         updatedAt: new Date(),
       })

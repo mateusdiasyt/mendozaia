@@ -236,6 +236,7 @@ function parsePresenceUpdate(body: WebhookPayload): {
 function parseConnectionStatus(body: WebhookPayload): {
   sessionId: string;
   status: "connected" | "disconnected";
+  phoneNumber: string | null;
 } | null {
   const event =
     body.event ?? body.eventType ?? (body as WebhookPayload).action;
@@ -256,9 +257,40 @@ function parseConnectionStatus(body: WebhookPayload): {
   const isConnected = ["open", "connected"].includes(
     String(state).toLowerCase()
   );
+
+  const data = (body.data ?? {}) as Record<string, unknown>;
+  const instance = (data.instance ?? {}) as Record<string, unknown>;
+  const phoneCandidates: unknown[] = [
+    data.number,
+    data.phone,
+    data.owner,
+    data.wid,
+    data.jid,
+    data.wuid,
+    instance.number,
+    instance.phone,
+    instance.owner,
+    instance.wid,
+    instance.jid,
+    instance.wuid,
+  ];
+
+  let phoneNumber: string | null = null;
+  for (const candidate of phoneCandidates) {
+    if (typeof candidate !== "string") continue;
+    const digits = candidate
+      .replace("@s.whatsapp.net", "")
+      .replace(/\D/g, "");
+    if (digits.length >= 10 && digits.length <= 15) {
+      phoneNumber = digits;
+      break;
+    }
+  }
+
   return {
     sessionId,
     status: isConnected ? "connected" : "disconnected",
+    phoneNumber,
   };
 }
 
@@ -322,6 +354,7 @@ export async function POST(request: NextRequest) {
         .update(whatsappSessions)
         .set({
           status: conn.status,
+          phoneNumber: conn.phoneNumber ?? undefined,
           lastConnectedAt:
             conn.status === "connected" ? new Date() : undefined,
           updatedAt: new Date(),
