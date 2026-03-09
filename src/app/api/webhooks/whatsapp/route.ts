@@ -198,9 +198,9 @@ function parsePresenceUpdate(body: WebhookPayload): {
   remoteJid: string;
   presence: "composing" | "paused" | "available" | "unavailable" | "recording";
 } | null {
-  const event =
-    body.event ?? body.eventType ?? (body as WebhookPayload).action;
-  if (event !== "PRESENCE_UPDATE") return null;
+  const rawEvent = body.event ?? body.eventType ?? (body as WebhookPayload).action;
+  const normalizedEvent = String(rawEvent ?? "").toUpperCase();
+  if (!normalizedEvent.includes("PRESENCE")) return null;
 
   const sessionId =
     body.instance ?? body.instanceName ?? (body as WebhookPayload).sessionId;
@@ -215,7 +215,9 @@ function parsePresenceUpdate(body: WebhookPayload): {
   if (presences && typeof presences === "object") {
     const firstKey = Object.keys(presences)[0];
     if (firstKey) {
-      remoteJid = remoteJid ?? (typeof data?.id === "string" ? data.id : firstKey);
+      if (!remoteJid || !String(remoteJid).includes("@")) {
+        remoteJid = firstKey;
+      }
       presence = presence ?? presences[firstKey]?.lastKnownPresence;
     }
   }
@@ -231,6 +233,12 @@ function parsePresenceUpdate(body: WebhookPayload): {
     : "paused";
 
   return { sessionId, remoteJid, presence: validPresence };
+}
+
+function normalizeRemotePhone(remoteJid: string): string {
+  const withoutDomain = remoteJid.replace(/@.*$/, "");
+  const withoutDevice = withoutDomain.split(":")[0] ?? withoutDomain;
+  return withoutDevice.replace(/\D/g, "");
 }
 
 function parseConnectionStatus(body: WebhookPayload): {
@@ -302,7 +310,7 @@ export async function POST(request: NextRequest) {
 
     // PRESENCE_UPDATE: contato digitando
     if (presence) {
-      const phone = presence.remoteJid.replace("@s.whatsapp.net", "");
+      const phone = normalizeRemotePhone(presence.remoteJid);
       const isTyping = presence.presence === "composing" || presence.presence === "recording";
 
       const [wsSession] = await db
@@ -315,7 +323,7 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (wsSession) {
-        const [conv] = await db
+        let [conv] = await db
           .select({
             id: conversations.id,
           })
@@ -334,6 +342,37 @@ export async function POST(request: NextRequest) {
             asc(conversations.createdAt)
           )
           .limit(1);
+
+        if (!conv) {
+          const candidates = await db
+            .select({
+              id: conversations.id,
+              phone: contacts.phone,
+            })
+            .from(conversations)
+            .innerJoin(contacts, eq(conversations.contactId, contacts.id))
+            .where(
+              and(
+                eq(contacts.organizationId, wsSession.organizationId),
+                eq(conversations.whatsappSessionId, wsSession.id)
+              )
+            )
+            .orderBy(
+              desc(conversations.lastMessageAt),
+              desc(conversations.updatedAt),
+              asc(conversations.createdAt)
+            )
+            .limit(100);
+
+          const target = phone.slice(-11);
+          const matched = candidates.find((c) => {
+            const local = c.phone.replace(/\D/g, "").slice(-11);
+            return local.length > 0 && local === target;
+          });
+          if (matched) {
+            conv = { id: matched.id };
+          }
+        }
 
         if (conv) {
           await db
