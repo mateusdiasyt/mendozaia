@@ -1,6 +1,6 @@
 /**
  * Webhook para receber mensagens da API WhatsApp (VPS).
- * Valida assinatura, persiste mensagem e dispara o motor de automação.
+ * Valida assinatura, persiste mensagem e dispara o motor de automaÃ§Ã£o.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -23,7 +23,7 @@ import {
 import { getRedis } from "@/lib/redis/redis-client";
 import { logOrchestration } from "@/lib/orchestration/logger";
 
-// Formato esperado da Evolution API (texto e mídia)
+// Formato esperado da Evolution API (texto e mÃ­dia)
 interface MessageContent {
   conversation?: string;
   extendedTextMessage?: { text?: string };
@@ -70,9 +70,37 @@ interface WebhookPayload {
 }
 
 const HUMAN_REPLY_AI_PAUSE_MS = 60 * 60 * 1000; // 1 hora
+const FORCE_INLINE_DEBOUNCE = process.env.FORCE_INLINE_DEBOUNCE !== "false";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runInlineDebouncedProcessing(
+  conversationId: string
+): Promise<"processed" | "lock_held"> {
+  const acquired = await tryAcquireConversationLock(conversationId);
+  if (!acquired) {
+    await sleep(CONVERSATION_DEBOUNCE_MS);
+    const retryAcquired = await tryAcquireConversationLock(conversationId);
+    if (!retryAcquired) {
+      return "lock_held";
+    }
+    try {
+      await processConversation(conversationId);
+      return "processed";
+    } finally {
+      await releaseConversationLock(conversationId);
+    }
+  }
+
+  try {
+    await sleep(CONVERSATION_DEBOUNCE_MS);
+    await processConversation(conversationId);
+    return "processed";
+  } finally {
+    await releaseConversationLock(conversationId);
+  }
 }
 
 function buildWebhookPhoneLockKey(sessionId: string, phone: string): string {
@@ -95,7 +123,7 @@ async function acquireWebhookPhoneLock(
       await sleep(50);
     }
   } catch {
-    // Se Redis indisponível, segue sem lock para não bloquear webhook.
+    // Se Redis indisponÃ­vel, segue sem lock para nÃ£o bloquear webhook.
   }
   return { key, token, acquired: false };
 }
@@ -124,7 +152,7 @@ function parseBooleanLike(value: unknown): boolean | null {
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
     if (["true", "1", "yes", "y", "sim"].includes(normalized)) return true;
-    if (["false", "0", "no", "n", "nao", "não"].includes(normalized)) return false;
+    if (["false", "0", "no", "n", "nao", "nÃ£o"].includes(normalized)) return false;
   }
   return null;
 }
@@ -288,7 +316,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // CONNECTION_UPDATE: atualizar status da sessão
+    // CONNECTION_UPDATE: atualizar status da sessÃ£o
     if (conn) {
       await db
         .update(whatsappSessions)
@@ -325,7 +353,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Ignora mensagens de grupos — só processa contatos diretos (@s.whatsapp.net)
+    // Ignora mensagens de grupos â€” sÃ³ processa contatos diretos (@s.whatsapp.net)
     if (remoteJid.endsWith("@g.us")) {
       return NextResponse.json({ ok: true }); // Ignora grupos
     }
@@ -369,9 +397,9 @@ export async function POST(request: NextRequest) {
           if (msg?.documentMessage) outboundText = msg.documentMessage?.caption ?? outboundText;
 
           const preview =
-            outboundText?.slice(0, 100) || "[mídia]";
+            outboundText?.slice(0, 100) || "[mÃ­dia]";
 
-          // Evita tratar eco da própria resposta da IA como "resposta humana"
+          // Evita tratar eco da prÃ³pria resposta da IA como "resposta humana"
           const outboundTrimmed = outboundText?.trim();
           if (outboundTrimmed) {
             const since45s = new Date(Date.now() - 45 * 1000);
@@ -417,7 +445,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // Extrair texto e mídia da mensagem (inbound)
+    // Extrair texto e mÃ­dia da mensagem (inbound)
     let messageText = msg?.conversation ?? msg?.extendedTextMessage?.text ?? "";
     let contentType = "text" as string;
     let mediaUrl: string | null = null;
@@ -454,7 +482,7 @@ export async function POST(request: NextRequest) {
       metadata.fileName = msg.documentMessage.fileName;
     }
 
-    // Buscar sessão WhatsApp e organização
+    // Buscar sessÃ£o WhatsApp e organizaÃ§Ã£o
     const [session] = await db
       .select()
       .from(whatsappSessions)
@@ -475,7 +503,7 @@ export async function POST(request: NextRequest) {
     let contact: typeof contacts.$inferSelect | undefined;
     let conversation: typeof conversations.$inferSelect | undefined;
     try {
-      // Buscar contato canônico (mais antigo) por organização + número
+      // Buscar contato canÃ´nico (mais antigo) por organizaÃ§Ã£o + nÃºmero
       [contact] = await db
         .select()
         .from(contacts)
@@ -536,7 +564,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Buscar conversa canônica por sessão + número (independente de contactId duplicado)
+      // Buscar conversa canÃ´nica por sessÃ£o + nÃºmero (independente de contactId duplicado)
       const [existingConv] = await db
         .select({
           conversation: conversations,
@@ -625,8 +653,8 @@ export async function POST(request: NextRequest) {
     }
     const traceId = crypto.randomUUID();
 
-    // Anti-flood: não inserir duplicata técnica de webhook retry (janela curta).
-    // Janela longa engole respostas legítimas repetidas do cliente (ex.: "Mateus" novamente).
+    // Anti-flood: nÃ£o inserir duplicata tÃ©cnica de webhook retry (janela curta).
+    // Janela longa engole respostas legÃ­timas repetidas do cliente (ex.: "Mateus" novamente).
     const DUPLICATE_TEXT_WINDOW_MS = 8 * 1000;
     const sinceDuplicateWindow = new Date(Date.now() - DUPLICATE_TEXT_WINDOW_MS);
     if (messageText?.trim()) {
@@ -646,7 +674,7 @@ export async function POST(request: NextRequest) {
         try {
           await scheduleConversationProcessing(conversation.id);
         } catch (scheduleErr) {
-          // Mensagem duplicada não precisa fallback inline: evita processamentos paralelos/repetidos
+          // Mensagem duplicada nÃ£o precisa fallback inline: evita processamentos paralelos/repetidos
           console.error(
             "[webhook whatsapp] schedule failed (duplicate), skipping inline fallback:",
             scheduleErr
@@ -656,7 +684,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Salvar mensagem recebida (texto e mídia)
+    // Salvar mensagem recebida (texto e mÃ­dia)
     await db.insert(messages).values({
       conversationId: conversation.id,
       direction: "inbound",
@@ -694,6 +722,30 @@ export async function POST(request: NextRequest) {
     // Anti flood: incrementa contador (INCR + EXPIRE 10)
     await incrementFloodCount(conversation.id);
 
+    if (FORCE_INLINE_DEBOUNCE) {
+      await logOrchestration({
+        conversationId: conversation.id,
+        organizationId: session.organizationId,
+        event: "webhook_schedule_fallback_inline",
+        reason: "Modo inline forçado: processando debounce no webhook",
+        traceId,
+        stage: "webhook.schedule",
+        decisionCode: "WEBHOOK_FORCE_INLINE_DEBOUNCE",
+        metadata: {
+          debounceMs: CONVERSATION_DEBOUNCE_MS,
+          hasQstashToken: !!process.env.QSTASH_TOKEN,
+          hasQstashSigningKeys:
+            !!process.env.QSTASH_CURRENT_SIGNING_KEY &&
+            !!process.env.QSTASH_NEXT_SIGNING_KEY,
+        },
+      });
+      const inlineResult = await runInlineDebouncedProcessing(conversation.id);
+      if (inlineResult === "lock_held") {
+        return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
+      }
+      return NextResponse.json({ ok: true, mode: "inline_debounce" });
+    }
+
     // Debounce distribuído (Redis + QStash): agenda processamento em 3s; nova mensagem cancela e reinicia.
     try {
       await scheduleConversationProcessing(conversation.id);
@@ -727,28 +779,9 @@ export async function POST(request: NextRequest) {
           error: String(scheduleErr),
         },
       });
-      const acquired = await tryAcquireConversationLock(conversation.id);
-      if (!acquired) {
-        // Sem QStash, se o lock estiver ocupado, tenta novamente após o debounce.
-        // Isso evita "engolir" mensagens quando vários webhooks chegam em sequência.
-        await sleep(CONVERSATION_DEBOUNCE_MS);
-        const retryAcquired = await tryAcquireConversationLock(conversation.id);
-        if (!retryAcquired) {
-          return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
-        }
-        try {
-          await processConversation(conversation.id);
-        } finally {
-          await releaseConversationLock(conversation.id);
-        }
-        return NextResponse.json({ ok: true, fallbackRetried: "lock_acquired_after_wait" });
-      }
-      try {
-        // Sem QStash, aplica debounce local para agrupar mensagens quebradas.
-        await sleep(CONVERSATION_DEBOUNCE_MS);
-        await processConversation(conversation.id);
-      } finally {
-        await releaseConversationLock(conversation.id);
+      const inlineResult = await runInlineDebouncedProcessing(conversation.id);
+      if (inlineResult === "lock_held") {
+        return NextResponse.json({ ok: true, fallbackSkipped: "lock_held" });
       }
     }
 
@@ -761,3 +794,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
