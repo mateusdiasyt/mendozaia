@@ -18,13 +18,23 @@ interface Conv {
   isTyping?: boolean;
 }
 
+const PAGE_SIZE = 5;
 const POLL_INTERVAL_MS = 1_500;
 const POLL_WHEN_HIDDEN_MS = 8_000;
 const ENTER_ANIMATION_MS = 450;
 
-export function ConversationList({ list }: { list: Conv[] }) {
+export function ConversationList({
+  list,
+  initialHasMore,
+}: {
+  list: Conv[];
+  initialHasMore: boolean;
+}) {
   const pathname = usePathname();
   const [items, setItems] = useState<Conv[]>(list);
+  const [currentLimit, setCurrentLimit] = useState<number>(Math.max(PAGE_SIZE, list.length));
+  const [hasMore, setHasMore] = useState<boolean>(initialHasMore);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [tab, setTab] = useState<"active" | "waiting">("active");
   const [query, setQuery] = useState("");
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
@@ -32,28 +42,47 @@ export function ConversationList({ list }: { list: Conv[] }) {
 
   useEffect(() => {
     setItems(list);
-  }, [list]);
+    setCurrentLimit(Math.max(PAGE_SIZE, list.length));
+    setHasMore(initialHasMore);
+  }, [list, initialHasMore]);
 
-  const fetchConversationList = useCallback(async () => {
+  const fetchConversationList = useCallback(async (limit: number) => {
     try {
-      const res = await fetch("/api/conversations/list", { cache: "no-store" });
+      const res = await fetch(`/api/conversations/list?limit=${limit}&offset=0`, {
+        cache: "no-store",
+      });
       if (!res.ok) return;
-      const data = (await res.json()) as { list?: Conv[] };
+      const data = (await res.json()) as { list?: Conv[]; hasMore?: boolean };
       if (Array.isArray(data.list)) {
         setItems(data.list);
+        setHasMore(Boolean(data.hasMore));
       }
     } catch {
       // ignore transient polling failures
     }
   }, []);
 
+  const handleLoadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    const nextLimit = currentLimit + PAGE_SIZE;
+    setIsLoadingMore(true);
+    try {
+      await fetchConversationList(nextLimit);
+      setCurrentLimit(nextLimit);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [currentLimit, fetchConversationList, hasMore, isLoadingMore]);
+
   useEffect(() => {
-    fetchConversationList();
+    fetchConversationList(currentLimit);
     let intervalId: ReturnType<typeof setInterval>;
 
     const schedulePoll = () => {
       const ms = document.hidden ? POLL_WHEN_HIDDEN_MS : POLL_INTERVAL_MS;
-      intervalId = setInterval(fetchConversationList, ms);
+      intervalId = setInterval(() => {
+        fetchConversationList(currentLimit);
+      }, ms);
     };
 
     schedulePoll();
@@ -61,7 +90,7 @@ export function ConversationList({ list }: { list: Conv[] }) {
     const onVisibilityChange = () => {
       clearInterval(intervalId);
       if (!document.hidden) {
-        fetchConversationList();
+        fetchConversationList(currentLimit);
       }
       schedulePoll();
     };
@@ -71,7 +100,7 @@ export function ConversationList({ list }: { list: Conv[] }) {
       clearInterval(intervalId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [fetchConversationList]);
+  }, [currentLimit, fetchConversationList]);
 
   const waitingList = useMemo(
     () => items.filter((c) => c.isWaitingHuman),
@@ -209,61 +238,75 @@ export function ConversationList({ list }: { list: Conv[] }) {
             </p>
           </div>
         ) : (
-          currentList.map((conv) => {
-            const isActive = pathname === `/dashboard/conversas/${conv.id}`;
-            const displayName = conv.contactName || conv.contactPhone;
+          <>
+            {currentList.map((conv) => {
+              const isActive = pathname === `/dashboard/conversas/${conv.id}`;
+              const displayName = conv.contactName || conv.contactPhone;
 
-            return (
-              <Link
-                key={conv.id}
-                href={`/dashboard/conversas/${conv.id}`}
-                className={`flex items-center gap-3 border-b border-[var(--brand-muted)]/15 px-4 py-3 transition-colors ${
-                  isActive ? "bg-[var(--brand-primary)]/10" : "hover:bg-[var(--brand-soft)]"
-                }`}
-                style={
-                  animatingIds.has(conv.id)
-                    ? {
-                        animation:
-                          "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
-                      }
-                    : undefined
-                }
-              >
-                <ContactAvatar
-                  sessionId={conv.sessionId}
-                  phone={conv.contactPhone}
-                  displayName={displayName}
-                  size="md"
-                  conversationId={conv.id}
-                  unreadCount={conv.unreadCount}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-base font-semibold text-[var(--brand-deep)]">
-                      {displayName}
-                    </span>
-                    {conv.lastMessageAt && (
-                      <span className="shrink-0 text-xs text-[var(--brand-muted)]">
-                        {formatTime(conv.lastMessageAt)}
+              return (
+                <Link
+                  key={conv.id}
+                  href={`/dashboard/conversas/${conv.id}`}
+                  className={`flex items-center gap-3 border-b border-[var(--brand-muted)]/15 px-4 py-3 transition-colors ${
+                    isActive ? "bg-[var(--brand-primary)]/10" : "hover:bg-[var(--brand-soft)]"
+                  }`}
+                  style={
+                    animatingIds.has(conv.id)
+                      ? {
+                          animation:
+                            "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+                        }
+                      : undefined
+                  }
+                >
+                  <ContactAvatar
+                    sessionId={conv.sessionId}
+                    phone={conv.contactPhone}
+                    displayName={displayName}
+                    size="md"
+                    conversationId={conv.id}
+                    unreadCount={conv.unreadCount}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-base font-semibold text-[var(--brand-deep)]">
+                        {displayName}
                       </span>
+                      {conv.lastMessageAt && (
+                        <span className="shrink-0 text-xs text-[var(--brand-muted)]">
+                          {formatTime(conv.lastMessageAt)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 truncate text-sm text-[var(--brand-muted)]">
+                      {conv.isTyping ? (
+                        <span className="font-medium text-[var(--brand-primary)]">digitando...</span>
+                      ) : (
+                        conv.lastMessagePreview || "Sem mensagens"
+                      )}
+                    </p>
+                    {conv.isWaitingHuman && (
+                      <p className="mt-1 inline-flex rounded-full bg-[var(--brand-accent)]/25 px-2 py-0.5 text-[11px] font-medium text-[var(--brand-deep)]">
+                        Aguardando humano
+                      </p>
                     )}
                   </div>
-                  <p className="mt-1 truncate text-sm text-[var(--brand-muted)]">
-                    {conv.isTyping ? (
-                      <span className="font-medium text-[var(--brand-primary)]">digitando...</span>
-                    ) : (
-                      conv.lastMessagePreview || "Sem mensagens"
-                    )}
-                  </p>
-                  {conv.isWaitingHuman && (
-                    <p className="mt-1 inline-flex rounded-full bg-[var(--brand-accent)]/25 px-2 py-0.5 text-[11px] font-medium text-[var(--brand-deep)]">
-                      Aguardando humano
-                    </p>
-                  )}
-                </div>
-              </Link>
-            );
-          })
+                </Link>
+              );
+            })}
+            {hasMore && !normalizedQuery && (
+              <div className="border-b border-[var(--brand-muted)]/15 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={handleLoadMore}
+                  disabled={isLoadingMore}
+                  className="w-full rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isLoadingMore ? "Carregando..." : "Carregar mais 5 conversas"}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       <style jsx>{`

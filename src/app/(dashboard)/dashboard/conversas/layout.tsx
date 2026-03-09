@@ -8,6 +8,8 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { ConversationList } from "./conversation-list";
 
+const INITIAL_CONVERSATIONS_LIMIT = 5;
+
 export default async function ConversasLayout({
   children,
 }: {
@@ -16,7 +18,7 @@ export default async function ConversasLayout({
   const org = await getCurrentOrganization();
   if (!org) return null;
 
-  const list = await db
+  const rows = await db
     .select({
       id: conversations.id,
       lastMessageAt: conversations.lastMessageAt,
@@ -40,7 +42,13 @@ export default async function ConversasLayout({
         eq(conversations.isArchived, false)
       )
     )
-    .orderBy(desc(conversations.lastMessageAt));
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(INITIAL_CONVERSATIONS_LIMIT + 1);
+
+  const initialHasMore = rows.length > INITIAL_CONVERSATIONS_LIMIT;
+  const list = initialHasMore
+    ? rows.slice(0, INITIAL_CONVERSATIONS_LIMIT)
+    : rows;
 
   const nowMs = Date.now();
   const CONTACT_TYPING_TIMEOUT_MS = 12_000;
@@ -61,7 +69,7 @@ export default async function ConversasLayout({
 
   return (
     <div className="flex min-h-0 w-full flex-1 shrink-0">
-      <ConversationList list={listWithStatus} />
+      <ConversationList list={listWithStatus} initialHasMore={initialHasMore} />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--brand-surface)]">
         {children}
       </div>

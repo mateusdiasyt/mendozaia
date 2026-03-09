@@ -5,21 +5,31 @@ import { db } from "@/lib/db";
 import { conversations, contacts, whatsappSessions } from "@/lib/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
-export async function GET() {
+function parseNonNegativeInt(value: string | null, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
 
   const org = await getCurrentOrganization();
   if (!org) {
     return NextResponse.json(
-      { error: "Organização não encontrada" },
+      { error: "Organizacao nao encontrada" },
       { status: 403 }
     );
   }
 
-  const list = await db
+  const { searchParams } = new URL(request.url);
+  const limit = Math.min(parseNonNegativeInt(searchParams.get("limit"), 50) || 50, 100);
+  const offset = parseNonNegativeInt(searchParams.get("offset"), 0);
+
+  const rows = await db
     .select({
       id: conversations.id,
       lastMessageAt: conversations.lastMessageAt,
@@ -46,11 +56,16 @@ export async function GET() {
         eq(conversations.isArchived, false)
       )
     )
-    .orderBy(desc(conversations.lastMessageAt));
+    .orderBy(desc(conversations.lastMessageAt))
+    .limit(limit + 1)
+    .offset(offset);
+
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
 
   const nowMs = Date.now();
   const CONTACT_TYPING_TIMEOUT_MS = 12_000;
-  const listWithStatus = list.map((item) => {
+  const listWithStatus = page.map((item) => {
     const isTyping =
       !!item.contactTypingAt &&
       nowMs - new Date(item.contactTypingAt).getTime() < CONTACT_TYPING_TIMEOUT_MS;
@@ -65,5 +80,5 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ list: listWithStatus });
+  return NextResponse.json({ list: listWithStatus, hasMore });
 }
