@@ -95,6 +95,19 @@ function containsDateOrTimeHint(text: string): boolean {
   );
 }
 
+function containsExplicitDateHint(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+  return (
+    /\b(hoje|amanha|dia\s+\d{1,2})\b/.test(t) ||
+    /\b(segunda(?:[\s-]?feira)?|terca(?:[\s-]?feira)?|quarta(?:[\s-]?feira)?|quinta(?:[\s-]?feira)?|sexta(?:[\s-]?feira)?|sabado|domingo)\b/.test(t) ||
+    /\b(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/.test(t) ||
+    /\b\d{2}\/\d{2}(?:\/\d{2,4})?\b/.test(t)
+  );
+}
+
 function looksLikeGreeting(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1052,9 +1065,9 @@ function toTimeStr(hour: number, minute: number): string {
 
 function normalizeTimeToHalfHour(hour: number, minute: number): { hour: number; minute: number } {
   const total = hour * 60 + minute;
-  const nearestSlot = Math.round(total / 30) * 30;
-  const normalizedHour = Math.floor((nearestSlot % (24 * 60)) / 60);
-  const normalizedMinute = nearestSlot % 60;
+  const nextSlot = Math.ceil(total / 30) * 30;
+  const normalizedHour = Math.floor((nextSlot % (24 * 60)) / 60);
+  const normalizedMinute = nextSlot % 60;
   return { hour: normalizedHour, minute: normalizedMinute };
 }
 
@@ -1798,6 +1811,11 @@ function looksLikeUnknownOilMessage(text: string): boolean {
   );
 }
 
+function looksLikeKnowsOilMessage(text: string): boolean {
+  const t = normalizeForSearch(text);
+  return /\b(sei sim|sei|conheco|conheco sim|sim eu sei|sei qual)\b/.test(t);
+}
+
 function isGenericBudgetRequest(text: string): boolean {
   const t = normalizeForSearch(text);
   const asksBudget = /\b(orcamento|preco|valor|quanto)\b/.test(t);
@@ -2193,23 +2211,33 @@ function buildAvailabilityReply(
 ): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
   if (availability.available) {
-    return `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`;
+    const options = [
+      `Consigo te atender em ${friendlyDate} as ${parsed.timeStr}. Quer que eu confirme a reserva?`,
+      `Horario livre em ${friendlyDate} as ${parsed.timeStr}. Posso confirmar pra voce?`,
+      `Perfeito, esse horario (${friendlyDate} as ${parsed.timeStr}) esta disponivel. Confirmo a reserva?`,
+    ];
+    const index = Math.abs(
+      `${parsed.dateStr}|${parsed.timeStr}`
+        .split("")
+        .reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
+    ) % options.length;
+    return options[index];
   }
   if (availability.reason === "outside_business_hours") {
     const start = availability.start ?? "09:00";
     const end = availability.end ?? "17:00";
-    return `Esse horário fica fora do nosso atendimento. Atendemos das ${start} às ${end}. Quer agendar em outro horário nesse intervalo?`;
+    return `Esse horario fica fora do nosso atendimento. Atendemos das ${start} as ${end}. Quer agendar em outro horario nesse intervalo?`;
   }
   if (availability.reason === "slot_unavailable") {
     const options = availability.suggestedSlots?.slice(0, 4) ?? [];
     if (options.length > 0) {
-      return `Esse horário em ${friendlyDate} já está ocupado. Tenho disponível: ${options.join(", ")}. Qual você prefere?`;
+      return `Esse horario em ${friendlyDate} ja foi preenchido. Posso te encaixar em: ${options.join(", ")}. Qual voce prefere?`;
     }
-    return `Esse horário em ${friendlyDate} não está disponível. Se quiser, me diga outro horário que eu consulto agora.`;
+    return `Esse horario em ${friendlyDate} nao esta livre. Se quiser, me fala outro horario que eu vejo agora.`;
   }
   return availability.available
-    ? `Temos disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Deseja que eu confirme a reserva para você?`
-    : `Não há disponibilidade em ${friendlyDate} às ${parsed.timeStr}. Se quiser, me diga outro dia e horário que eu consulto agora.`;
+    ? `Consigo te atender em ${friendlyDate} as ${parsed.timeStr}. Quer que eu confirme a reserva?`
+    : `Nao ha disponibilidade em ${friendlyDate} as ${parsed.timeStr}. Se quiser, me diga outro dia e horario que eu consulto agora.`;
 }
 
 function normalizePlainText(value: string): string {
@@ -3441,10 +3469,10 @@ export async function processInboundMessage(
       return "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
     }
     if (oilFlowState.awaitingOilYesNo) {
-      return "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*.";
+      return "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: *5W30*).";
     }
     if (oilFlowState.awaitingOilSpec) {
-      return "Consegue me falar o óleo?";
+      return "Perfeito. Me fala qual é o tipo do óleo (ex.: *5W30*).";
     }
     if (oilFlowState.awaitingOilVehicle) {
       return "Para seguir com o agendamento, me informe o *modelo* e o *ano* do veículo.";
@@ -3912,33 +3940,46 @@ export async function processInboundMessage(
         await sendMessage(ctx.conversationId, oilReply?.reply ?? `Temos o óleo *${oilToSearch}* disponível.`);
         return { didReply: true, decision: "tool_then_ai", reason: "Óleo extraído; resposta disponibilidade", silence: false };
       }
-      if (isSimpleAffirmative(ctx.messageContent)) {
+      if (isSimpleAffirmative(ctx.messageContent) || looksLikeKnowsOilMessage(ctx.messageContent)) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, {
           awaitingOilYesNo: false,
           awaitingOilSpec: true,
         });
-        await sendMessage(ctx.conversationId, "Consegue me falar o óleo?");
+        await sendMessage(ctx.conversationId, "Perfeito. Me fala qual é o tipo do óleo (ex.: 5W30).");
         return { didReply: true, decision: "tool_then_ai", reason: "Cliente sabe o óleo; pedindo especificação", silence: false };
       }
       if (isSimpleNegative(ctx.messageContent) || looksLikeUnknownOilMessage(ctx.messageContent)) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
-        const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
-        const vehiclePart =
-          missingVehicle.length === 0
-            ? ""
-            : ` e dos dados do veículo (*${missingVehicle.map((s) => (s === "km" ? "km" : s)).join(", ").replace(/, ([^,]*)$/, " e $1")}*)`;
         await sendMessage(
           ctx.conversationId,
-          `Sem problema! Antes de te encaminhar para o mecânico técnico, preciso do seu *nome*${vehiclePart}. Me envie em uma mensagem, por favor.`
+          "Tranquilo. Para não te passar algo errado, vou te encaminhar para um mecânico técnico continuar seu atendimento, tudo bem?"
         );
-        return { didReply: true, decision: "tool_then_ai", reason: "Cliente não sabe o óleo; coletando nome/veículo", silence: false };
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Cliente não sabe o óleo; encaminhado para mecânico técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Cliente não sabe o óleo; handoff técnico",
+          silence: false,
+        };
       }
       await sendMessage(
         ctx.conversationId,
-        "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*."
+        "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: 5W30). Se não souber, eu te encaminho pro técnico."
       );
-      return { didReply: true, decision: "tool_then_ai", reason: "Aguardando sim/não sobre óleo; reenviando pergunta", silence: false };
+      return { didReply: true, decision: "tool_then_ai", reason: "Aguardando confirmação/tipo de óleo; reenviando pergunta", silence: false };
     }
 
     if (oilFlowState.awaitingOilSpec || detectedOilSpec || engineCode) {
@@ -4022,7 +4063,7 @@ export async function processInboundMessage(
       });
       await sendMessage(
         ctx.conversationId,
-        "Você sabe o óleo utilizado no motor? Responda com *sim* ou *não*."
+        "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: 5W30). Se não souber, eu te encaminho pro técnico."
       );
       return { didReply: true, decision: "tool_then_ai", reason: "Troca de óleo; perguntando se sabe o tipo", silence: false };
     }
@@ -6722,7 +6763,8 @@ export async function processInboundMessage(
       timeOnly &&
       !parsedDateTime
     ) {
-      const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
+      const normalizedTime = normalizeTimeToHalfHour(timeOnly.hour, timeOnly.minute);
+      const timeStr = toTimeStr(normalizedTime.hour, normalizedTime.minute);
       if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
         await sendMessage(
           ctx.conversationId,
@@ -6949,7 +6991,8 @@ export async function processInboundMessage(
       !missingName &&
       missingVehicle.length === 0
     ) {
-      const timeStr = toTimeStr(timeOnly.hour, timeOnly.minute);
+      const normalizedTime = normalizeTimeToHalfHour(timeOnly.hour, timeOnly.minute);
+      const timeStr = toTimeStr(normalizedTime.hour, normalizedTime.minute);
       if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
         await sendMessage(
           ctx.conversationId,
@@ -7042,6 +7085,13 @@ export async function processInboundMessage(
       : extractReservationDateOnly(ctx.messageContent);
     const parsedNewTimeOnly = extractTime(ctx.messageContent);
     const hasNewDateTimeHint = containsDateOrTimeHint(ctx.messageContent);
+    const hasExplicitDateInMessage = containsExplicitDateHint(ctx.messageContent);
+    const hasNowKeyword = /\bagora\b/i.test(
+      ctx.messageContent
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+    );
     const hasPendingDateOrTimeUpdate =
       hasNewDateTimeHint &&
       !!(
@@ -7052,13 +7102,21 @@ export async function processInboundMessage(
 
     if (hasPendingDateOrTimeUpdate) {
       const candidateDateStr =
-        parsedNewDateTime?.dateStr ??
+        ((parsedNewDateTime && (hasExplicitDateInMessage || hasNowKeyword))
+          ? parsedNewDateTime.dateStr
+          : null) ??
         parsedNewDateOnly?.dateStr ??
         pending.dateStr;
       const candidateTimeStr = parsedNewDateTime?.timeStr
         ? parsedNewDateTime.timeStr
         : parsedNewTimeOnly
-          ? toTimeStr(parsedNewTimeOnly.hour, parsedNewTimeOnly.minute)
+          ? (() => {
+              const normalized = normalizeTimeToHalfHour(
+                parsedNewTimeOnly.hour,
+                parsedNewTimeOnly.minute
+              );
+              return toTimeStr(normalized.hour, normalized.minute);
+            })()
           : pending.timeStr;
 
       if (!isDateAllowedForReservation(candidateDateStr, ctx.reservationSchedule)) {
