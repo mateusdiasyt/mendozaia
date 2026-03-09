@@ -38,6 +38,8 @@ export function ConversationList({
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isDeletingSelected, setIsDeletingSelected] = useState(false);
+  const [openDeleteConfirm, setOpenDeleteConfirm] = useState(false);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState<string | null>(null);
   const [tab, setTab] = useState<"active" | "waiting">("active");
   const [query, setQuery] = useState("");
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
@@ -99,24 +101,25 @@ export function ConversationList({
   const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0 || isDeletingSelected) return;
     const ids = Array.from(selectedIds);
-    const confirmed = window.confirm(
-      `Deseja excluir ${ids.length} conversa(s) selecionada(s)?`
-    );
-    if (!confirmed) return;
 
     setIsDeletingSelected(true);
+    setDeleteErrorMessage(null);
     try {
       const res = await fetch("/api/conversations/bulk-delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setDeleteErrorMessage("Nao foi possivel excluir as conversas. Tente novamente.");
+        return;
+      }
       await fetchConversationList(currentLimit);
       setSelectedIds(new Set());
       setIsSelectionMode(false);
+      setOpenDeleteConfirm(false);
     } catch {
-      // ignore transient failure
+      setDeleteErrorMessage("Nao foi possivel excluir as conversas. Tente novamente.");
     } finally {
       setIsDeletingSelected(false);
     }
@@ -287,7 +290,11 @@ export function ConversationList({
           </span>
           <button
             type="button"
-            onClick={handleDeleteSelected}
+            onClick={() => {
+              if (selectedIds.size === 0 || isDeletingSelected) return;
+              setDeleteErrorMessage(null);
+              setOpenDeleteConfirm(true);
+            }}
             title="Excluir selecionadas"
             disabled={selectedIds.size === 0 || isDeletingSelected}
             className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -458,6 +465,44 @@ export function ConversationList({
           }
         }
       `}</style>
+
+      {openDeleteConfirm ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl border border-[#6C6C94]/40 bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-[#131047]">Excluir conversas</h3>
+            <p className="mt-2 text-sm text-[#6C6C94]">
+              Deseja excluir {selectedIds.size} conversa(s) selecionada(s)?
+            </p>
+            {deleteErrorMessage ? (
+              <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {deleteErrorMessage}
+              </p>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isDeletingSelected) return;
+                  setOpenDeleteConfirm(false);
+                  setDeleteErrorMessage(null);
+                }}
+                disabled={isDeletingSelected}
+                className="rounded-xl border border-[#C8CCE5] px-4 py-2 text-sm font-medium text-[#131047] hover:bg-[#F4F5FF] disabled:opacity-50"
+              >
+                Voltar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={isDeletingSelected}
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+              >
+                {isDeletingSelected ? "Excluindo..." : "Sim, excluir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
