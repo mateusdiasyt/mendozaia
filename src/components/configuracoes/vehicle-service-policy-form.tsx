@@ -1,20 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { updateVehicleServicePolicyConfig } from "@/app/actions/organization";
 import { BRAZIL_VEHICLE_CATALOG_MODELS } from "@/lib/vehicle-catalog-br";
-
-interface BlockedModelYear {
-  model: string;
-  year: number | null;
-}
 
 interface VehicleServicePolicyFormProps {
   initialConfig: {
     minAllowedYear: number | null;
     supportedModels: string[];
     blockedModels: string[];
-    blockedModelYears: BlockedModelYear[];
   };
 }
 
@@ -42,39 +36,43 @@ export function VehicleServicePolicyForm({
   const [blockedModels, setBlockedModels] = useState<string[]>(
     (initialConfig.blockedModels ?? []).map(normalizeModelLabel).filter(Boolean)
   );
-  const [blockedModelYears, setBlockedModelYears] = useState<BlockedModelYear[]>(
-    (initialConfig.blockedModelYears ?? [])
-      .map((item) => ({
-        model: normalizeModelLabel(item.model),
-        year:
-          typeof item.year === "number" && Number.isFinite(item.year)
-            ? Math.trunc(item.year)
-            : null,
-      }))
-      .filter((item) => item.model.length >= 2)
-  );
   const [supportedModelInput, setSupportedModelInput] = useState("");
   const [blockedModelInput, setBlockedModelInput] = useState("");
-  const [blockedYearModelInput, setBlockedYearModelInput] = useState("");
-  const [blockedYearInput, setBlockedYearInput] = useState("");
+  const [supportedSearch, setSupportedSearch] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [showOnlySelectedInCatalog, setShowOnlySelectedInCatalog] = useState(false);
+  const [isCatalogModalOpen, setIsCatalogModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{
     type: "success" | "error";
     text: string;
   } | null>(null);
 
+  const catalogModelsNormalized = useMemo(
+    () =>
+      BRAZIL_VEHICLE_CATALOG_MODELS.map((model) => ({
+        raw: model,
+        normalized: normalizeModelLabel(model),
+      })),
+    []
+  );
+
+  const catalogSet = useMemo(
+    () => new Set(catalogModelsNormalized.map((item) => item.normalized)),
+    [catalogModelsNormalized]
+  );
+
+  const supportedSet = useMemo(() => new Set(supportedModels), [supportedModels]);
+
+  useEffect(() => {
+    // Sincroniza bloqueios com os modelos cadastrados em "veiculos atendidos".
+    setBlockedModels((prev) => prev.filter((model) => supportedSet.has(model)));
+  }, [supportedSet]);
+
   const normalizedSupportedInput = normalizeModelLabel(supportedModelInput);
   const normalizedBlockedInput = normalizeModelLabel(blockedModelInput);
-  const normalizedBlockedYearModelInput = normalizeModelLabel(blockedYearModelInput);
-
-  const canAddSupportedModel = normalizedSupportedInput.length >= 2;
-  const canAddBlockedModel = normalizedBlockedInput.length >= 2;
-  const parsedBlockedYear = blockedYearInput.trim() ? Number(blockedYearInput) : null;
-  const canAddBlockedModelYear =
-    normalizedBlockedYearModelInput.length >= 2 &&
-    !!parsedBlockedYear &&
-    parsedBlockedYear >= 1980 &&
-    parsedBlockedYear <= 2035;
+  const normalizedSupportedSearch = normalizeModelLabel(supportedSearch);
+  const normalizedCatalogSearch = normalizeModelLabel(catalogSearch);
 
   const sortedSupportedModels = useMemo(
     () => [...supportedModels].sort((a, b) => a.localeCompare(b)),
@@ -84,23 +82,47 @@ export function VehicleServicePolicyForm({
     () => [...blockedModels].sort((a, b) => a.localeCompare(b)),
     [blockedModels]
   );
-  const sortedBlockedModelYears = useMemo(
-    () =>
-      [...blockedModelYears].sort((a, b) => {
-        const byModel = a.model.localeCompare(b.model);
-        if (byModel !== 0) return byModel;
-        return (a.year ?? 0) - (b.year ?? 0);
-      }),
-    [blockedModelYears]
-  );
 
-  const visibleSupportedModels = sortedSupportedModels.slice(0, 120);
-  const hiddenSupportedCount = Math.max(0, sortedSupportedModels.length - visibleSupportedModels.length);
+  const filteredSupportedModels = useMemo(() => {
+    if (!normalizedSupportedSearch) return sortedSupportedModels;
+    return sortedSupportedModels.filter((model) =>
+      model.includes(normalizedSupportedSearch)
+    );
+  }, [normalizedSupportedSearch, sortedSupportedModels]);
+
+  const catalogResults = useMemo(() => {
+    let source = catalogModelsNormalized;
+
+    if (normalizedCatalogSearch) {
+      source = source.filter((item) => item.normalized.includes(normalizedCatalogSearch));
+    }
+    if (showOnlySelectedInCatalog) {
+      source = source.filter((item) => supportedSet.has(item.normalized));
+    }
+    return source;
+  }, [
+    catalogModelsNormalized,
+    normalizedCatalogSearch,
+    showOnlySelectedInCatalog,
+    supportedSet,
+  ]);
+
+  const canAddSupportedModel =
+    normalizedSupportedInput.length >= 2 && catalogSet.has(normalizedSupportedInput);
+  const canAddBlockedModel =
+    normalizedBlockedInput.length >= 2 && supportedSet.has(normalizedBlockedInput);
 
   function addSupportedModel() {
-    if (!canAddSupportedModel) return;
-    if (supportedModels.some((model) => model === normalizedSupportedInput)) {
-      setMessage({ type: "error", text: "Esse modelo ja esta na lista de atendidos." });
+    if (!normalizedSupportedInput || normalizedSupportedInput.length < 2) return;
+    if (!catalogSet.has(normalizedSupportedInput)) {
+      setMessage({
+        type: "error",
+        text: "Esse modelo nao existe no catalogo Brasil.",
+      });
+      return;
+    }
+    if (supportedSet.has(normalizedSupportedInput)) {
+      setMessage({ type: "error", text: "Esse modelo ja esta cadastrado." });
       return;
     }
     setSupportedModels((prev) => [...prev, normalizedSupportedInput]);
@@ -108,45 +130,46 @@ export function VehicleServicePolicyForm({
     setMessage(null);
   }
 
+  function toggleSupportedModel(model: string) {
+    if (supportedSet.has(model)) {
+      setSupportedModels((prev) => prev.filter((item) => item !== model));
+      return;
+    }
+    setSupportedModels((prev) => [...prev, model]);
+  }
+
   function loadBrazilCatalogAsSupported() {
-    setSupportedModels(BRAZIL_VEHICLE_CATALOG_MODELS.map(normalizeModelLabel));
+    const allModels = catalogModelsNormalized.map((item) => item.normalized);
+    setSupportedModels(allModels);
     setMessage({
       type: "success",
-      text: `Catalogo Brasil carregado com ${BRAZIL_VEHICLE_CATALOG_MODELS.length} modelos.`,
+      text: `Catalogo Brasil carregado com ${allModels.length} modelos.`,
+    });
+  }
+
+  function clearSupportedModels() {
+    setSupportedModels([]);
+    setBlockedModels([]);
+    setMessage({
+      type: "success",
+      text: "Lista de veiculos atendidos limpa.",
     });
   }
 
   function addBlockedModel() {
-    if (!canAddBlockedModel) return;
-    if (blockedModels.some((m) => m === normalizedBlockedInput)) {
-      setMessage({ type: "error", text: "Esse modelo ja esta na lista de bloqueio." });
+    if (!canAddBlockedModel) {
+      setMessage({
+        type: "error",
+        text: "Bloqueio por modelo so aceita modelos que ja estao em veiculos atendidos.",
+      });
+      return;
+    }
+    if (blockedModels.some((model) => model === normalizedBlockedInput)) {
+      setMessage({ type: "error", text: "Esse modelo ja esta bloqueado." });
       return;
     }
     setBlockedModels((prev) => [...prev, normalizedBlockedInput]);
     setBlockedModelInput("");
-    setMessage(null);
-  }
-
-  function addBlockedModelYear() {
-    if (!canAddBlockedModelYear || !parsedBlockedYear) return;
-    const exists = blockedModelYears.some(
-      (item) =>
-        item.model === normalizedBlockedYearModelInput &&
-        item.year === parsedBlockedYear
-    );
-    if (exists) {
-      setMessage({
-        type: "error",
-        text: "Esse modelo/ano ja esta na lista de bloqueio especifico.",
-      });
-      return;
-    }
-    setBlockedModelYears((prev) => [
-      ...prev,
-      { model: normalizedBlockedYearModelInput, year: parsedBlockedYear },
-    ]);
-    setBlockedYearModelInput("");
-    setBlockedYearInput("");
     setMessage(null);
   }
 
@@ -168,11 +191,15 @@ export function VehicleServicePolicyForm({
       return;
     }
 
+    const syncedBlocked = blockedModels.filter((model) => supportedSet.has(model));
+    if (syncedBlocked.length !== blockedModels.length) {
+      setBlockedModels(syncedBlocked);
+    }
+
     const result = await updateVehicleServicePolicyConfig({
       minAllowedYear: minYearNumber ? Math.trunc(minYearNumber) : null,
       supportedModels,
-      blockedModels,
-      blockedModelYears,
+      blockedModels: syncedBlocked,
     });
 
     setSaving(false);
@@ -186,57 +213,81 @@ export function VehicleServicePolicyForm({
     });
   }
 
-  const inputClass =
-    "mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
-
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
-        <h3 className="font-medium text-slate-900">Politica de veiculos atendidos</h3>
+        <h3 className="text-base font-semibold text-slate-900">
+          Politica de veiculos atendidos
+        </h3>
         <p className="mt-1 text-sm text-slate-500">
-          Configure quais modelos a oficina atende usando a tabela de veiculos do Brasil.
+          Configure os modelos aceitos pela oficina e os bloqueios por modelo.
         </p>
       </div>
 
       {message && (
         <div
-          className={`rounded-lg px-4 py-3 text-sm ${
+          className={`rounded-xl px-4 py-3 text-sm ${
             message.type === "success"
-              ? "bg-emerald-50 text-emerald-700"
-              : "bg-red-50 text-red-600"
+              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border border-red-200 bg-red-50 text-red-600"
           }`}
         >
           {message.text}
         </div>
       )}
 
-      <datalist id="vehicle-model-suggestions">
+      <datalist id="vehicle-model-catalog-suggestions">
         {BRAZIL_VEHICLE_CATALOG_MODELS.map((model) => (
           <option key={model} value={model} />
         ))}
       </datalist>
+      <datalist id="vehicle-supported-suggestions">
+        {sortedSupportedModels.map((model) => (
+          <option key={model} value={prettifyModelLabel(model)} />
+        ))}
+      </datalist>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-medium text-slate-700">Veiculos (tabela Brasil)</p>
+            <p className="text-sm font-semibold text-slate-800">Veiculos (tabela Brasil)</p>
             <p className="mt-1 text-xs text-slate-500">
-              Selecione os modelos atendidos. O agente usa essa tabela quando o cliente informa o carro.
+              {sortedSupportedModels.length} modelo(s) cadastrado(s) para atendimento.
             </p>
           </div>
-          <div className="text-xs font-medium text-slate-600">
-            {sortedSupportedModels.length} modelo(s) atendido(s)
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setIsCatalogModalOpen(true)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Gerenciar veiculos
+            </button>
+            <button
+              type="button"
+              onClick={loadBrazilCatalogAsSupported}
+              className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+            >
+              Carregar catalogo Brasil
+            </button>
+            <button
+              type="button"
+              onClick={clearSupportedModels}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            >
+              Limpar
+            </button>
           </div>
         </div>
 
-        <div className="mt-3 flex flex-col gap-2 md:flex-row">
+        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
           <input
             type="text"
-            list="vehicle-model-suggestions"
+            list="vehicle-model-catalog-suggestions"
             value={supportedModelInput}
             onChange={(e) => setSupportedModelInput(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="Ex.: Onix"
+            placeholder="Adicionar modelo (ex.: Onix)"
           />
           <button
             type="button"
@@ -248,72 +299,69 @@ export function VehicleServicePolicyForm({
           </button>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={loadBrazilCatalogAsSupported}
-            className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
-          >
-            Carregar catalogo Brasil ({BRAZIL_VEHICLE_CATALOG_MODELS.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSupportedModels([])}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            Limpar atendidos
-          </button>
-        </div>
-
-        {visibleSupportedModels.length > 0 && (
-          <div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-auto pr-1">
-            {visibleSupportedModels.map((model) => (
-              <button
-                key={model}
-                type="button"
-                onClick={() =>
-                  setSupportedModels((prev) => prev.filter((m) => m !== model))
-                }
-                className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
-                title="Remover modelo atendido"
-              >
-                {prettifyModelLabel(model)} x
-              </button>
-            ))}
-          </div>
-        )}
-        {hiddenSupportedCount > 0 && (
-          <p className="mt-2 text-xs text-slate-500">
-            Mostrando os primeiros 120 modelos. Existem mais {hiddenSupportedCount} modelo(s) na lista.
-          </p>
-        )}
-      </div>
-
-      <label className="block text-sm font-medium text-slate-700">
-        Ano minimo atendido (opcional)
-        <input
-          type="number"
-          min={1980}
-          max={2035}
-          value={minAllowedYear}
-          onChange={(e) => setMinAllowedYear(e.target.value)}
-          className={inputClass}
-          placeholder="Ex.: 2019"
-        />
-        <span className="mt-1 block text-xs text-slate-500">
-          Exemplo: 2019 bloqueia automaticamente veiculos abaixo de 2019.
-        </span>
-      </label>
-
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-medium text-slate-700">Bloqueio por modelo</p>
-        <p className="mt-1 text-xs text-slate-500">
-          Use para excecoes (mesmo que o modelo esteja na lista de atendidos).
-        </p>
-        <div className="mt-3 flex flex-col gap-2 md:flex-row">
+        <div className="mt-3">
           <input
             type="text"
-            list="vehicle-model-suggestions"
+            value={supportedSearch}
+            onChange={(e) => setSupportedSearch(e.target.value)}
+            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="Pesquisar nos modelos cadastrados"
+          />
+        </div>
+
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+          {filteredSupportedModels.length === 0 ? (
+            <p className="text-xs text-slate-500">
+              Nenhum modelo encontrado com esse filtro.
+            </p>
+          ) : (
+            <div className="flex max-h-44 flex-wrap gap-2 overflow-auto pr-1">
+              {filteredSupportedModels.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  onClick={() =>
+                    setSupportedModels((prev) => prev.filter((item) => item !== model))
+                  }
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700 hover:bg-emerald-100"
+                  title="Remover modelo"
+                >
+                  {prettifyModelLabel(model)} x
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+        <label className="block text-sm font-medium text-slate-700">
+          Ano minimo atendido (opcional)
+          <input
+            type="number"
+            min={1980}
+            max={2035}
+            value={minAllowedYear}
+            onChange={(e) => setMinAllowedYear(e.target.value)}
+            className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="Ex.: 2015"
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            Exemplo: 2015 bloqueia automaticamente veiculos abaixo de 2015.
+          </span>
+        </label>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+        <p className="text-sm font-semibold text-slate-800">Bloqueio por modelo</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Somente modelos cadastrados em "Veiculos (tabela Brasil)" podem ser bloqueados.
+        </p>
+
+        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
+          <input
+            type="text"
+            list="vehicle-supported-suggestions"
             value={blockedModelInput}
             onChange={(e) => setBlockedModelInput(e.target.value)}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -328,85 +376,29 @@ export function VehicleServicePolicyForm({
             Adicionar bloqueio
           </button>
         </div>
-        {sortedBlockedModels.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {sortedBlockedModels.map((model) => (
-              <button
-                key={model}
-                type="button"
-                onClick={() =>
-                  setBlockedModels((prev) =>
-                    prev.filter((m) => m !== model)
-                  )
-                }
-                className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs text-rose-700 hover:bg-rose-100"
-                title="Remover modelo bloqueado"
-              >
-                {prettifyModelLabel(model)} x
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-medium text-slate-700">Bloqueio por modelo + ano</p>
-        <p className="mt-1 text-xs text-slate-500">
-          Use para casos especificos, como "Ranger 2022".
-        </p>
-        <div className="mt-3 grid gap-2 md:grid-cols-[1fr_160px_auto]">
-          <input
-            type="text"
-            list="vehicle-model-suggestions"
-            value={blockedYearModelInput}
-            onChange={(e) => setBlockedYearModelInput(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="Ex.: Ranger"
-          />
-          <input
-            type="number"
-            min={1980}
-            max={2035}
-            value={blockedYearInput}
-            onChange={(e) => setBlockedYearInput(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="Ano"
-          />
-          <button
-            type="button"
-            onClick={addBlockedModelYear}
-            disabled={!canAddBlockedModelYear}
-            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Adicionar
-          </button>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+          {sortedBlockedModels.length === 0 ? (
+            <p className="text-xs text-slate-500">Nenhum modelo bloqueado.</p>
+          ) : (
+            <div className="flex max-h-36 flex-wrap gap-2 overflow-auto pr-1">
+              {sortedBlockedModels.map((model) => (
+                <button
+                  key={model}
+                  type="button"
+                  onClick={() =>
+                    setBlockedModels((prev) => prev.filter((item) => item !== model))
+                  }
+                  className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs text-rose-700 hover:bg-rose-100"
+                  title="Remover bloqueio"
+                >
+                  {prettifyModelLabel(model)} x
+                </button>
+              ))}
+            </div>
+          )}
         </div>
-        {sortedBlockedModelYears.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {sortedBlockedModelYears.map((item) => (
-              <button
-                key={`${item.model}-${item.year}`}
-                type="button"
-                onClick={() =>
-                  setBlockedModelYears((prev) =>
-                    prev.filter(
-                      (entry) =>
-                        !(
-                          entry.model === item.model &&
-                          entry.year === item.year
-                        )
-                    )
-                  )
-                }
-                className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs text-amber-700 hover:bg-amber-100"
-                title="Remover excecao"
-              >
-                {prettifyModelLabel(item.model)} {item.year} x
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      </section>
 
       <button
         type="submit"
@@ -415,6 +407,97 @@ export function VehicleServicePolicyForm({
       >
         {saving ? "Salvando..." : "Salvar politica de veiculos"}
       </button>
+
+      {isCatalogModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h4 className="text-base font-semibold text-slate-900">
+                  Catalogo de veiculos do Brasil
+                </h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Selecione os modelos que sua oficina atende.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCatalogModalOpen(false)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="space-y-3 px-5 py-4">
+              <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                <input
+                  type="text"
+                  value={catalogSearch}
+                  onChange={(e) => setCatalogSearch(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  placeholder="Pesquisar no catalogo"
+                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShowOnlySelectedInCatalog((current) => !current)
+                  }
+                  className={`rounded-xl border px-3 py-2 text-xs font-medium ${
+                    showOnlySelectedInCatalog
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  {showOnlySelectedInCatalog ? "Mostrando selecionados" : "Mostrar so selecionados"}
+                </button>
+                <button
+                  type="button"
+                  onClick={loadBrazilCatalogAsSupported}
+                  className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
+                >
+                  Selecionar todos
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                {supportedModels.length} selecionado(s) de {catalogModelsNormalized.length}
+              </div>
+
+              <div className="max-h-[52vh] overflow-auto rounded-xl border border-slate-200">
+                {catalogResults.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-slate-500">
+                    Nenhum modelo encontrado.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-1 divide-y divide-slate-100">
+                    {catalogResults.map((item) => {
+                      const selected = supportedSet.has(item.normalized);
+                      return (
+                        <button
+                          key={item.normalized}
+                          type="button"
+                          onClick={() => toggleSupportedModel(item.normalized)}
+                          className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm ${
+                            selected
+                              ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              : "bg-white text-slate-700 hover:bg-slate-50"
+                          }`}
+                        >
+                          <span>{item.raw}</span>
+                          <span className="text-xs font-semibold">
+                            {selected ? "Selecionado" : "Adicionar"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

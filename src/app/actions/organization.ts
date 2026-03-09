@@ -46,10 +46,6 @@ export interface VehicleServicePolicyConfig {
   minAllowedYear?: number | null;
   supportedModels?: string[];
   blockedModels?: string[];
-  blockedModelYears?: Array<{
-    model: string;
-    year?: number | null;
-  }>;
 }
 
 export interface OfferedServicesConfig {
@@ -268,7 +264,7 @@ export async function updateVehicleServicePolicyConfig(
       ? minAllowedYearRaw
       : null;
 
-  const blockedModels = Array.isArray(config.blockedModels)
+  const blockedModelsRaw = Array.isArray(config.blockedModels)
     ? Array.from(
         new Set(
           config.blockedModels
@@ -292,28 +288,9 @@ export async function updateVehicleServicePolicyConfig(
       )
     : [];
 
-  const blockedModelYears = Array.isArray(config.blockedModelYears)
-    ? Array.from(
-        new Map(
-          config.blockedModelYears
-            .filter((item): item is { model: string; year?: number | null } => !!item)
-            .map((item) => {
-              const model = String(item.model ?? "")
-                .trim()
-                .toLowerCase();
-              const yearRaw =
-                typeof item.year === "number" && Number.isFinite(item.year)
-                  ? Math.trunc(item.year)
-                  : null;
-              const year =
-                yearRaw && yearRaw >= 1980 && yearRaw <= 2035 ? yearRaw : null;
-              return { model, year };
-            })
-            .filter((item) => item.model.length >= 2 && item.model.length <= 60)
-            .map((item) => [`${item.model}|${item.year ?? ""}`, item] as const)
-        ).values()
-      )
-    : [];
+  // O bloqueio por modelo deve refletir apenas modelos cadastrados em "veiculos atendidos".
+  const supportedSet = new Set(supportedModels);
+  const blockedModels = blockedModelsRaw.filter((model) => supportedSet.has(model));
 
   await db
     .update(organizations)
@@ -324,7 +301,6 @@ export async function updateVehicleServicePolicyConfig(
           minAllowedYear,
           supportedModels,
           blockedModels,
-          blockedModelYears,
           updatedAt: new Date().toISOString(),
         },
       },

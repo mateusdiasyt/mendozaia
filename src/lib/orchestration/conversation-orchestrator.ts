@@ -548,7 +548,6 @@ function buildVehiclePolicySummaryText(policy: {
   minAllowedYear?: number | null;
   supportedModels?: string[];
   blockedModels?: string[];
-  blockedModelYears?: Array<{ model: string; year?: number | null }>;
 }): string {
   const chunks: string[] = [];
   const supportedModels = (policy.supportedModels ?? [])
@@ -579,24 +578,7 @@ function buildVehiclePolicySummaryText(policy: {
     const moreCount = blockedModels.length - preview.length;
     const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
     chunks.push(`Exceções por modelo: *${preview.join(", ")}*${suffix}.`);
-  }
-
-  const blockedModelYears = (policy.blockedModelYears ?? [])
-    .map((item) => ({
-      model: normalizeVehicleModelKey(item.model),
-      year: typeof item.year === "number" ? item.year : null,
-    }))
-    .filter((item) => !!item.model && !!item.year);
-  if (blockedModelYears.length > 0) {
-    const preview = blockedModelYears
-      .slice(0, 4)
-      .map((item) => `${prettifyVehicleLabel(item.model)} ${item.year}`);
-    const moreCount = blockedModelYears.length - preview.length;
-    const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
-    chunks.push(`Exceções por ano/modelo: *${preview.join(", ")}*${suffix}.`);
-  }
-
-  chunks.push("Se quiser, me diga *modelo e ano* que eu confirmo na hora pra você.");
+  }  chunks.push("Se quiser, me diga *modelo e ano* que eu confirmo na hora pra você.");
   return chunks.join("\n");
 }
 
@@ -606,7 +588,6 @@ function evaluateVehicleServicePolicy(
         minAllowedYear?: number | null;
         supportedModels?: string[];
         blockedModels?: string[];
-        blockedModelYears?: Array<{ model: string; year?: number | null }>;
       }
     | undefined,
   slots: VehicleSlots | undefined
@@ -632,24 +613,7 @@ function evaluateVehicleServicePolicy(
       blocked: true,
       reason: `No momento, não atendemos o modelo *${slots.modelo}*.`,
     };
-  }
-
-  const blockedModelYears = policy.blockedModelYears ?? [];
-  if (normalizedModel && slots.ano) {
-    const matchedModelYear = blockedModelYears.find((item) => {
-      const itemModel = normalizeVehicleModelKey(item.model);
-      const itemYear = typeof item.year === "number" ? item.year : null;
-      return itemModel === normalizedModel && itemYear === slots.ano;
-    });
-    if (matchedModelYear) {
-      return {
-        blocked: true,
-        reason: `No momento, não atendemos *${slots.modelo} ${slots.ano}*.`,
-      };
-    }
-  }
-
-  const supportedModelsNormalized = new Set(
+  }  const supportedModelsNormalized = new Set(
     (policy.supportedModels ?? []).map((model) => normalizeVehicleModelKey(model))
   );
   if (
@@ -3305,12 +3269,6 @@ export async function loadConversationContext(
         : [],
       blockedModels: Array.isArray(vehicleServicePolicySettings.blockedModels)
         ? (vehicleServicePolicySettings.blockedModels as string[])
-        : [],
-      blockedModelYears: Array.isArray(vehicleServicePolicySettings.blockedModelYears)
-        ? (vehicleServicePolicySettings.blockedModelYears as Array<{
-            model: string;
-            year?: number | null;
-          }>)
         : [],
     },
     customerContext: params.customerContext ?? null,

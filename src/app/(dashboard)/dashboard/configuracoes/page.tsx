@@ -8,6 +8,7 @@ import { BotPersonalizationForm } from "@/components/configuracoes/bot-personali
 import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
 import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
 import { Lock } from "lucide-react";
+import type { ReactNode } from "react";
 
 export default async function ConfiguracoesPage() {
   const session = await auth();
@@ -61,21 +62,19 @@ export default async function ConfiguracoesPage() {
   return (
     <div className="p-8">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-slate-900">Configurações</h1>
-        <p className="mt-1 text-slate-500">
-          Gerencie sua conta e organização
-        </p>
+        <h1 className="text-2xl font-semibold text-slate-900">Configuracoes</h1>
+        <p className="mt-1 text-slate-500">Gerencie sua conta e organizacao</p>
       </div>
 
-      <div className="space-y-6 max-w-2xl">
-        {!isPlanActive && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            Seu plano ainda não está ativo. As configurações estão visíveis, mas bloqueadas com
-            cadeado até a liberação do pagamento.
-          </div>
-        )}
+      {!isPlanActive && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Seu plano ainda nao esta ativo. As configuracoes estao visiveis, mas bloqueadas com
+          cadeado ate a liberacao do pagamento.
+        </div>
+      )}
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
+        <SectionCard>
           <h3 className="font-medium text-slate-900">Sua conta</h3>
           <dl className="mt-4 space-y-3 text-sm">
             <div>
@@ -87,10 +86,10 @@ export default async function ConfiguracoesPage() {
               <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
             </div>
           </dl>
-        </div>
+        </SectionCard>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="font-medium text-slate-900">Organização</h3>
+        <SectionCard>
+          <h3 className="font-medium text-slate-900">Organizacao</h3>
           <dl className="mt-4 space-y-3 text-sm">
             <div>
               <dt className="text-slate-500">Nome</dt>
@@ -101,14 +100,14 @@ export default async function ConfiguracoesPage() {
               <dd className="font-medium text-slate-900">{planLabel}</dd>
             </div>
           </dl>
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative">
           <ReservationsToggle initialEnabled={reservationsEnabled} />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative">
           <BotPersonalizationForm
             initialConfig={{
               segment:
@@ -122,9 +121,9 @@ export default async function ConfiguracoesPage() {
             }}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative">
           <BusinessProfileForm
             initialConfig={{
               botName: (businessProfile.botName as string | undefined) ?? "",
@@ -135,9 +134,9 @@ export default async function ConfiguracoesPage() {
             }}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative lg:col-span-2 2xl:col-span-2">
           <VehicleServicePolicyForm
             initialConfig={{
               minAllowedYear:
@@ -150,32 +149,21 @@ export default async function ConfiguracoesPage() {
               blockedModels: Array.isArray(vehicleServicePolicy.blockedModels)
                 ? (vehicleServicePolicy.blockedModels as string[])
                 : [],
-              blockedModelYears: Array.isArray(vehicleServicePolicy.blockedModelYears)
-                ? ((vehicleServicePolicy.blockedModelYears as Array<Record<string, unknown>>)
-                    .map((item) => ({
-                      model: String(item.model ?? "").trim().toLowerCase(),
-                      year:
-                        typeof item.year === "number" && Number.isFinite(item.year)
-                          ? item.year
-                          : null,
-                    }))
-                    .filter((item) => item.model.length >= 2))
-                : [],
             }}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative">
           <OfferedServicesForm
             initialSelectedServices={Array.isArray(offeredServicesConfig.selectedServices)
               ? (offeredServicesConfig.selectedServices as string[])
               : []}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative">
           <ReservationScheduleForm
             initialConfig={{
               start: scheduleStart,
@@ -186,9 +174,9 @@ export default async function ConfiguracoesPage() {
             }}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
 
-        <div className="relative rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <SectionCard className="relative lg:col-span-2 2xl:col-span-2">
           <AiAgentForm
             initialConfig={{
               enabled: aiAgent.enabled as boolean | undefined,
@@ -199,8 +187,22 @@ export default async function ConfiguracoesPage() {
             }}
           />
           {!isPlanActive && <LockedOverlay />}
-        </div>
+        </SectionCard>
       </div>
+    </div>
+  );
+}
+
+function SectionCard({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${className}`}>
+      {children}
     </div>
   );
 }
@@ -210,8 +212,9 @@ function LockedOverlay() {
     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/75 backdrop-blur-[1px]">
       <div className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm">
         <Lock className="h-3.5 w-3.5" />
-        Plano não ativo
+        Plano nao ativo
       </div>
     </div>
   );
 }
+

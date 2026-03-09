@@ -76,10 +76,6 @@ export interface OrchestrationContext {
     minAllowedYear?: number | null;
     supportedModels?: string[];
     blockedModels?: string[];
-    blockedModelYears?: Array<{
-      model: string;
-      year?: number | null;
-    }>;
   };
   offeredServices?: string[];
   serviceHumanPolicyByName?: Record<string, boolean>;
