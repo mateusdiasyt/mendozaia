@@ -99,8 +99,8 @@ export function Sidebar({
       <div className="flex h-16 items-center justify-center border-b border-[var(--brand-muted)]/20 px-2">
         <Link href="/dashboard" className="flex items-center">
           <Image
-            src="/logo_mendoza.png"
-            alt="Mendoza - Atendimento com IA"
+            src="/favicon.ico"
+            alt="Mendoza"
             width={40}
             height={40}
             priority
