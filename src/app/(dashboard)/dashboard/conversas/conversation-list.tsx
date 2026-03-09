@@ -348,7 +348,10 @@ export function ConversationList({
                   {isSelectionMode && (
                     <button
                       type="button"
-                      onClick={() => toggleSelectConversation(conv.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleSelectConversation(conv.id);
+                      }}
                       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--brand-muted)]/25 bg-white text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-soft)]"
                       aria-label={`Selecionar conversa ${displayName}`}
                     >
@@ -398,6 +401,7 @@ export function ConversationList({
                 <div
                   key={conv.id}
                   className={rowClass}
+                  onClick={() => toggleSelectConversation(conv.id)}
                   style={
                     animatingIds.has(conv.id)
                       ? {
