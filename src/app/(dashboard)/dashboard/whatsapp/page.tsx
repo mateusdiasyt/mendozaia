@@ -8,9 +8,7 @@ import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
 import {
   MessageCircle,
   Wifi,
-  WifiOff,
   Smartphone,
-  CheckCircle2,
   Sparkles,
 } from "lucide-react";
 
@@ -61,66 +59,57 @@ export default async function WhatsAppPage() {
             </div>
           </div>
         ) : (
-          sessions.map((session) => (
-            <div key={session.id} className="space-y-4">
-              <div className="overflow-hidden rounded-3xl border border-[var(--brand-muted)]/20 bg-white shadow-[0_14px_36px_-22px_rgba(19,16,71,0.5)] transition-all duration-200 hover:translate-y-[-1px] hover:shadow-[0_18px_40px_-20px_rgba(19,16,71,0.55)]">
-                <div className="relative border-b border-[var(--brand-muted)]/15 bg-gradient-to-r from-[var(--brand-primary)]/10 via-white to-[var(--brand-accent)]/20 p-6">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                      {session.status === "connected" ? (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--brand-primary)]/20 bg-[var(--brand-soft)]">
-                          <Wifi className="h-5 w-5 text-[var(--brand-primary)]" />
-                        </div>
-                      ) : (
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--brand-muted)]/20 bg-[var(--brand-soft)]">
-                          <WifiOff className="h-5 w-5 text-[var(--brand-muted)]" />
-                        </div>
-                      )}
+          <div className="flex flex-wrap gap-6">
+            {sessions.map((session) => {
+              const isConnected = session.status === "connected";
+              return (
+                <div key={session.id} className="w-full max-w-[360px] space-y-4">
+                  <article className="relative overflow-hidden rounded-3xl border border-[var(--brand-primary)]/25 bg-[var(--brand-deep)] p-5 text-white shadow-[0_16px_40px_-20px_rgba(19,16,71,0.9)]">
+                    <div className="pointer-events-none absolute inset-0 opacity-40">
+                      <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/15" />
+                      <div className="absolute left-1/2 top-1/2 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10" />
+                      <div className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/5" />
+                    </div>
 
-                      <div>
-                        <h3 className="text-lg font-semibold text-[var(--brand-deep)]">
-                          {session.name || session.sessionId}
-                        </h3>
-                        <p className="text-sm text-[var(--brand-muted)]">
-                          {session.phoneNumber || "Sem número vinculado"}
-                        </p>
+                    <div className="relative z-10">
+                      <div className="mb-5 flex items-start justify-between">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10">
+                          {isConnected ? (
+                            <Wifi className="h-5 w-5 text-white" />
+                          ) : (
+                            <Smartphone className="h-5 w-5 text-white/80" />
+                          )}
+                        </div>
+                        <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold">
+                          <span
+                            className={`h-2 w-2 rounded-full ${
+                              isConnected ? "bg-emerald-400" : "bg-slate-300"
+                            }`}
+                          />
+                          {isConnected ? "Conectado" : "Desconectado"}
+                        </div>
                       </div>
-                    </div>
 
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${
-                        session.status === "connected"
-                          ? "border border-[var(--brand-primary)]/25 bg-[var(--brand-soft)] text-[var(--brand-primary)]"
-                          : "border border-[var(--brand-muted)]/20 bg-[var(--brand-surface)] text-[var(--brand-muted)]"
-                      }`}
-                    >
-                      {session.status === "connected" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                      ) : (
-                        <Smartphone className="h-3.5 w-3.5" />
-                      )}
-                      {session.status === "connected" ? "Conectado" : "Desconectado"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-6">
-                  {session.status === "connected" ? (
-                    <div className="rounded-2xl border border-[var(--brand-accent)]/35 bg-[var(--brand-accent)]/12 px-4 py-3 text-sm text-[var(--brand-deep)]">
-                      Sessão ativa e pronta para receber e enviar mensagens.
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="mb-4 text-sm text-[var(--brand-muted)]">
-                        Escaneie o QR Code para conectar esta sessão.
+                      <h3 className="text-lg font-semibold leading-tight text-white">
+                        {session.name || session.sessionId}
+                      </h3>
+                      <p className="mt-1 text-sm text-white/70">
+                        {session.phoneNumber || "Sem número vinculado"}
                       </p>
-                      <SessionConnect sessionId={session.sessionId} />
+
+                      <p className="mt-5 text-sm text-white/80">
+                        {isConnected
+                          ? "Sessão ativa e pronta para receber mensagens."
+                          : "Conecte esta sessão para iniciar os atendimentos."}
+                      </p>
                     </div>
-                  )}
+                  </article>
+
+                  {!isConnected ? <SessionConnect sessionId={session.sessionId} /> : null}
                 </div>
-              </div>
-            </div>
-          ))
+              );
+            })}
+          </div>
         )}
       </div>
     </div>
