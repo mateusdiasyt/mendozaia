@@ -398,11 +398,6 @@ export function AIControlSidebar({
           </div>
         </div>
 
-        {(isPriority || assignedToId || conversationState) && (
-          <p className="mt-3 text-[11px] text-[var(--brand-muted)]">
-            {`state=${conversationState ?? "init"}${isPriority ? " | prioridade=true" : ""}${assignedToId ? " | atribuído" : ""}`}
-          </p>
-        )}
       </div>
     </aside>
   );
