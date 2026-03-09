@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import Image from "next/image";
 import { WhatsAppConnect } from "@/components/whatsapp/connect";
 import { SessionConnect } from "@/components/whatsapp/session-connect";
+import { SessionSyncButton } from "@/components/whatsapp/session-sync-button";
 import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
 import { MessageCircle, Smartphone, Sparkles } from "lucide-react";
 
@@ -98,6 +99,12 @@ export default async function WhatsAppPage() {
                           ? "Sessão ativa e pronta para receber mensagens."
                           : "Conecte esta sessão para iniciar os atendimentos."}
                       </p>
+
+                      {isConnected ? (
+                        <div className="mt-4">
+                          <SessionSyncButton sessionId={session.sessionId} />
+                        </div>
+                      ) : null}
                     </div>
                   </article>
 
