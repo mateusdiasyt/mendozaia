@@ -314,6 +314,7 @@ function parseConnectionStatus(body: WebhookPayload): {
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as WebhookPayload;
+    const traceId = crypto.randomUUID();
     const conn = parseConnectionStatus(body);
     const presence = parsePresenceUpdate(body);
 
@@ -394,7 +395,32 @@ export async function POST(request: NextRequest) {
                 updatedAt: new Date(),
               })
               .where(eq(conversations.id, conv.id));
+
+            await logOrchestration({
+              conversationId: conv.id,
+              organizationId: wsSession.organizationId,
+              event: "webhook_presence_typing_received",
+              reason: "Presence de digitacao recebido para o contato",
+              traceId,
+              stage: "webhook.presence",
+              decisionCode: "WEBHOOK_PRESENCE_TYPING_RECEIVED",
+              metadata: {
+                sessionId: presence.sessionId,
+                remoteJid: presence.remoteJid,
+                normalizedPhone: phone,
+                presence: presence.presence,
+                isTyping,
+              },
+            });
           }
+        } else {
+          console.warn("[webhook whatsapp] presence without conversation match", {
+            traceId,
+            sessionId: presence.sessionId,
+            remoteJid: presence.remoteJid,
+            normalizedPhone: phone,
+            presence: presence.presence,
+          });
         }
       }
       return NextResponse.json({ ok: true });
@@ -736,8 +762,6 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
-    const traceId = crypto.randomUUID();
-
     // Anti-flood: nÃ£o inserir duplicata tÃ©cnica de webhook retry (janela curta).
     // Janela longa engole respostas legÃ­timas repetidas do cliente (ex.: "Mateus" novamente).
     const DUPLICATE_TEXT_WINDOW_MS = 8 * 1000;
