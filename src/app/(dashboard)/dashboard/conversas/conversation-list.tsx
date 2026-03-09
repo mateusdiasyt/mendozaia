@@ -390,7 +390,23 @@ export function ConversationList({
                     </div>
                     <p className="mt-1 truncate text-sm text-[var(--brand-muted)]">
                       {conv.isTyping ? (
-                        <span className="font-medium text-[var(--brand-primary)]">digitando...</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-[var(--brand-primary)]">
+                          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--brand-primary)]/12">
+                            <svg
+                              viewBox="0 0 24 24"
+                              className="h-3 w-3 text-[var(--brand-primary)]"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <path d="M12 4C7.58 4 4 7.13 4 11c0 2.14 1.1 4.05 2.84 5.34L6 20l3.54-1.77c.77.2 1.6.31 2.46.31 4.42 0 8-3.13 8-7s-3.58-7-8-7Z" />
+                            </svg>
+                          </span>
+                          <span className="typing-dots inline-flex">
+                            <span />
+                            <span />
+                            <span />
+                          </span>
+                        </span>
                       ) : (
                         conv.lastMessagePreview || "Sem mensagens"
                       )}
@@ -462,6 +478,36 @@ export function ConversationList({
           100% {
             opacity: 1;
             transform: translateY(0) scale(1);
+          }
+        }
+        .typing-dots {
+          align-items: center;
+          gap: 3px;
+        }
+        .typing-dots span {
+          width: 5px;
+          height: 5px;
+          border-radius: 9999px;
+          background: var(--brand-primary);
+          opacity: 0.35;
+          animation: typing-bounce 1.05s infinite ease-in-out;
+        }
+        .typing-dots span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+        .typing-dots span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+        @keyframes typing-bounce {
+          0%,
+          80%,
+          100% {
+            transform: translateY(0);
+            opacity: 0.35;
+          }
+          40% {
+            transform: translateY(-2px);
+            opacity: 1;
           }
         }
       `}</style>

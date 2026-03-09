@@ -253,8 +253,24 @@ export function ChatView({
           ))}
           {typing && (
             <div className="flex justify-start">
-              <div className="max-w-[65%] rounded-lg bg-white px-3 py-2 shadow-md">
-                <p className="text-sm italic text-[var(--brand-muted)]">digitando...</p>
+              <div className="max-w-[65%] rounded-2xl bg-white px-3 py-2 shadow-md">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[var(--brand-soft)]">
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-3.5 w-3.5 text-[var(--brand-muted)]"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path d="M12 4C7.58 4 4 7.13 4 11c0 2.14 1.1 4.05 2.84 5.34L6 20l3.54-1.77c.77.2 1.6.31 2.46.31 4.42 0 8-3.13 8-7s-3.58-7-8-7Z" />
+                    </svg>
+                  </span>
+                  <span className="typing-dots" aria-label="Cliente digitando">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -292,7 +308,41 @@ export function ChatView({
           </button>
         </div>
       </form>
+      <style jsx>{`
+        .typing-dots {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+        .typing-dots span {
+          width: 6px;
+          height: 6px;
+          border-radius: 9999px;
+          background: var(--brand-muted);
+          opacity: 0.35;
+          animation: typing-bounce 1.05s infinite ease-in-out;
+        }
+        .typing-dots span:nth-child(2) {
+          animation-delay: 0.15s;
+        }
+        .typing-dots span:nth-child(3) {
+          animation-delay: 0.3s;
+        }
+        @keyframes typing-bounce {
+          0%,
+          80%,
+          100% {
+            transform: translateY(0);
+            opacity: 0.35;
+          }
+          40% {
+            transform: translateY(-3px);
+            opacity: 1;
+          }
+        }
+      `}</style>
     </div>
   );
 }
+
 
