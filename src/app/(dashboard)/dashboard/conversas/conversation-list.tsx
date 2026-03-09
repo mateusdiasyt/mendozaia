@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MessageSquare, Search } from "lucide-react";
+import { CheckSquare, Loader2, MessageSquare, Search, Square, Trash2, X } from "lucide-react";
 import { ContactAvatar } from "@/components/conversations/contact-avatar";
 
 interface Conv {
@@ -35,6 +35,9 @@ export function ConversationList({
   const [currentLimit, setCurrentLimit] = useState<number>(Math.max(PAGE_SIZE, list.length));
   const [hasMore, setHasMore] = useState<boolean>(initialHasMore);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isDeletingSelected, setIsDeletingSelected] = useState(false);
   const [tab, setTab] = useState<"active" | "waiting">("active");
   const [query, setQuery] = useState("");
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
@@ -44,6 +47,8 @@ export function ConversationList({
     setItems(list);
     setCurrentLimit(Math.max(PAGE_SIZE, list.length));
     setHasMore(initialHasMore);
+    setSelectedIds(new Set());
+    setIsSelectionMode(false);
   }, [list, initialHasMore]);
 
   const fetchConversationList = useCallback(async (limit: number) => {
@@ -73,6 +78,49 @@ export function ConversationList({
       setIsLoadingMore(false);
     }
   }, [currentLimit, fetchConversationList, hasMore, isLoadingMore]);
+
+  const toggleSelectConversation = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectionMode = useCallback(() => {
+    setIsSelectionMode((prev) => {
+      const next = !prev;
+      if (!next) setSelectedIds(new Set());
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSelected = useCallback(async () => {
+    if (selectedIds.size === 0 || isDeletingSelected) return;
+    const ids = Array.from(selectedIds);
+    const confirmed = window.confirm(
+      `Deseja excluir ${ids.length} conversa(s) selecionada(s)?`
+    );
+    if (!confirmed) return;
+
+    setIsDeletingSelected(true);
+    try {
+      const res = await fetch("/api/conversations/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) return;
+      await fetchConversationList(currentLimit);
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
+    } catch {
+      // ignore transient failure
+    } finally {
+      setIsDeletingSelected(false);
+    }
+  }, [currentLimit, fetchConversationList, isDeletingSelected, selectedIds]);
 
   useEffect(() => {
     fetchConversationList(currentLimit);
@@ -214,7 +262,52 @@ export function ConversationList({
         >
           Aguardando atendimento ({waitingList.length})
         </button>
+        <button
+          type="button"
+          onClick={toggleSelectionMode}
+          className={`ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+            isSelectionMode
+              ? "bg-[var(--brand-deep)] text-white"
+              : "bg-white text-[var(--brand-muted)] hover:bg-[var(--brand-soft)]"
+          }`}
+        >
+          {isSelectionMode ? (
+            <CheckSquare className="h-3.5 w-3.5" />
+          ) : (
+            <Square className="h-3.5 w-3.5" />
+          )}
+          Selecionar
+        </button>
       </div>
+
+      {isSelectionMode && (
+        <div className="flex items-center gap-2 border-b border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-3 py-2">
+          <span className="text-xs text-[var(--brand-muted)]">
+            {selectedIds.size} selecionada(s)
+          </span>
+          <button
+            type="button"
+            onClick={handleDeleteSelected}
+            disabled={selectedIds.size === 0 || isDeletingSelected}
+            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isDeletingSelected ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+            Excluir selecionadas
+          </button>
+          <button
+            type="button"
+            onClick={toggleSelectionMode}
+            className="inline-flex items-center gap-1 rounded-lg border border-[var(--brand-muted)]/30 bg-white px-2.5 py-1.5 text-xs font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
+          >
+            <X className="h-3.5 w-3.5" />
+            Cancelar
+          </button>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto">
         {currentList.length === 0 ? (
@@ -242,23 +335,30 @@ export function ConversationList({
             {currentList.map((conv) => {
               const isActive = pathname === `/dashboard/conversas/${conv.id}`;
               const displayName = conv.contactName || conv.contactPhone;
+              const rowClass = `flex items-center gap-3 border-b border-[var(--brand-muted)]/15 px-4 py-3 transition-colors ${
+                isSelectionMode
+                  ? "bg-white hover:bg-[var(--brand-soft)]"
+                  : isActive
+                    ? "bg-[var(--brand-primary)]/10"
+                    : "hover:bg-[var(--brand-soft)]"
+              }`;
 
-              return (
-                <Link
-                  key={conv.id}
-                  href={`/dashboard/conversas/${conv.id}`}
-                  className={`flex items-center gap-3 border-b border-[var(--brand-muted)]/15 px-4 py-3 transition-colors ${
-                    isActive ? "bg-[var(--brand-primary)]/10" : "hover:bg-[var(--brand-soft)]"
-                  }`}
-                  style={
-                    animatingIds.has(conv.id)
-                      ? {
-                          animation:
-                            "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
-                        }
-                      : undefined
-                  }
-                >
+              const rowContent = (
+                <>
+                  {isSelectionMode && (
+                    <button
+                      type="button"
+                      onClick={() => toggleSelectConversation(conv.id)}
+                      className="shrink-0 text-[var(--brand-muted)]"
+                      aria-label={`Selecionar conversa ${displayName}`}
+                    >
+                      {selectedIds.has(conv.id) ? (
+                        <CheckSquare className="h-4 w-4 text-[var(--brand-primary)]" />
+                      ) : (
+                        <Square className="h-4 w-4" />
+                      )}
+                    </button>
+                  )}
                   <ContactAvatar
                     sessionId={conv.sessionId}
                     phone={conv.contactPhone}
@@ -291,6 +391,39 @@ export function ConversationList({
                       </p>
                     )}
                   </div>
+                </>
+              );
+
+              return isSelectionMode ? (
+                <div
+                  key={conv.id}
+                  className={rowClass}
+                  style={
+                    animatingIds.has(conv.id)
+                      ? {
+                          animation:
+                            "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+                        }
+                      : undefined
+                  }
+                >
+                  {rowContent}
+                </div>
+              ) : (
+                <Link
+                  key={conv.id}
+                  href={`/dashboard/conversas/${conv.id}`}
+                  className={rowClass}
+                  style={
+                    animatingIds.has(conv.id)
+                      ? {
+                          animation:
+                            "conversation-entry 450ms cubic-bezier(0.22, 1, 0.36, 1)",
+                        }
+                      : undefined
+                  }
+                >
+                  {rowContent}
                 </Link>
               );
             })}
