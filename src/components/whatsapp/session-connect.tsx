@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -52,25 +52,25 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-6">
-      <h3 className="font-medium text-slate-900">Conectar WhatsApp</h3>
-      <p className="mt-1 text-sm text-slate-500">
+    <div className="rounded-2xl border border-[var(--brand-muted)]/25 bg-[var(--brand-surface)] p-6">
+      <h3 className="font-medium text-[var(--brand-deep)]">Conectar WhatsApp</h3>
+      <p className="mt-1 text-sm text-[var(--brand-muted)]">
         Escaneie o QR Code com seu WhatsApp
       </p>
 
       {error && (
-        <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="mt-4 rounded-lg border border-[var(--brand-accent)]/35 bg-[var(--brand-accent)]/12 px-4 py-3 text-sm text-[var(--brand-deep)]">
           {error}
         </div>
       )}
 
       <div className="mt-4 flex flex-col items-center gap-4">
         {loading ? (
-          <div className="flex h-[280px] w-[280px] items-center justify-center rounded-xl border border-slate-200 bg-white">
-            <Loader2 className="h-12 w-12 animate-spin text-slate-400" />
+          <div className="flex h-[280px] w-[280px] items-center justify-center rounded-2xl border border-[var(--brand-muted)]/25 bg-white">
+            <Loader2 className="h-12 w-12 animate-spin text-[var(--brand-muted)]" />
           </div>
         ) : qr ? (
-          <div className="rounded-xl border-2 border-slate-200 bg-white p-2">
+          <div className="rounded-2xl border-2 border-[var(--brand-primary)]/20 bg-white p-2 shadow-sm">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={qr}
@@ -86,7 +86,7 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
           <button
             onClick={fetchQR}
             disabled={loading}
-            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50"
           >
             {qr ? (
               <>
@@ -107,7 +107,7 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
           <button
             onClick={syncStatus}
             disabled={syncLoading}
-            className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50"
+            className="flex items-center gap-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white px-4 py-2.5 font-medium text-[var(--brand-deep)] shadow-sm transition-colors hover:bg-[var(--brand-soft)] disabled:opacity-50"
           >
             {syncLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -117,9 +117,8 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
             Verificar status
           </button>
         </div>
-        <p className="text-center text-xs text-slate-500">
-          Já conectou no celular? Clique em &quot;Verificar status&quot; para
-          atualizar.
+        <p className="text-center text-xs text-[var(--brand-muted)]">
+          Ja conectou no celular? Clique em &quot;Verificar status&quot; para atualizar.
         </p>
       </div>
     </div>

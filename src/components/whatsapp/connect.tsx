@@ -30,12 +30,12 @@ export function WhatsAppConnect({
         value={sessionName}
         onChange={(e) => setSessionName(e.target.value)}
         placeholder="Nome da conexao (opcional)"
-        className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        className="w-full rounded-xl border border-[var(--brand-muted)]/25 bg-white px-4 py-2.5 text-[var(--brand-deep)] placeholder-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)]"
       />
       <button
         type="submit"
         disabled={loading}
-        className="rounded-xl bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-emerald-500 disabled:opacity-50"
+        className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50"
       >
         {loading ? "Conectando..." : "Conectar WhatsApp"}
       </button>
