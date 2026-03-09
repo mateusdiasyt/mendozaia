@@ -32,13 +32,13 @@ import { getRedis, REDIS_KEYS } from "@/lib/redis/redis-client";
 import { Client } from "@upstash/qstash";
 
 /** Tempo de silêncio (sem novas mensagens) antes de processar */
-export const CONVERSATION_DEBOUNCE_MS = 3_000;
+export const CONVERSATION_DEBOUNCE_MS = 5_000;
 
 /** Considera "digitando" se presence foi há menos que isso (ms) */
-const TYPING_RECENT_MS = 3_000;
+const TYPING_RECENT_MS = 5_000;
 
 /** Delay ao reagendar quando usuário ainda está digitando */
-const TYPING_RESCHEDULE_DELAY_MS = 2_000;
+const TYPING_RESCHEDULE_DELAY_MS = 3_000;
 
 /** TTL do lock (evita deadlock se processamento travar; engine pode levar 60s+) */
 const LOCK_TTL_S = 120;
@@ -212,7 +212,7 @@ export async function processConversation(
       businessHours: settings?.businessHours,
       inboundMessageId: latestInbound?.id,
       traceId,
-      skipBufferAndTypingWait: true,
+      skipBufferAndTypingWait: false,
       engineStartTime,
     });
 
