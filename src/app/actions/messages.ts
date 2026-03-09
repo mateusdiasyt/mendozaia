@@ -520,37 +520,46 @@ export async function sendMessage(
       status: "sent",
     });
 
-    // Aprendizado com atendimento humano - Parte 4
-    const [lastInbound] = await db
-      .select({ content: messages.content })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.direction, "inbound")
+    // Nao bloqueia resposta de sucesso se aprendizado/metadados falharem.
+    try {
+      const [lastInbound] = await db
+        .select({ content: messages.content })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.conversationId, conversationId),
+            eq(messages.direction, "inbound")
+          )
         )
-      )
-      .orderBy(desc(messages.createdAt))
-      .limit(1);
-    if (lastInbound?.content?.trim()) {
-      await learnFromHumanMessage(
-        lastInbound.content.trim(),
-        text,
-        conv.organizationId
-      );
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+
+      if (lastInbound?.content?.trim()) {
+        await learnFromHumanMessage(
+          lastInbound.content.trim(),
+          text,
+          conv.organizationId
+        );
+      }
+    } catch (learnErr) {
+      console.warn("[sendMessage action] learnFromHumanMessage failed", learnErr);
     }
 
     const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
 
-    await db
-      .update(conversations)
-      .set({
-        lastMessageAt: new Date(),
-        lastMessagePreview: text.slice(0, 100),
-        updatedAt: new Date(),
-        aiDisabledUntil: oneHourFromNow, // Humano respondeu: desativa IA por 1h
-      })
-      .where(eq(conversations.id, conversationId));
+    try {
+      await db
+        .update(conversations)
+        .set({
+          lastMessageAt: new Date(),
+          lastMessagePreview: text.slice(0, 100),
+          updatedAt: new Date(),
+          aiDisabledUntil: oneHourFromNow,
+        })
+        .where(eq(conversations.id, conversationId));
+    } catch (updateErr) {
+      console.warn("[sendMessage action] conversation update failed", updateErr);
+    }
 
     revalidatePath(`/dashboard/conversas/${conversationId}`);
     return { ok: true };
@@ -559,7 +568,6 @@ export async function sendMessage(
     return { ok: false, error: "Nao foi possivel enviar agora. Tente novamente." };
   }
 }
-
 export async function resetConversationForTesting(conversationId: string) {
   const session = await auth();
   if (!session?.user?.id) throw new Error("NÃ£o autorizado");
@@ -594,3 +602,4 @@ export async function resetConversationForTesting(conversationId: string) {
   revalidatePath("/dashboard/conversas");
   return { success: true };
 }
+

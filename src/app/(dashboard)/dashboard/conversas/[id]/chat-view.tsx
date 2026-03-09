@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { sendMessage } from "@/app/actions/messages";
-import { Loader2, Send } from "lucide-react";
+import { Send } from "lucide-react";
 
 interface Message {
   id: string;
@@ -11,6 +11,7 @@ interface Message {
   contentType: string;
   content: string | null;
   mediaUrl: string | null;
+  status?: string | null;
   createdAt: Date;
 }
 
@@ -30,7 +31,6 @@ export function ChatView({
 }: ChatViewProps) {
   const [messages, setMessages] = useState(initialMessages);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastMessageAtRef = useRef<Date | null>(
@@ -144,36 +144,51 @@ export function ChatView({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text) return;
 
-    setLoading(true);
     setError(null);
     setInput("");
+    setAutoScrollEnabled(true);
+
+    const tempId = `temp-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev.slice(-(MAX_RENDER_MESSAGES - 1)),
+      {
+        id: tempId,
+        direction: "outbound",
+        contentType: "text",
+        content: text,
+        mediaUrl: null,
+        status: "pending",
+        createdAt: new Date(),
+      },
+    ]);
 
     try {
-      setAutoScrollEnabled(true);
       const result = await sendMessage(conversationId, text);
       if (!result.ok) {
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === tempId ? { ...item, status: "failed" } : item
+          )
+        );
         setError(result.error || "Erro ao enviar");
         setInput(text);
         return;
       }
-      setMessages((prev) => [
-        ...prev.slice(-(MAX_RENDER_MESSAGES - 1)),
-        {
-          id: `temp-${Date.now()}`,
-          direction: "outbound",
-          contentType: "text",
-          content: text,
-          mediaUrl: null,
-          createdAt: new Date(),
-        },
-      ]);
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === tempId ? { ...item, status: "sent" } : item
+        )
+      );
     } catch (err) {
+      setMessages((prev) =>
+        prev.map((item) =>
+          item.id === tempId ? { ...item, status: "failed" } : item
+        )
+      );
       setError(err instanceof Error ? err.message : "Erro ao enviar");
       setInput(text);
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -245,13 +260,53 @@ export function ChatView({
                       minute: "2-digit",
                     })}
                   </span>
-                  {msg.direction === "outbound" && (
-                    <span className="text-[var(--brand-accent)]">
-                      <svg className="h-4 w-4" viewBox="0 0 16 15" fill="currentColor">
-                        <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.063-.51zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879a.32.32 0 0 1-.484.033L1.892 7.77a.366.366 0 0 0-.516.005l-.423.433a.364.364 0 0 0 .006.514l3.255 3.185a.32.32 0 0 0 .484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z" />
-                      </svg>
-                    </span>
-                  )}
+                  {msg.direction === "outbound" &&
+                    (() => {
+                      const status =
+                        msg.status ??
+                        (msg.id.startsWith("temp-") ? "pending" : "sent");
+
+                      if (status === "pending") {
+                        return (
+                          <span className="text-[var(--brand-muted)]">
+                            <svg
+                              className="h-3.5 w-3.5"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <circle cx="12" cy="12" r="9" />
+                              <path d="M12 7v5l3 2" />
+                            </svg>
+                          </span>
+                        );
+                      }
+
+                      if (status === "failed") {
+                        return (
+                          <span className="text-[#FF8A65]" title="Falha no envio">
+                            <svg
+                              className="h-4 w-4"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                            >
+                              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z" />
+                            </svg>
+                          </span>
+                        );
+                      }
+
+                      return (
+                        <span className="text-[var(--brand-accent)]">
+                          <svg className="h-4 w-4" viewBox="0 0 16 15" fill="currentColor">
+                            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.063-.51zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879a.32.32 0 0 1-.484.033L1.892 7.77a.366.366 0 0 0-.516.005l-.423.433a.364.364 0 0 0 .006.514l3.255 3.185a.32.32 0 0 0 .484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z" />
+                          </svg>
+                        </span>
+                      );
+                    })()}
                 </div>
               </div>
             </div>
@@ -297,19 +352,14 @@ export function ChatView({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Digite uma mensagem"
-            disabled={loading}
             className="flex-1 rounded-lg border border-[var(--brand-muted)]/25 bg-white px-4 py-3 text-[var(--brand-deep)] shadow-sm placeholder-[var(--brand-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--brand-primary)] disabled:opacity-50"
           />
           <button
             type="submit"
-            disabled={loading || !input.trim()}
+            disabled={!input.trim()}
             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--brand-primary)] text-white transition-colors hover:bg-[var(--brand-deep)] disabled:opacity-50"
           >
-            {loading ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Send className="h-5 w-5" />
-            )}
+            <Send className="h-5 w-5" />
           </button>
         </div>
       </form>
