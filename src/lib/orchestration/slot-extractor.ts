@@ -29,6 +29,18 @@ const INVALID_MODELO_TERMS = new Set([
   "agenda",
   "agendamento",
   "agendar",
+  "problema",
+  "duvida",
+  "dúvida",
+  "servico",
+  "serviço",
+  "troca",
+  "oleo",
+  "óleo",
+  "orcamento",
+  "orçamento",
+  "revisao",
+  "revisão",
   ]);
 
 const ALLOWED_SHORT_MODELS = new Set([
@@ -227,8 +239,12 @@ function extractModelo(text: string): string | undefined {
   const ano = extractYear(trimmed);
   const km = extractKm(trimmed);
   const hasVehicleHint = /\b(modelo|ve[ií]culo|carro)\b/i.test(trimmed);
+  const hasOwnershipHint =
+    /\b(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com|uso|dirijo)\s+(?:um|uma|o|a)?\s*[a-záàâãéêíóôõúç0-9-]{2,30}\b/i.test(
+      trimmed
+    );
   // Sem pista de veículo (ano/km/keyword), não inferir modelo para evitar falso positivo.
-  if (!ano && !km && !hasVehicleHint) {
+  if (!ano && !km && !hasVehicleHint && !hasOwnershipHint) {
     return undefined;
   }
   let candidate: string | undefined;
@@ -249,7 +265,7 @@ function extractModelo(text: string): string | undefined {
   // Variante sem ano explícito próximo: "tenho um onix com 80mil km"
   if (!candidate) {
     const ownershipModel = trimmed.match(
-      /\b(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com|uso|dirijo)\s+(?:um|uma|o|a)?\s*([a-záàâãéêíóôõúç0-9\s-]{2,30})(?=\s+(?:com|ano|km|quilometragem)\b|[,.!?;]|$)/i
+      /\b(?:tenho|estou\s+com|est[áa]\s+com|to\s+com|t[oô]\s+com|uso|dirijo)\s+(?:um|uma|o|a)?\s*([a-záàâãéêíóôõúç0-9\s-]{2,30})(?=\s+(?:com|ano|km|quilometragem|pra|para)\b|[,.!?;]|$)/i
     );
     if (ownershipModel && !/^\d+$/.test(ownershipModel[1].trim())) {
       candidate = ownershipModel[1].trim();
@@ -296,6 +312,7 @@ function extractModelo(text: string): string | undefined {
   if (candidate) {
     candidate = candidate
       .replace(/\b\d{1,2}\s*w\s*\d{2}\b/gi, " ")
+      .replace(/\b(?:me\s+chamo|meu\s+nome(?:\s+e|é)?|sou\s+(?:o|a))\s+[a-záàâãéêíóôõúç']+(?:\s+[a-záàâãéêíóôõúç']+)?/gi, " ")
       // Prefixos comuns de fala que "sujam" o modelo.
       .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/, "")
       .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/, "")

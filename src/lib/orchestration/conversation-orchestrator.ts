@@ -2187,6 +2187,7 @@ function extractLooseVehicleModelFromReply(text: string): string | undefined {
 
   const candidate = trimmed
     .replace(/[.,;!?]+$/g, "")
+    .replace(/\b(?:me\s+chamo|meu\s+nome\s+(?:e|eh)|sou\s+(?:o|a))\s+[a-z']+(?:\s+[a-z']+)?/gi, " ")
     .replace(/^(?:meu\s+)?carro\s+(?:e|é|eh)\s+/i, "")
     .replace(/^ve[ií]culo\s+(?:e|é|eh)\s+/i, "")
     .replace(/^(?:e|é|eh)\s+/, "")
@@ -2203,6 +2204,12 @@ function extractLooseVehicleModelFromReply(text: string): string | undefined {
   if (!candidate) return undefined;
 
   const noiseWords = new Set([
+    "me",
+    "chamo",
+    "nome",
+    "sou",
+    "meu",
+    "minha",
     "consigo",
     "consegue",
     "conseguimos",
@@ -2321,7 +2328,10 @@ function hasExplicitNameIntro(text: string): boolean {
   return /\b(meu nome e|meu nome é|me chamo|sou o|sou a)\b/i.test(text.trim());
 }
 
-function sanitizeNameCandidate(raw: string): string | null {
+function sanitizeNameCandidate(
+  raw: string,
+  blockedValues?: string[]
+): string | null {
   const normalizedRaw = raw.replace(/\s+/g, " ").trim();
   if (!normalizedRaw) return null;
 
@@ -2357,11 +2367,21 @@ function sanitizeNameCandidate(raw: string): string | null {
     "óleo",
   ]);
 
+  const blockedNormalized = new Set(
+    (blockedValues ?? []).map((value) => normalizePlainText(value)).filter(Boolean)
+  );
+
   const collected: string[] = [];
   for (const word of words) {
     const normalized = normalizePlainText(word);
     if (!normalized) continue;
-    if (stopTokens.has(normalized)) break;
+    if (
+      stopTokens.has(normalized) ||
+      blockedNormalized.has(normalized) ||
+      INVALID_NAME_TERMS.has(normalized)
+    ) {
+      break;
+    }
     if (!/^[a-z']+$/i.test(normalized)) break;
     collected.push(word);
     if (collected.length >= 2) break;
@@ -2385,7 +2405,7 @@ function extractCustomerName(
     /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,5})\b/i
   );
   if (explicit?.[1]) {
-    return sanitizeNameCandidate(explicit[1]);
+    return sanitizeNameCandidate(explicit[1], options?.blockedValues);
   }
 
   const lower = trimmed.toLowerCase();
@@ -2418,7 +2438,10 @@ function extractCustomerName(
     if ((options?.blockedValues ?? []).map(normalizePlainText).includes(normalized)) {
       return null;
     }
-    return trimmed.replace(/\s+/g, " ").trim();
+    return (
+      sanitizeNameCandidate(trimmed, options?.blockedValues) ??
+      trimmed.replace(/\s+/g, " ").trim()
+    );
   }
 
   return null;
