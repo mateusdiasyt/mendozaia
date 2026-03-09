@@ -95,26 +95,29 @@ export function Sidebar({
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-60 flex-col border-r border-slate-200 bg-white shadow-sm">
-      <div className="flex h-16 items-center justify-center border-b border-slate-100 px-4">
+    <aside className="flex h-screen w-20 flex-col border-r border-[var(--brand-muted)]/20 bg-[var(--brand-soft)]/60 shadow-sm">
+      <div className="flex h-16 items-center justify-center border-b border-[var(--brand-muted)]/20 px-2">
         <Link href="/dashboard" className="flex items-center">
           <Image
             src="/logo_mendoza.png"
             alt="Mendoza - Atendimento com IA"
-            width={140}
+            width={40}
             height={40}
             priority
-            className="h-10 w-auto max-w-[140px] object-contain object-left"
+            className="h-10 w-10 rounded-xl object-contain"
           />
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-0.5 p-3">
-        {!isPlatformAdmin && isPlanActive && (
-          <OrganizationSwitcher
-            organizations={organizations}
-            activeOrganizationId={activeOrganizationId}
-          />
+      <nav className="flex-1 space-y-1 p-2">
+        {!isPlatformAdmin && isPlanActive && organizations.length > 1 && (
+          <div className="group relative mb-2 flex justify-center">
+            <OrganizationSwitcher
+              organizations={organizations}
+              activeOrganizationId={activeOrganizationId}
+              compact
+            />
+          </div>
         )}
         {navItems.map((item) => {
           const Icon = item.icon;
@@ -125,26 +128,32 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+              aria-label={item.label}
+              className={`group relative flex items-center justify-center rounded-xl p-3 transition-all ${
                 isActive
-                  ? "bg-indigo-50 text-indigo-600"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                  ? "bg-[var(--brand-primary)] text-white shadow-sm"
+                  : "text-[var(--brand-muted)] hover:bg-white hover:text-[var(--brand-deep)]"
               }`}
             >
-              <Icon className="h-4 w-4 shrink-0 opacity-80" />
-              {item.label}
+              <Icon className="h-5 w-5 shrink-0" />
+              <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-[var(--brand-deep)] px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+                {item.label}
+              </span>
             </Link>
           );
         })}
       </nav>
 
-      <div className="border-t border-slate-100 p-3">
+      <div className="border-t border-[var(--brand-muted)]/20 p-2">
         <button
           onClick={() => signOut({ callbackUrl: "/" })}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600"
+          aria-label="Sair"
+          className="group relative flex w-full items-center justify-center rounded-xl p-3 text-[var(--brand-muted)] transition-colors hover:bg-white hover:text-red-600"
         >
-          <LogOut className="h-4 w-4 shrink-0" />
-          Sair
+          <LogOut className="h-5 w-5 shrink-0" />
+          <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-[var(--brand-deep)] px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
+            Sair
+          </span>
         </button>
       </div>
     </aside>
