@@ -253,14 +253,22 @@ export async function updateConversationContactData(
     return trimmed.length > 0 ? trimmed : null;
   };
 
+  const patch: Partial<typeof contacts.$inferInsert> = {
+    updatedAt: new Date(),
+  };
+  if ("name" in data) {
+    patch.name = normalize(data.name);
+  }
+  if ("email" in data) {
+    patch.email = normalize(data.email);
+  }
+  if ("notes" in data) {
+    patch.notes = normalize(data.notes);
+  }
+
   await db
     .update(contacts)
-    .set({
-      name: normalize(data.name),
-      email: normalize(data.email),
-      notes: normalize(data.notes),
-      updatedAt: new Date(),
-    })
+    .set(patch)
     .where(
       and(eq(contacts.id, conv.contactId), eq(contacts.organizationId, org.id))
     );

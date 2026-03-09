@@ -2381,15 +2381,15 @@ function extractCustomerName(
 ): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const lower = trimmed.toLowerCase();
-  if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
-
   const explicit = trimmed.match(
     /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,5})\b/i
   );
   if (explicit?.[1]) {
     return sanitizeNameCandidate(explicit[1]);
   }
+
+  const lower = trimmed.toLowerCase();
+  if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
 
 
   // Ex.: "Mateus, onix 2019 com 80milkm" -> captura "Mateus"
