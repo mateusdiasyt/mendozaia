@@ -99,12 +99,12 @@ export function Sidebar({
       <div className="flex h-16 items-center justify-center border-b border-[var(--brand-muted)]/20 px-2">
         <Link href="/dashboard" className="flex items-center">
           <Image
-            src="/favicon.ico"
+            src="/icon_mendoza.png"
             alt="Mendoza"
-            width={40}
-            height={40}
+            width={44}
+            height={44}
             priority
-            className="h-10 w-10 rounded-xl object-contain"
+            className="h-11 w-11 object-contain"
           />
         </Link>
       </div>
