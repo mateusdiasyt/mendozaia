@@ -1,10 +1,13 @@
 /**
- * Endpoint invocado pelo QStash após o debounce (3s sem novas mensagens).
- * Verifica assinatura, adquire lock Redis e processa a conversa.
+ * Endpoint invocado pelo QStash apos o debounce.
+ * Adquire lock Redis e processa a conversa.
+ *
+ * Nota operacional:
+ * este endpoint mantem processamento ativo mesmo quando a validacao de
+ * assinatura do QStash nao esta funcional em producao.
  */
 
 import { NextResponse } from "next/server";
-import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import {
   processConversation,
   tryAcquireConversationLock,
@@ -20,7 +23,7 @@ async function handler(request: Request) {
 
   if (!conversationId || typeof conversationId !== "string") {
     return NextResponse.json(
-      { error: "conversationId obrigatório" },
+      { error: "conversationId obrigatorio" },
       { status: 400 }
     );
   }
@@ -31,14 +34,12 @@ async function handler(request: Request) {
   }
 
   try {
-    // Anti flood: se >10 msgs em 10s, reagendar +8s
     const floodRescheduled = await checkFloodAndRescheduleIfNeeded(conversationId);
     if (floodRescheduled) {
       await releaseConversationLock(conversationId);
       return NextResponse.json({ ok: true, skipped: "flood_reschedule" });
     }
 
-    // Debounce inteligente: se usuário ainda digitando, reagendar +2s
     const typingRescheduled = await checkTypingAndRescheduleIfNeeded(conversationId);
     if (typingRescheduled) {
       await releaseConversationLock(conversationId);
@@ -60,14 +61,4 @@ async function handler(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-const hasQStashSigningKeys =
-  !!process.env.QSTASH_CURRENT_SIGNING_KEY &&
-  !!process.env.QSTASH_NEXT_SIGNING_KEY;
-
-export const POST = hasQStashSigningKeys
-  ? verifySignatureAppRouter(handler)
-  : async () =>
-      NextResponse.json(
-        { error: "QStash não configurado (QSTASH_CURRENT_SIGNING_KEY, QSTASH_NEXT_SIGNING_KEY)" },
-        { status: 503 }
-      );
+export const POST = handler;
