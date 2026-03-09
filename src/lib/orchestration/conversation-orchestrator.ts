@@ -1576,6 +1576,53 @@ function buildDateClosedSuggestionReply(
   return `Nessa data não temos atendimento disponível. Me diga outro dia dentro da nossa agenda (${reservationWindowLabel}) para eu te ajudar.`;
 }
 
+function isSameReservationDate(dateStr: string, reference: Date): boolean {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return false;
+  }
+  return (
+    reference.getFullYear() === year &&
+    reference.getMonth() + 1 === month &&
+    reference.getDate() === day
+  );
+}
+
+function hasRemainingReservableSlotOnDate(
+  dateStr: string,
+  now: Date,
+  schedule?: { start?: string; end?: string },
+  durationMinutes: number = 60
+): boolean {
+  if (!isSameReservationDate(dateStr, now)) return true;
+  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
+  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
+  if (startMinutes < 0 || endMinutes <= startMinutes) return false;
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const nextHalfHourStart = Math.ceil(currentMinutes / 30) * 30;
+  const candidateStart = Math.max(startMinutes, nextHalfHourStart);
+
+  return candidateStart + durationMinutes <= endMinutes;
+}
+
+function buildTodayClosedReply(
+  dateStr: string,
+  reservationWindowLabel: string,
+  now: Date,
+  schedule?: { workingDays?: number[]; blockedDates?: string[] }
+): string {
+  if (!isSameReservationDate(dateStr, now)) {
+    return `Nao tenho mais horarios disponiveis para *${formatDateForPtBr(dateStr)}*. Me diga outra data que eu verifico agora.`;
+  }
+
+  const nextAllowed = findNextAllowedReservationDate(dateStr, schedule);
+  if (nextAllowed) {
+    return `Hoje ja encerramos nosso expediente (${reservationWindowLabel}). A proxima data disponivel e *${formatDateForPtBr(nextAllowed)}*. Qual data voce prefere?`;
+  }
+  return `Hoje ja encerramos nosso expediente (${reservationWindowLabel}). Me diga uma nova data para agendar.`;
+}
+
 function looksLikeVehicleInfoMessage(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -2258,6 +2305,11 @@ function buildAvailabilityReply(
     start?: string;
     end?: string;
     suggestedSlots?: string[];
+  },
+  options?: {
+    now?: Date;
+    reservationWindowLabel?: string;
+    reservationSchedule?: { workingDays?: number[]; blockedDates?: string[] };
   }
 ): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
@@ -2277,6 +2329,18 @@ function buildAvailabilityReply(
   if (availability.reason === "outside_business_hours") {
     const start = availability.start ?? "09:00";
     const end = availability.end ?? "17:00";
+    const reservationWindowLabel = options?.reservationWindowLabel ?? `${start} as ${end}`;
+    if (
+      options?.now &&
+      !hasRemainingReservableSlotOnDate(parsed.dateStr, options.now, { start, end })
+    ) {
+      return buildTodayClosedReply(
+        parsed.dateStr,
+        reservationWindowLabel,
+        options.now,
+        options.reservationSchedule
+      );
+    }
     return `Esse horario fica fora do nosso atendimento. Atendemos das ${start} as ${end}. Quer agendar em outro horario nesse intervalo?`;
   }
   if (availability.reason === "slot_unavailable") {
@@ -7244,6 +7308,30 @@ export async function processInboundMessage(
           silence: false,
         };
       }
+      if (
+        !hasRemainingReservableSlotOnDate(parsedDateOnly.dateStr, nowRef, reservationWindow)
+      ) {
+        await sendMessage(
+          ctx.conversationId,
+          buildTodayClosedReply(
+            parsedDateOnly.dateStr,
+            reservationWindowLabel,
+            nowRef,
+            ctx.reservationSchedule
+          )
+        );
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data informada corresponde a hoje, mas expediente ja encerrado",
+          silence: false,
+        };
+      }
       await persistReservationPeriodSelection(
         ctx.conversationId,
         conversationMetadata,
@@ -7368,7 +7456,11 @@ export async function processInboundMessage(
       };
       await sendMessage(
         ctx.conversationId,
-        buildAvailabilityReply(parsedWithContext, availability)
+        buildAvailabilityReply(parsedWithContext, availability, {
+          now: nowRef,
+          reservationWindowLabel,
+          reservationSchedule: ctx.reservationSchedule,
+        })
       );
       await savePendingReservation(
         ctx.conversationId,
@@ -7526,7 +7618,11 @@ export async function processInboundMessage(
 
       await sendMessage(
         ctx.conversationId,
-        buildAvailabilityReply(parsedCandidate, availability)
+        buildAvailabilityReply(parsedCandidate, availability, {
+          now: nowRef,
+          reservationWindowLabel,
+          reservationSchedule: ctx.reservationSchedule,
+        })
       );
       await savePendingReservation(
         ctx.conversationId,
@@ -7899,7 +7995,11 @@ if (
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability);
+      const reply = buildAvailabilityReply(parsed, availability, {
+        now: nowRef,
+        reservationWindowLabel: `${ctx.reservationSchedule?.start ?? "09:00"} as ${ctx.reservationSchedule?.end ?? "17:00"}`,
+        reservationSchedule: ctx.reservationSchedule,
+      });
 
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
@@ -8019,6 +8119,38 @@ if (
           silence: false,
         };
       }
+      if (
+        effectiveKnownDate &&
+        !hasRemainingReservableSlotOnDate(effectiveKnownDate, nowRef, {
+          start: ctx.reservationSchedule?.start ?? "09:00",
+          end: ctx.reservationSchedule?.end ?? "17:00",
+        })
+      ) {
+        await sendMessage(
+          ctx.conversationId,
+          buildTodayClosedReply(
+            effectiveKnownDate,
+            reservationWindowLabel,
+            nowRef,
+            ctx.reservationSchedule
+          )
+        );
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "collect_datetime",
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Data conhecida e dia atual encerrado; solicitando nova data",
+          silence: false,
+        };
+      }
       const reply = knownDate
         ? `Posso consultar a disponibilidade e já reservar um horário para você. Para *${formatDateForPtBr(knownDate)}*, qual horário prefere?`
         : "Posso consultar a disponibilidade e já reservar um horário para você. Qual data e horário prefere?";
@@ -8094,7 +8226,11 @@ if (
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability);
+      const reply = buildAvailabilityReply(parsed, availability, {
+        now: nowRef,
+        reservationWindowLabel: `${ctx.reservationSchedule?.start ?? "09:00"} as ${ctx.reservationSchedule?.end ?? "17:00"}`,
+        reservationSchedule: ctx.reservationSchedule,
+      });
 
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
@@ -8322,6 +8458,34 @@ if (
           silence: false,
         };
       }
+      if (
+        !hasRemainingReservableSlotOnDate(
+          parsedDateOnlyFromCurrent.dateStr,
+          nowRef,
+          reservationWindow
+        )
+      ) {
+        await sendMessage(
+          ctx.conversationId,
+          buildTodayClosedReply(
+            parsedDateOnlyFromCurrent.dateStr,
+            reservationWindowLabel,
+            nowRef,
+            ctx.reservationSchedule
+          )
+        );
+        await persistReservationPeriodSelection(
+          ctx.conversationId,
+          conversationMetadata,
+          null
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fail-safe: data de hoje sem janela restante; solicitando nova data",
+          silence: false,
+        };
+      }
       await persistReservationPeriodSelection(
         ctx.conversationId,
         conversationMetadata,
@@ -8375,7 +8539,11 @@ if (
         parsed.timeStr,
         60
       );
-      const reply = buildAvailabilityReply(parsed, availability);
+      const reply = buildAvailabilityReply(parsed, availability, {
+        now: nowRef,
+        reservationWindowLabel,
+        reservationSchedule: ctx.reservationSchedule,
+      });
       await sendMessage(ctx.conversationId, reply);
       await savePendingReservation(
         ctx.conversationId,
