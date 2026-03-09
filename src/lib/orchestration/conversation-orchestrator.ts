@@ -2578,9 +2578,16 @@ async function persistReservationFlowMetadata(
   currentMetadata: Record<string, unknown>,
   patch: Record<string, unknown>
 ): Promise<void> {
-  const currentFlow = (currentMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const currentFlow = (baseMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const nextFlow = { ...currentFlow, ...patch };
-  const nextMetadata = { ...currentMetadata, reservationFlow: nextFlow };
+  const nextMetadata = { ...baseMetadata, reservationFlow: nextFlow };
   await db
     .update(conversations)
     .set({
@@ -2760,7 +2767,14 @@ async function persistOilFlowState(
   currentMetadata: Record<string, unknown>,
   nextState: OilFlowState | null
 ): Promise<void> {
-  const nextMetadata = { ...currentMetadata };
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
   if (nextState) {
     nextMetadata.oilFlow = {
       ...nextState,
