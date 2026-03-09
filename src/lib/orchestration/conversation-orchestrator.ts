@@ -2307,6 +2307,57 @@ function hasExplicitNameIntro(text: string): boolean {
   return /\b(meu nome e|meu nome é|me chamo|sou o|sou a)\b/i.test(text.trim());
 }
 
+function sanitizeNameCandidate(raw: string): string | null {
+  const normalizedRaw = raw.replace(/\s+/g, " ").trim();
+  if (!normalizedRaw) return null;
+
+  const words = normalizedRaw
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  const stopTokens = new Set([
+    "consigo",
+    "quero",
+    "preciso",
+    "gostaria",
+    "posso",
+    "pode",
+    "hoje",
+    "amanha",
+    "amanhã",
+    "agora",
+    "pra",
+    "para",
+    "levar",
+    "agendar",
+    "reservar",
+    "fazer",
+    "dar",
+    "uma",
+    "um",
+    "olhada",
+    "troca",
+    "de",
+    "oleo",
+    "óleo",
+  ]);
+
+  const collected: string[] = [];
+  for (const word of words) {
+    const normalized = normalizePlainText(word);
+    if (!normalized) continue;
+    if (stopTokens.has(normalized)) break;
+    if (!/^[a-z']+$/i.test(normalized)) break;
+    collected.push(word);
+    if (collected.length >= 2) break;
+  }
+
+  const name = collected.join(" ").trim();
+  if (!name || name.length < 2) return null;
+  return name;
+}
+
 function extractCustomerName(
   text: string,
   options?: {
@@ -2320,12 +2371,12 @@ function extractCustomerName(
   if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
 
   const explicit = trimmed.match(
-    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
+    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,5})\b/i
   );
   if (explicit?.[1]) {
-    const name = explicit[1].replace(/\s+/g, " ").trim();
-    return name.length >= 2 ? name : null;
+    return sanitizeNameCandidate(explicit[1]);
   }
+
 
   // Ex.: "Mateus, onix 2019 com 80milkm" -> captura "Mateus"
   const leadingSegment = trimmed.split(",")[0]?.trim();
@@ -8140,6 +8191,46 @@ if (
       reason: "Fail-safe de reservas: solicitando data/hora em formato claro",
       silence: false,
     };
+  }
+
+  // Evita silencio quando useAsFallback=false: mantem o fluxo deterministico de reservas.
+  if (ctx.reservationsEnabled && !ctx.aiAgentUseAsFallback) {
+    const missingVehicleForDeterministicFlow = ctx.usesVehicleSlots
+      ? getMissingSlots(ctx.vehicleSlots ?? {})
+      : [];
+    const missingNameForDeterministicFlow = !contactName;
+
+    if (missingNameForDeterministicFlow || missingVehicleForDeterministicFlow.length > 0) {
+      await sendMessage(
+        ctx.conversationId,
+        buildMissingReservationProfileReply(
+          missingNameForDeterministicFlow,
+          missingVehicleForDeterministicFlow
+        )
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_profile_prompt_deterministic",
+        decision: "tool_then_ai",
+        reason: "Fluxo deterministico de reserva com fallback IA desativado",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_PROFILE_PROMPT_DETERMINISTIC",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          missingName: missingNameForDeterministicFlow,
+          missingVehicle: missingVehicleForDeterministicFlow,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Coleta de perfil obrigatoria sem depender do fallback da IA",
+        silence: false,
+      };
+    }
   }
 
   // Fallback determinístico de entrada:
