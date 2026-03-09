@@ -2,15 +2,11 @@
 import { db } from "@/lib/db";
 import { whatsappSessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import Image from "next/image";
 import { WhatsAppConnect } from "@/components/whatsapp/connect";
 import { SessionConnect } from "@/components/whatsapp/session-connect";
 import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
-import {
-  MessageCircle,
-  Wifi,
-  Smartphone,
-  Sparkles,
-} from "lucide-react";
+import { MessageCircle, Smartphone, Sparkles } from "lucide-react";
 
 export default async function WhatsAppPage() {
   const org = await getCurrentOrganization();
@@ -73,11 +69,11 @@ export default async function WhatsAppPage() {
 
                     <div className="relative z-10">
                       <div className="mb-5 flex items-start justify-between">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/30 bg-white">
                           {isConnected ? (
-                            <Wifi className="h-5 w-5 text-white" />
+                            <Image src="/whatsapp-icon.svg" alt="WhatsApp" width={20} height={20} />
                           ) : (
-                            <Smartphone className="h-5 w-5 text-white/80" />
+                            <Smartphone className="h-5 w-5 text-[var(--brand-deep)]/70" />
                           )}
                         </div>
                         <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold">
