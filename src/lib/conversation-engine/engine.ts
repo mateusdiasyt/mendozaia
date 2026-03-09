@@ -29,6 +29,12 @@ import {
   clearLastUsedFaqId,
   updateFaqConfidence,
 } from "@/lib/faq-engine";
+import {
+  extractSlotsFromMessages,
+  mergeVehicleSlots,
+  type VehicleSlots,
+} from "@/lib/orchestration/slot-extractor";
+import { saveContactMemory } from "@/lib/contact-memories";
 
 /** Debounce do buffer: aguarda N ms sem novas mensagens antes de processar (agrupa sequência) */
 const MESSAGE_BUFFER_DEBOUNCE_MS = 2000;
@@ -41,6 +47,199 @@ const CONTACT_TYPING_MAX_PAUSE_MS = 12_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function toDateStr(year: number, month: number, day: number): string {
+  return `${year}-${pad2(month)}-${pad2(day)}`;
+}
+
+function toTimeStr(hour: number, minute: number): string {
+  return `${pad2(hour)}:${pad2(minute)}`;
+}
+
+function extractPassiveTime(text: string): { hour: number; minute: number } | null {
+  const withColon = text.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (withColon) {
+    const hour = Number(withColon[1]);
+    const minute = Number(withColon[2]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
+  const withH = text.match(/\b(\d{1,2})h(?:\s*(\d{2}))?\b/i);
+  if (withH) {
+    const hour = Number(withH[1]);
+    const minute = Number(withH[2] ?? "0");
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return { hour, minute };
+    }
+  }
+
+  return null;
+}
+
+function extractPassiveDate(text: string, now: Date): { dateStr: string } | null {
+  const normalized = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const iso = text.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (iso) {
+    return { dateStr: `${iso[1]}-${iso[2]}-${iso[3]}` };
+  }
+
+  const slash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    let year = Number(slash[3] ?? now.getFullYear());
+    if (year < 100) year += 2000;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return { dateStr: toDateStr(year, month, day) };
+    }
+  }
+
+  if (/\bamanha\b/.test(normalized)) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    return { dateStr: toDateStr(d.getFullYear(), d.getMonth() + 1, d.getDate()) };
+  }
+
+  if (/\bhoje\b/.test(normalized)) {
+    return { dateStr: toDateStr(now.getFullYear(), now.getMonth() + 1, now.getDate()) };
+  }
+
+  return null;
+}
+
+async function persistSignalsWhenAiPaused(
+  input: ConversationEngineInput
+): Promise<{ vehicleUpdated: boolean; reservationUpdated: boolean }> {
+  if (input.messageContentType !== "text" || !input.messageContent.trim()) {
+    return { vehicleUpdated: false, reservationUpdated: false };
+  }
+
+  const [convRow, inboundRows] = await Promise.all([
+    db
+      .select({
+        metadata: conversations.conversationStateMetadata,
+      })
+      .from(conversations)
+      .where(eq(conversations.id, input.conversationId))
+      .limit(1),
+    db
+      .select({
+        direction: messages.direction,
+        content: messages.content,
+      })
+      .from(messages)
+      .where(eq(messages.conversationId, input.conversationId))
+      .orderBy(desc(messages.createdAt))
+      .limit(12),
+  ]);
+
+  const metadata = (convRow?.[0]?.metadata as Record<string, unknown> | undefined) ?? {};
+  const existingVehicleSlots =
+    (metadata.vehicleSlots as VehicleSlots | undefined) ?? {};
+  const extractedVehicle = extractSlotsFromMessages([...inboundRows].reverse());
+  const mergedVehicle = mergeVehicleSlots(existingVehicleSlots, extractedVehicle);
+  const vehicleUpdated =
+    JSON.stringify(mergedVehicle) !== JSON.stringify(existingVehicleSlots);
+
+  if (mergedVehicle.modelo) {
+    await saveContactMemory(input.contactId, "vehicle_model", mergedVehicle.modelo);
+  }
+  if (mergedVehicle.ano) {
+    await saveContactMemory(input.contactId, "vehicle_year", String(mergedVehicle.ano));
+  }
+  if (mergedVehicle.km) {
+    await saveContactMemory(input.contactId, "vehicle_km", String(mergedVehicle.km));
+  }
+
+  const inboundTexts = inboundRows
+    .filter((row) => row.direction === "inbound" && !!row.content?.trim())
+    .map((row) => row.content!.trim());
+  const now = new Date();
+  let foundDate: string | null = null;
+  let foundTime: string | null = null;
+
+  for (let i = 0; i < inboundTexts.length; i++) {
+    const head = inboundTexts[i]!;
+    const candidates = [head];
+    if (i + 1 < inboundTexts.length) candidates.push(`${inboundTexts[i + 1]} ${head}`);
+    if (i + 2 < inboundTexts.length) {
+      candidates.push(`${inboundTexts[i + 2]} ${inboundTexts[i + 1]} ${head}`);
+    }
+    for (const candidate of candidates) {
+      if (!foundDate) {
+        const parsedDate = extractPassiveDate(candidate, now);
+        if (parsedDate?.dateStr) foundDate = parsedDate.dateStr;
+      }
+      if (!foundTime) {
+        const parsedTime = extractPassiveTime(candidate);
+        if (parsedTime) foundTime = toTimeStr(parsedTime.hour, parsedTime.minute);
+      }
+      if (foundDate && foundTime) break;
+    }
+    if (foundDate && foundTime) break;
+  }
+
+  const pendingReservation =
+    (metadata.pendingReservation as Record<string, unknown> | undefined) ?? {};
+  const reservationPeriodFlow =
+    (metadata.reservationPeriodFlow as Record<string, unknown> | undefined) ?? {};
+
+  const nextPending = {
+    ...pendingReservation,
+    dateStr:
+      typeof pendingReservation.dateStr === "string"
+        ? pendingReservation.dateStr
+        : foundDate ?? undefined,
+    timeStr:
+      typeof pendingReservation.timeStr === "string"
+        ? pendingReservation.timeStr
+        : foundTime ?? undefined,
+    durationMinutes:
+      typeof pendingReservation.durationMinutes === "number"
+        ? pendingReservation.durationMinutes
+        : 60,
+  };
+
+  const nextPeriod = {
+    ...reservationPeriodFlow,
+    dateStr:
+      typeof reservationPeriodFlow.dateStr === "string"
+        ? reservationPeriodFlow.dateStr
+        : foundDate ?? undefined,
+  };
+
+  const reservationUpdated =
+    (foundDate && !pendingReservation.dateStr && !reservationPeriodFlow.dateStr) ||
+    (foundTime && !pendingReservation.timeStr);
+
+  if (vehicleUpdated || reservationUpdated) {
+    await db
+      .update(conversations)
+      .set({
+        conversationStateMetadata: {
+          ...metadata,
+          vehicleSlots: mergedVehicle,
+          vehicleSlotsUpdatedAt: new Date().toISOString(),
+          pendingReservation: nextPending,
+          reservationPeriodFlow: nextPeriod,
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(conversations.id, input.conversationId));
+  }
+
+  return { vehicleUpdated, reservationUpdated };
 }
 
 function pushReply(replies: string[], text: string): void {
@@ -168,6 +367,10 @@ export async function runConversationEngine(
     input.isPriority === true;
 
   if (isAiPaused || isHumanOnlyState) {
+    const passiveCapture = isAiPaused
+      ? await persistSignalsWhenAiPaused(input)
+      : { vehicleUpdated: false, reservationUpdated: false };
+
     await logOrchestration({
       conversationId: input.conversationId,
       organizationId: input.organizationId,
@@ -184,6 +387,8 @@ export async function runConversationEngine(
           ? input.aiDisabledUntil.toISOString()
           : null,
         conversationState: input.conversationState ?? null,
+        passiveVehicleUpdated: passiveCapture.vehicleUpdated,
+        passiveReservationUpdated: passiveCapture.reservationUpdated,
       },
     });
 
