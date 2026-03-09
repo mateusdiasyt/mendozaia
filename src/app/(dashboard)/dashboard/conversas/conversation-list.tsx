@@ -265,10 +265,11 @@ export function ConversationList({
         <button
           type="button"
           onClick={toggleSelectionMode}
-          className={`ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+          title={isSelectionMode ? "Sair da selecao" : "Selecionar conversas"}
+          className={`ml-auto inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
             isSelectionMode
-              ? "bg-[var(--brand-deep)] text-white"
-              : "bg-white text-[var(--brand-muted)] hover:bg-[var(--brand-soft)]"
+              ? "border-[var(--brand-primary)] bg-[var(--brand-primary)] text-white"
+              : "border-transparent bg-[var(--brand-soft)] text-[var(--brand-muted)] hover:border-[var(--brand-muted)]/25 hover:bg-white"
           }`}
         >
           {isSelectionMode ? (
@@ -276,35 +277,34 @@ export function ConversationList({
           ) : (
             <Square className="h-3.5 w-3.5" />
           )}
-          Selecionar
         </button>
       </div>
 
       {isSelectionMode && (
-        <div className="flex items-center gap-2 border-b border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-3 py-2">
-          <span className="text-xs text-[var(--brand-muted)]">
+        <div className="flex items-center gap-1.5 border-b border-[var(--brand-muted)]/15 bg-[var(--brand-soft)]/55 px-3 py-1.5">
+          <span className="text-[11px] text-[var(--brand-muted)]">
             {selectedIds.size} selecionada(s)
           </span>
           <button
             type="button"
             onClick={handleDeleteSelected}
+            title="Excluir selecionadas"
             disabled={selectedIds.size === 0 || isDeletingSelected}
-            className="ml-auto inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-full border border-red-200 bg-white text-red-600 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isDeletingSelected ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Trash2 className="h-3.5 w-3.5" />
             )}
-            Excluir selecionadas
           </button>
           <button
             type="button"
             onClick={toggleSelectionMode}
-            className="inline-flex items-center gap-1 rounded-lg border border-[var(--brand-muted)]/30 bg-white px-2.5 py-1.5 text-xs font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
+            title="Cancelar selecao"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--brand-muted)]/25 bg-white text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
           >
             <X className="h-3.5 w-3.5" />
-            Cancelar
           </button>
         </div>
       )}
@@ -349,7 +349,7 @@ export function ConversationList({
                     <button
                       type="button"
                       onClick={() => toggleSelectConversation(conv.id)}
-                      className="shrink-0 text-[var(--brand-muted)]"
+                      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--brand-muted)]/25 bg-white text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-soft)]"
                       aria-label={`Selecionar conversa ${displayName}`}
                     >
                       {selectedIds.has(conv.id) ? (
@@ -428,12 +428,12 @@ export function ConversationList({
               );
             })}
             {hasMore && !normalizedQuery && (
-              <div className="border-b border-[var(--brand-muted)]/15 px-4 py-3">
+              <div className="border-b border-[var(--brand-muted)]/10 px-4 py-2.5 text-center">
                 <button
                   type="button"
                   onClick={handleLoadMore}
                   disabled={isLoadingMore}
-                  className="w-full rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 text-xs font-medium text-[var(--brand-muted)] underline-offset-4 transition-colors hover:text-[var(--brand-deep)] hover:underline disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isLoadingMore ? "Carregando..." : "Carregar mais 5 conversas"}
                 </button>
