@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { Bot, BotOff, Loader2 } from "lucide-react";
+import { Bot, BotOff, ChevronDown, Loader2 } from "lucide-react";
 import {
   setConversationAIDisabled,
   setConversationAIEnabled,
@@ -74,6 +74,7 @@ export function AIControlSidebar({
     reservationServiceName ?? ""
   );
   const [savingReservationDraft, setSavingReservationDraft] = useState(false);
+  const [showDisableOptions, setShowDisableOptions] = useState(false);
 
   useEffect(() => {
     setUntil(aiDisabledUntil ? new Date(aiDisabledUntil) : null);
@@ -106,17 +107,73 @@ export function AIControlSidebar({
   const isDisabledByTime = !!(until && until > new Date());
   const isDisabledByColumn = inHumanColumn || carInWorkshop || isWaitingHuman;
   const isDisabled = isDisabledByTime || isDisabledByColumn;
+  const disableOptions: Array<{ label: string; hours: number }> = [
+    { label: "30 min", hours: 0.5 },
+    { label: "1h", hours: 1 },
+    { label: "3h", hours: 3 },
+    { label: "12h", hours: 12 },
+    { label: "24h", hours: 24 },
+    { label: "Manual", hours: 87600 },
+  ];
 
-  async function handleToggleAI() {
+  function formatPauseInfo(date: Date | null): string {
+    if (!date || Number.isNaN(date.getTime())) {
+      return "até reativação manual";
+    }
+    const diffMs = date.getTime() - Date.now();
+    if (diffMs <= 0) {
+      return "expirando agora";
+    }
+    const oneYearMs = 365 * 24 * 60 * 60 * 1000;
+    if (diffMs > oneYearMs) {
+      return "até reativação manual";
+    }
+    if (diffMs < 60 * 60 * 1000) {
+      const mins = Math.max(1, Math.ceil(diffMs / (60 * 1000)));
+      return `por ~${mins} min`;
+    }
+    if (diffMs < 24 * 60 * 60 * 1000) {
+      const hours = Math.max(1, Math.ceil(diffMs / (60 * 60 * 1000)));
+      return `por ~${hours}h`;
+    }
+    return `até ${new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(date)}`;
+  }
+
+  const disabledDetail = isDisabledByColumn
+    ? carInWorkshop
+      ? "Pausada enquanto o carro está na mecânica"
+      : isWaitingHuman
+        ? "Pausada aguardando atendimento humano"
+        : "Pausada na coluna de atendimento humano"
+    : isDisabledByTime
+      ? `Reativação automática ${formatPauseInfo(until)}`
+      : "Pausada neste contato";
+
+  async function handleEnableAI() {
     setLoadingToggleAI(true);
     try {
-      if (isDisabled) {
-        await setConversationAIEnabled(conversationId);
-        setUntil(null);
-      } else {
-        const result = await setConversationAIDisabled(conversationId, 1);
-        setUntil(result.aiDisabledUntil ? new Date(result.aiDisabledUntil) : null);
-      }
+      await setConversationAIEnabled(conversationId);
+      setUntil(null);
+      setShowDisableOptions(false);
+      router.refresh();
+    } catch {
+      // noop
+    } finally {
+      setLoadingToggleAI(false);
+    }
+  }
+
+  async function handleDisableFor(hours: number) {
+    setLoadingToggleAI(true);
+    try {
+      const result = await setConversationAIDisabled(conversationId, hours);
+      setUntil(result.aiDisabledUntil ? new Date(result.aiDisabledUntil) : null);
+      setShowDisableOptions(false);
       router.refresh();
     } catch {
       // noop
@@ -207,7 +264,7 @@ export function AIControlSidebar({
                 {isDisabled ? "IA desativada" : "IA ativa"}
               </p>
               <p className="text-xs text-[var(--brand-muted)]">
-                {isDisabled ? "Pausada neste contato" : "Respondendo automaticamente"}
+                {isDisabled ? disabledDetail : "Respondendo automaticamente"}
               </p>
             </div>
             <span
@@ -222,13 +279,44 @@ export function AIControlSidebar({
           </div>
           <button
             type="button"
-            onClick={handleToggleAI}
+            onClick={() => {
+              if (isDisabled) {
+                void handleEnableAI();
+                return;
+              }
+              setShowDisableOptions((value) => !value);
+            }}
             disabled={loadingToggleAI}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loadingToggleAI ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {isDisabled ? "Ativar IA" : "Desativar IA"}
+            {!isDisabled ? (
+              <ChevronDown
+                className={`h-4 w-4 transition-transform ${
+                  showDisableOptions ? "rotate-180" : ""
+                }`}
+              />
+            ) : null}
           </button>
+
+          {!isDisabled && showDisableOptions ? (
+            <div className="mt-2 grid grid-cols-3 gap-2">
+              {disableOptions.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={() => {
+                    void handleDisableFor(option.hours);
+                  }}
+                  disabled={loadingToggleAI}
+                  className="rounded-lg border border-[var(--brand-muted)]/30 bg-[var(--brand-soft)] px-2 py-1.5 text-xs font-semibold text-[var(--brand-deep)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         {showVehicleControls && (
