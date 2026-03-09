@@ -5,6 +5,7 @@ import {
   contacts,
   contactMemories,
   products,
+  services,
   messages,
   whatsappSessions,
 } from "@/lib/db/schema";
@@ -72,7 +73,7 @@ export default async function ConversaPage({
 
   if (!conv) notFound();
 
-  const [recentMessagesDesc, memories, oilProducts] = await Promise.all([
+  const [recentMessagesDesc, memories, oilProducts, serviceRows] = await Promise.all([
     db
       .select({ message: messages })
       .from(messages)
@@ -107,6 +108,12 @@ export default async function ConversaPage({
             )
           )
       : Promise.resolve([]),
+    db
+      .select({ id: services.id, name: services.name })
+      .from(services)
+      .where(
+        and(eq(services.organizationId, org.id), eq(services.isActive, true))
+      ),
   ]);
 
   const msgList = [...recentMessagesDesc].reverse();
@@ -130,6 +137,12 @@ export default async function ConversaPage({
         : null;
   const reservationTimeStr =
     typeof pendingReservation.timeStr === "string" ? pendingReservation.timeStr : null;
+  const reservationContext =
+    (conversationMetadata.reservationContext as Record<string, unknown> | undefined) ?? {};
+  const reservationServiceName =
+    typeof reservationContext.serviceName === "string"
+      ? reservationContext.serviceName
+      : null;
   const workshopFlow =
     (conversationMetadata.workshopFlow as Record<string, unknown> | undefined) as
       | Record<string, unknown>
@@ -226,6 +239,8 @@ export default async function ConversaPage({
           vehicleOilSpec={vehicleOilSpec}
           reservationDateStr={reservationDateStr}
           reservationTimeStr={reservationTimeStr}
+          reservationServiceName={reservationServiceName}
+          serviceOptions={serviceRows}
           oilProducts={oilProducts}
           carInShop={carInShop}
           waitingHuman={waitingHuman}

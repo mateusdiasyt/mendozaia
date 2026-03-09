@@ -81,6 +81,7 @@ export interface OrchestrationContext {
     }>;
   };
   offeredServices?: string[];
+  serviceHumanPolicyByName?: Record<string, boolean>;
   /** Contexto do cliente (perfil + memória de conversas anteriores) */
   customerContext?: CustomerContext | null;
 }

@@ -1,4 +1,9 @@
-import { createService, listServices, toggleServiceActive } from "@/app/actions/services";
+﻿import {
+  createService,
+  listServices,
+  setServiceRequiresHuman,
+  toggleServiceActive,
+} from "@/app/actions/services";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 
 function formatCurrencyFromCents(cents: number): string {
@@ -64,6 +69,10 @@ export default async function ServicosPage() {
             <input type="checkbox" name="isActive" defaultChecked />
             Ativo
           </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" name="requiresHuman" />
+            Precisa de atendimento humano
+          </label>
           <input
             name="description"
             placeholder="Descrição (opcional)"
@@ -87,6 +96,7 @@ export default async function ServicosPage() {
               <th className="px-4 py-3">Serviço</th>
               <th className="px-4 py-3">Preço</th>
               <th className="px-4 py-3">Duração</th>
+              <th className="px-4 py-3">Atendimento humano</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Ações</th>
             </tr>
@@ -104,6 +114,30 @@ export default async function ServicosPage() {
                   {formatCurrencyFromCents(item.priceCents)}
                 </td>
                 <td className="px-4 py-3 text-slate-700">{item.durationMinutes} min</td>
+                <td className="px-4 py-3">
+                  <form
+                    action={async (formData) => {
+                      "use server";
+                      const id = String(formData.get("id") ?? "");
+                      const next = String(formData.get("next") ?? "0") === "1";
+                      if (!id) return;
+                      await setServiceRequiresHuman(id, next);
+                    }}
+                  >
+                    <input type="hidden" name="id" value={item.id} />
+                    <input type="hidden" name="next" value={item.requiresHuman ? "0" : "1"} />
+                    <button
+                      type="submit"
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        item.requiresHuman
+                          ? "bg-amber-50 text-amber-700"
+                          : "bg-emerald-50 text-emerald-700"
+                      }`}
+                    >
+                      {item.requiresHuman ? "Sim" : "Não"}
+                    </button>
+                  </form>
+                </td>
                 <td className="px-4 py-3">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-medium ${
@@ -139,7 +173,7 @@ export default async function ServicosPage() {
             ))}
             {services.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                   Nenhum serviço cadastrado ainda.
                 </td>
               </tr>

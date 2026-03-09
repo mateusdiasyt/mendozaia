@@ -484,6 +484,16 @@ function normalizeServiceLabel(value: string): string {
     .trim();
 }
 
+function serviceRequiresHumanByRule(
+  serviceName: string | null | undefined,
+  rulesByName: Record<string, boolean> | undefined
+): boolean {
+  if (!serviceName || !rulesByName) return false;
+  const normalized = normalizeServiceLabel(serviceName);
+  if (!normalized) return false;
+  return rulesByName[normalized] === true;
+}
+
 function detectAskedOfferedService(
   text: string,
   offeredServices: string[]
@@ -3000,6 +3010,15 @@ export async function loadConversationContext(
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const offeredServicesSettings =
     (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
+  const serviceHumanPolicySettings =
+    (settings.serviceHumanPolicy as Record<string, unknown> | undefined) ?? {};
+  const rawServiceHumanPolicyByName =
+    (serviceHumanPolicySettings.byName as Record<string, unknown> | undefined) ?? {};
+  const serviceHumanPolicyByName = Object.fromEntries(
+    Object.entries(rawServiceHumanPolicyByName)
+      .filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")
+      .map(([name, requiresHuman]) => [normalizeServiceLabel(name), requiresHuman])
+  ) as Record<string, boolean>;
   const configuredSegment =
     (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     undefined;
@@ -3131,6 +3150,7 @@ export async function loadConversationContext(
     offeredServices: Array.isArray(offeredServicesSettings.selectedServices)
       ? (offeredServicesSettings.selectedServices as string[])
       : [],
+    serviceHumanPolicyByName,
     vehicleServicePolicy: {
       minAllowedYear:
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
@@ -6424,6 +6444,37 @@ export async function processInboundMessage(
         serviceName: catalog.selectedServiceName,
         productName: catalog.selectedProductName,
       });
+      if (
+        serviceRequiresHumanByRule(
+          catalog.selectedServiceName,
+          ctx.serviceHumanPolicyByName
+        )
+      ) {
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito, para *${catalog.selectedServiceName}* vou te encaminhar para um atendente humano confirmar tudo certinho.`
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          `Serviço ${catalog.selectedServiceName} configurado para atendimento humano`
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Serviço configurado para atendimento humano",
+          silence: false,
+        };
+      }
       if (intakeStage) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, null);
       }
@@ -6977,6 +7028,42 @@ export async function processInboundMessage(
       looksLikeReservationIntent(intentProbeText) ||
       containsDateOrTimeHint(ctx.messageContent) ||
       containsDateOrTimeHint(intentProbeText);
+    const currentServiceRequiresHuman = serviceRequiresHumanByRule(
+      reservationContext.serviceName ?? null,
+      ctx.serviceHumanPolicyByName
+    );
+
+    if (
+      currentServiceRequiresHuman &&
+      hasSchedulingSignalNow &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, para *${reservationContext.serviceName}* vou te encaminhar para um atendente humano confirmar os detalhes.`
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        `Serviço ${reservationContext.serviceName} configurado para atendimento humano`
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Serviço exige atendimento humano antes do agendamento",
+        silence: false,
+      };
+    }
 
     if (
       !hasKnownNeedForReservation &&

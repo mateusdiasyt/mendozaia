@@ -275,6 +275,7 @@ export async function updateConversationReservationDraft(
   data: {
     dateStr?: string | null;
     timeStr?: string | null;
+    serviceName?: string | null;
   }
 ) {
   const session = await auth();
@@ -310,6 +311,8 @@ export async function updateConversationReservationDraft(
 
   const dateStr = normalizeDate(data.dateStr);
   const timeStr = normalizeTime(data.timeStr);
+  const serviceNameRaw = (data.serviceName ?? "").trim();
+  const serviceName = serviceNameRaw.length > 0 ? serviceNameRaw : null;
   const currentMetadata =
     (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
   const nextMetadata: Record<string, unknown> = { ...currentMetadata };
@@ -343,6 +346,26 @@ export async function updateConversationReservationDraft(
     delete nextMetadata.pendingReservation;
   }
 
+  const currentReservationContext =
+    (currentMetadata.reservationContext as Record<string, unknown> | undefined) ?? {};
+  if (serviceName) {
+    nextMetadata.reservationContext = {
+      ...currentReservationContext,
+      serviceName,
+      updatedAt: nowIso,
+    };
+  } else if (Object.keys(currentReservationContext).length > 0) {
+    const cleanedContext = { ...currentReservationContext };
+    delete cleanedContext.serviceName;
+    nextMetadata.reservationContext =
+      Object.keys(cleanedContext).length > 0
+        ? { ...cleanedContext, updatedAt: nowIso }
+        : undefined;
+    if (!nextMetadata.reservationContext) {
+      delete nextMetadata.reservationContext;
+    }
+  }
+
   await db
     .update(conversations)
     .set({
@@ -353,7 +376,7 @@ export async function updateConversationReservationDraft(
     .where(eq(conversations.id, conversationId));
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
-  return { success: true, dateStr, timeStr };
+  return { success: true, dateStr, timeStr, serviceName };
 }
 
 export async function getConversationOrchestrationLogs(conversationId: string) {

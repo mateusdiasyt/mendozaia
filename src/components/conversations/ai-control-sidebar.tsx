@@ -38,6 +38,8 @@ interface AIControlSidebarProps {
   vehicleOilSpec?: string | null;
   reservationDateStr?: string | null;
   reservationTimeStr?: string | null;
+  reservationServiceName?: string | null;
+  serviceOptions?: Array<{ id: string; name: string }>;
   oilProducts?: Array<{ id: string; name: string; model: string | null }>;
   carInShop?: boolean;
   waitingHuman?: boolean;
@@ -72,6 +74,8 @@ export function AIControlSidebar({
   vehicleOilSpec,
   reservationDateStr = null,
   reservationTimeStr = null,
+  reservationServiceName = null,
+  serviceOptions = [],
   oilProducts = [],
   carInShop = false,
   waitingHuman = false,
@@ -102,6 +106,9 @@ export function AIControlSidebar({
   );
   const [editingReservationTime, setEditingReservationTime] = useState(
     reservationTimeStr ?? ""
+  );
+  const [editingReservationService, setEditingReservationService] = useState(
+    reservationServiceName ?? ""
   );
   const [savingReservationDraft, setSavingReservationDraft] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
@@ -150,6 +157,10 @@ export function AIControlSidebar({
   useEffect(() => {
     setEditingReservationTime(reservationTimeStr ?? "");
   }, [reservationTimeStr]);
+
+  useEffect(() => {
+    setEditingReservationService(reservationServiceName ?? "");
+  }, [reservationServiceName]);
 
   const isDisabledByTime = mounted && !!(until && until > new Date());
   const isDisabledByColumn = inHumanColumn || carInWorkshop || isWaitingHuman;
@@ -289,6 +300,7 @@ export function AIControlSidebar({
       await updateConversationReservationDraft(conversationId, {
         dateStr: editingReservationDate || null,
         timeStr: editingReservationTime || null,
+        serviceName: editingReservationService || null,
       });
       router.refresh();
     } catch {
@@ -483,6 +495,28 @@ export function AIControlSidebar({
         <div className={cardClass}>
           <p className={sectionTitleClass}>Dados do agendamento</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
+            <div className="col-span-2">
+              <label
+                htmlFor="reservation-service"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
+              >
+                Serviço
+              </label>
+              <select
+                id="reservation-service"
+                value={editingReservationService}
+                onChange={(event) => setEditingReservationService(event.target.value)}
+                disabled={savingReservationDraft}
+                className={selectClass}
+              >
+                <option value="">Não informado</option>
+                {serviceOptions.map((option) => (
+                  <option key={option.id} value={option.name}>
+                    {option.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label
                 htmlFor="reservation-date"
