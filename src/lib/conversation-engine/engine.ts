@@ -219,9 +219,10 @@ async function persistSignalsWhenAiPaused(
         : foundDate ?? undefined,
   };
 
-  const reservationUpdated =
+  const reservationUpdated = Boolean(
     (foundDate && !pendingReservation.dateStr && !reservationPeriodFlow.dateStr) ||
-    (foundTime && !pendingReservation.timeStr);
+      (foundTime && !pendingReservation.timeStr)
+  );
 
   if (vehicleUpdated || reservationUpdated) {
     await db
