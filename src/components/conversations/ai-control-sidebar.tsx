@@ -301,20 +301,22 @@ export function AIControlSidebar({
           </button>
 
           {!isDisabled && showDisableOptions ? (
-            <div className="mt-2 grid grid-cols-3 gap-2">
-              {disableOptions.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => {
-                    void handleDisableFor(option.hours);
-                  }}
-                  disabled={loadingToggleAI}
-                  className="rounded-lg border border-[var(--brand-muted)]/30 bg-[var(--brand-soft)] px-2 py-1.5 text-xs font-semibold text-[var(--brand-deep)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {option.label}
-                </button>
-              ))}
+            <div className="mt-2 -mx-1 overflow-x-auto px-1 pb-1">
+              <div className="flex w-max items-center gap-1.5">
+                {disableOptions.map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => {
+                      void handleDisableFor(option.hours);
+                    }}
+                    disabled={loadingToggleAI}
+                    className="whitespace-nowrap rounded-full border border-[var(--brand-muted)]/30 bg-[var(--brand-soft)] px-2.5 py-1 text-[11px] font-semibold leading-none text-[var(--brand-deep)] transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
         </div>
