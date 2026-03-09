@@ -135,7 +135,7 @@ export function ContactAvatar({
   return (
     <div className={`relative shrink-0 ${className}`}>
       <div
-        className={`flex items-center justify-center overflow-hidden rounded-full bg-[#00a884] font-medium text-white ${sizeClass}`}
+        className={`flex items-center justify-center overflow-hidden rounded-full bg-[var(--brand-primary)] font-medium text-white ${sizeClass}`}
       >
         {effectiveProfileUrl ? (
           <img
@@ -153,7 +153,7 @@ export function ContactAvatar({
         )}
       </div>
       {unreadCount > 0 && (
-        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#00a884] px-1.5 text-xs font-medium text-white">
+        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[var(--brand-accent)] px-1.5 text-xs font-medium text-[var(--brand-deep)]">
           {unreadCount > 99 ? "99+" : unreadCount}
         </span>
       )}
