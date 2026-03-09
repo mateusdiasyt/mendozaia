@@ -255,6 +255,20 @@ function extractModelo(text: string): string | undefined {
     candidate = beforeYear[1].replace(/\b(é|um|uma|o|a)\s+/gi, "").trim();
   }
 
+  // Fallback robusto: captura até 3 tokens imediatamente antes do ano.
+  // Ex.: "onix 2022", "new fiesta 2018", "gol g5 2010"
+  if (!candidate && ano) {
+    const nearYear = trimmed.match(
+      new RegExp(
+        String.raw`([a-záàâãéêíóôõúç0-9-]{2,20}(?:\s+[a-záàâãéêíóôõúç0-9-]{1,20}){0,2})\s+${ano}\b`,
+        "i"
+      )
+    );
+    if (nearYear && !/^\d+$/.test(nearYear[1].trim())) {
+      candidate = nearYear[1].trim();
+    }
+  }
+
   if (!candidate && hasVehicleHint) {
     const explicitModelo = trimmed.match(
       /\bmodelo(?:\s+do\s+ve[ií]culo)?\s*[:\-]?\s*([a-záàâãéêíóôõúç0-9\s-]{2,40})/i
@@ -332,10 +346,20 @@ export function extractSlotsFromMessages(
   messages: Array<{ direction: string; content: string | null }>
 ): VehicleSlots {
   let slots: VehicleSlots = {};
+  const inboundWindow: string[] = [];
   for (const m of messages) {
     if (m.direction !== "inbound" || !m.content?.trim()) continue;
-    const extracted = extractVehicleSlotsFromText(m.content);
-    const incoming: Partial<VehicleSlots> = { ...extracted };
+    const current = m.content.trim();
+    inboundWindow.push(current);
+    if (inboundWindow.length > 3) inboundWindow.shift();
+
+    const extractedSingle = extractVehicleSlotsFromText(current);
+    const extractedWindow = extractVehicleSlotsFromText(inboundWindow.join(" "));
+    const incoming: Partial<VehicleSlots> = {
+      modelo: extractedSingle.modelo ?? extractedWindow.modelo,
+      ano: extractedSingle.ano ?? extractedWindow.ano,
+      km: extractedSingle.km ?? extractedWindow.km,
+    };
 
     // Evita "trocar" modelo já identificado por uma palavra solta (ex.: nome do cliente).
     // A troca continua permitida quando há contexto explícito de veículo.

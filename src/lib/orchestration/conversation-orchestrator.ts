@@ -1973,6 +1973,27 @@ async function findLatestInboundReservationDateTime(
     .orderBy(desc(messages.createdAt))
     .limit(20);
 
+  const inboundTexts = recent
+    .filter((row) => row.direction === "inbound" && !!row.content?.trim())
+    .map((row) => row.content!.trim());
+
+  const combinedCandidates: string[] = [];
+  for (let i = 0; i < inboundTexts.length; i++) {
+    const head = inboundTexts[i]!;
+    combinedCandidates.push(head);
+    if (i + 1 < inboundTexts.length) {
+      combinedCandidates.push(`${inboundTexts[i + 1]} ${head}`);
+    }
+    if (i + 2 < inboundTexts.length) {
+      combinedCandidates.push(`${inboundTexts[i + 2]} ${inboundTexts[i + 1]} ${head}`);
+    }
+  }
+
+  for (const candidate of combinedCandidates) {
+    const parsed = extractReservationDateTime(candidate);
+    if (parsed) return parsed;
+  }
+
   for (const row of recent) {
     if (row.direction !== "inbound" || !row.content?.trim()) continue;
     const parsed = extractReservationDateTime(row.content);
@@ -1991,6 +2012,31 @@ async function findLatestInboundReservationDateOnly(
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.createdAt))
     .limit(20);
+
+  const inboundTexts = recent
+    .filter((row) => row.direction === "inbound" && !!row.content?.trim())
+    .map((row) => row.content!.trim());
+
+  const combinedCandidates: string[] = [];
+  for (let i = 0; i < inboundTexts.length; i++) {
+    const head = inboundTexts[i]!;
+    combinedCandidates.push(head);
+    if (i + 1 < inboundTexts.length) {
+      combinedCandidates.push(`${inboundTexts[i + 1]} ${head}`);
+    }
+    if (i + 2 < inboundTexts.length) {
+      combinedCandidates.push(`${inboundTexts[i + 2]} ${inboundTexts[i + 1]} ${head}`);
+    }
+  }
+
+  for (const candidate of combinedCandidates) {
+    const parsedDateTime = extractReservationDateTime(candidate);
+    if (parsedDateTime?.dateStr) {
+      return { dateStr: parsedDateTime.dateStr };
+    }
+    const parsedDateOnly = extractReservationDateOnly(candidate);
+    if (parsedDateOnly?.dateStr) return parsedDateOnly;
+  }
 
   for (const row of recent) {
     if (row.direction !== "inbound" || !row.content?.trim()) continue;
