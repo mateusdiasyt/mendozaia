@@ -293,21 +293,22 @@ export function AIControlSidebar({
     return phone;
   };
 
-  const cardClass = "rounded-xl border border-slate-200 bg-white p-4 shadow-sm";
+  const cardClass =
+    "rounded-xl border border-[var(--brand-muted)]/25 bg-white p-4 shadow-sm";
   const sectionTitleClass =
-    "text-xs font-semibold uppercase tracking-[0.08em] text-slate-500";
+    "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--brand-muted)]";
   const selectClass =
-    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 transition focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100 disabled:cursor-not-allowed disabled:opacity-60";
+    "w-full rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] transition focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15 disabled:cursor-not-allowed disabled:opacity-60";
   const oilOptionValues = oilProducts.map((item) =>
     item.model?.trim() ? item.model.trim() : item.name.trim()
   );
   const showCustomOilValue = !!oilSpec && !oilOptionValues.includes(oilSpec);
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200 bg-slate-50">
-      <div className="border-b border-slate-200 bg-white px-5 py-4">
-        <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
-          <Bot className="h-5 w-5 text-emerald-600" />
+    <aside className="flex w-80 shrink-0 flex-col border-l border-[var(--brand-muted)]/25 bg-[var(--brand-surface)]">
+      <div className="border-b border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-5 py-4">
+        <h3 className="flex items-center gap-2 text-base font-semibold text-[var(--brand-deep)]">
+          <Bot className="h-5 w-5 text-[var(--brand-primary)]" />
           Agente de IA
         </h3>
       </div>
@@ -317,15 +318,15 @@ export function AIControlSidebar({
           <p className={sectionTitleClass}>Dados do cliente</p>
           <div className="mt-2 space-y-2">
             <div>
-              <p className="mb-1 text-xs font-medium text-slate-600">Número</p>
-              <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-900">
+              <p className="mb-1 text-xs font-medium text-[var(--brand-muted)]">Número</p>
+              <div className="rounded-lg border border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-3 py-2 text-sm text-[var(--brand-deep)]">
                 {formatPhone(contactPhone)}
               </div>
             </div>
             <div>
               <label
                 htmlFor="contact-name"
-                className="mb-1 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
               >
                 Nome
               </label>
@@ -343,7 +344,7 @@ export function AIControlSidebar({
               type="button"
               onClick={handleSaveContactData}
               disabled={savingContactData}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {savingContactData ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -356,25 +357,25 @@ export function AIControlSidebar({
         {showVehicleControls && (
           <div className={cardClass}>
             <p className={sectionTitleClass}>Veículo do contato</p>
-            <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 p-2">
-              <div className="grid grid-cols-3 gap-2 text-xs text-slate-700">
+            <div className="mt-2 rounded-lg border border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] p-2">
+              <div className="grid grid-cols-3 gap-2 text-xs text-[var(--brand-deep)]">
                 <div>
-                  <p className="text-[11px] text-slate-500">Modelo</p>
+                  <p className="text-[11px] text-[var(--brand-muted)]">Modelo</p>
                   <p className="font-medium">{vehicleModel || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] text-slate-500">Ano</p>
+                  <p className="text-[11px] text-[var(--brand-muted)]">Ano</p>
                   <p className="font-medium">{vehicleYear || "-"}</p>
                 </div>
                 <div>
-                  <p className="text-[11px] text-slate-500">KM</p>
+                  <p className="text-[11px] text-[var(--brand-muted)]">KM</p>
                   <p className="font-medium">{vehicleKm || "-"}</p>
                 </div>
               </div>
               <div className="mt-2">
                 <label
                   htmlFor="vehicle-oil-spec"
-                  className="mb-1 block text-xs font-medium text-slate-600"
+                  className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
                 >
                   Óleo
                 </label>
@@ -412,7 +413,7 @@ export function AIControlSidebar({
             <div>
               <label
                 htmlFor="reservation-date"
-                className="mb-1 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
               >
                 Data
               </label>
@@ -428,7 +429,7 @@ export function AIControlSidebar({
             <div>
               <label
                 htmlFor="reservation-time"
-                className="mb-1 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
               >
                 Horário
               </label>
@@ -445,7 +446,7 @@ export function AIControlSidebar({
               type="button"
               onClick={handleSaveReservationDraft}
               disabled={savingReservationDraft}
-              className="col-span-2 flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="col-span-2 flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {savingReservationDraft ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -456,14 +457,14 @@ export function AIControlSidebar({
         </div>
 
         <details className={cardClass}>
-          <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+          <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-[0.08em] text-[var(--brand-muted)]">
             Mais opções
           </summary>
           <div className="mt-3 space-y-3">
             <div className="grid grid-cols-1 gap-2">
               <label
                 htmlFor="contact-email"
-                className="mb-1 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
               >
                 Email
               </label>
@@ -480,7 +481,7 @@ export function AIControlSidebar({
             <div>
               <label
                 htmlFor="contact-notes"
-                className="mb-1 block text-xs font-medium text-slate-600"
+                className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
               >
                 Observações
               </label>
@@ -498,7 +499,7 @@ export function AIControlSidebar({
               <div>
                 <label
                   htmlFor="waiting-human"
-                  className="mb-1 block text-xs font-medium text-slate-600"
+                  className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
                 >
                   Humano
                 </label>
@@ -517,7 +518,7 @@ export function AIControlSidebar({
                 <div>
                   <label
                     htmlFor="car-in-shop"
-                    className="mb-1 block text-xs font-medium text-slate-600"
+                    className="mb-1 block text-xs font-medium text-[var(--brand-muted)]"
                   >
                     Na mecânica
                   </label>
@@ -534,27 +535,26 @@ export function AIControlSidebar({
                 </div>
               )}
             </div>
-
           </div>
         </details>
 
         <div
           className={`rounded-xl border px-4 py-3 shadow-sm ${
             !mounted
-              ? "border-slate-200 bg-white"
+              ? "border-[var(--brand-muted)]/25 bg-white"
               : isDisabled
-                ? "border-amber-200 bg-amber-50"
-                : "border-emerald-200 bg-emerald-50"
+                ? "border-[var(--brand-accent)]/40 bg-[var(--brand-accent)]/10"
+                : "border-[var(--brand-primary)]/25 bg-[var(--brand-primary)]/10"
           }`}
         >
           <div className="flex items-start gap-3">
             <div
               className={`rounded-full p-2 ${
                 !mounted
-                  ? "bg-slate-100 text-slate-500"
+                  ? "bg-[var(--brand-soft)] text-[var(--brand-muted)]"
                   : isDisabled
-                    ? "bg-amber-100 text-amber-700"
-                    : "bg-emerald-100 text-emerald-700"
+                    ? "bg-[var(--brand-accent)]/25 text-[var(--brand-deep)]"
+                    : "bg-[var(--brand-primary)]/20 text-[var(--brand-primary)]"
               }`}
             >
               {!mounted ? (
@@ -567,22 +567,22 @@ export function AIControlSidebar({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-slate-900">
+                <p className="text-sm font-semibold text-[var(--brand-deep)]">
                   {!mounted ? "Carregando..." : isDisabled ? "IA desativada" : "IA ativa"}
                 </p>
                 {mounted && (
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                       isDisabled
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-emerald-100 text-emerald-700"
+                        ? "bg-[var(--brand-accent)]/25 text-[var(--brand-deep)]"
+                        : "bg-[var(--brand-primary)]/20 text-[var(--brand-primary)]"
                     }`}
                   >
                     {isDisabled ? "Pausada" : "Online"}
                   </span>
                 )}
               </div>
-              <p className="mt-1 text-xs text-slate-600">
+              <p className="mt-1 text-xs text-[var(--brand-muted)]">
                 {isDisabled && disabledReason
                   ? disabledReason
                   : isDisabled && untilFormatted
@@ -592,7 +592,7 @@ export function AIControlSidebar({
                       : "Respondendo automaticamente"}
               </p>
               {isDisabled && (isPriority || assignedToId || conversationState) && (
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 text-[11px] text-[var(--brand-muted)]">
                   {`state=${conversationState ?? "init"}${isPriority ? " | prioridade=true" : ""}${assignedToId ? " | atribuído" : ""}`}
                 </p>
               )}
@@ -606,7 +606,7 @@ export function AIControlSidebar({
               type="button"
               onClick={handleEnable}
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-3 py-2.5 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--brand-primary)] bg-white px-3 py-2.5 text-sm font-semibold text-[var(--brand-primary)] transition-colors hover:bg-[var(--brand-primary)]/10 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -621,7 +621,7 @@ export function AIControlSidebar({
                 type="button"
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 disabled={loading}
-                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex w-full items-center justify-between rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2.5 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Desativar IA
                 <ChevronDown
@@ -636,13 +636,13 @@ export function AIControlSidebar({
                     aria-hidden
                     onClick={() => setDropdownOpen(false)}
                   />
-                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-[var(--brand-muted)]/30 bg-white py-1 shadow-lg">
                     {AI_DISABLE_DURATIONS.map(({ hours, label }) => (
                       <button
                         key={hours}
                         type="button"
                         onClick={() => handleDisable(hours)}
-                        className="w-full px-3 py-2 text-left text-sm text-slate-900 hover:bg-slate-50"
+                        className="w-full px-3 py-2 text-left text-sm text-[var(--brand-deep)] hover:bg-[var(--brand-soft)]"
                       >
                         Por {label}
                       </button>
@@ -654,8 +654,8 @@ export function AIControlSidebar({
           )}
         </div>
 
-        <details className="rounded-lg border border-slate-200 bg-white p-2">
-          <summary className="cursor-pointer list-none px-1 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+        <details className="rounded-lg border border-[var(--brand-muted)]/30 bg-white p-2">
+          <summary className="cursor-pointer list-none px-1 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--brand-muted)]">
             Ferramentas
           </summary>
           <div className="mt-2 space-y-2">
@@ -671,7 +671,7 @@ export function AIControlSidebar({
 
             <Link
               href={`/dashboard/logs-ia?conversationId=${conversationId}`}
-              className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+              className="flex w-full items-center justify-center rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-deep)] transition-colors hover:bg-[var(--brand-soft)]"
             >
               Ver logs da IA
             </Link>
@@ -681,3 +681,5 @@ export function AIControlSidebar({
     </aside>
   );
 }
+
+

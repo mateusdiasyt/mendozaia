@@ -153,7 +153,7 @@ export default async function ConversaPage({
   return (
     <>
       {/* Header tema claro WhatsApp Web */}
-      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[#e9edef] bg-[#f0f2f5] px-4">
+      <div className="flex h-16 shrink-0 items-center justify-between border-b border-[var(--brand-muted)]/20 bg-[var(--brand-soft)] px-4">
         <div className="flex items-center gap-3">
           <ContactAvatar
             sessionId={conv.sessionId}
@@ -163,16 +163,16 @@ export default async function ConversaPage({
             conversationId={id}
           />
           <div>
-            <h1 className="font-medium text-[#111b21]">
+            <h1 className="font-medium text-[var(--brand-deep)]">
               {displayName}
             </h1>
-            <p className="text-xs text-[#667781]">{displayPhone}</p>
+            <p className="text-xs text-[var(--brand-muted)]">{displayPhone}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
+            className="rounded-full p-2.5 text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-deep)]"
             title="Vide chamada"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -181,7 +181,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
+            className="rounded-full p-2.5 text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-deep)]"
             title="Ligar"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -190,7 +190,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
+            className="rounded-full p-2.5 text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-deep)]"
             title="Buscar"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -199,7 +199,7 @@ export default async function ConversaPage({
           </button>
           <button
             type="button"
-            className="rounded-full p-2.5 text-[#667781] transition-colors hover:bg-[#e9edef] hover:text-[#111b21]"
+            className="rounded-full p-2.5 text-[var(--brand-muted)] transition-colors hover:bg-[var(--brand-primary)]/10 hover:text-[var(--brand-deep)]"
             title="Menu"
           >
             <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
@@ -210,7 +210,7 @@ export default async function ConversaPage({
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[#efeae2]">
+        <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--brand-surface)]">
           <ChatView conversationId={id} initialMessages={msgList.map((item) => item.message)} />
         </div>
         <AIControlSidebar

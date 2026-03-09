@@ -62,7 +62,7 @@ export default async function ConversasLayout({
   return (
     <div className="flex min-h-0 w-full flex-1 shrink-0">
       <ConversationList list={listWithStatus} />
-      <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-[#efeae2]">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--brand-surface)]">
         {children}
       </div>
     </div>

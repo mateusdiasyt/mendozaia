@@ -7,6 +7,12 @@
   --border: #e2e8f0;
   --muted: #64748b;
   --accent: #6366f1;
+  --brand-primary: #2c2966;
+  --brand-deep: #131047;
+  --brand-muted: #6c6c94;
+  --brand-accent: #ffa051;
+  --brand-soft: #f3f2fb;
+  --brand-surface: #f7f6ff;
 }
 
 @theme inline {
