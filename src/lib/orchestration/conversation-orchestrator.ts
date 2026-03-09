@@ -6969,6 +6969,50 @@ export async function processInboundMessage(
     const parsedDateTime = extractReservationDateTime(ctx.messageContent, nowRef);
     const timeOnly = extractTime(ctx.messageContent);
     const informedPeriod = detectReservationPeriod(ctx.messageContent);
+    const hasKnownNeedForReservation = Boolean(
+      reservationContext.serviceName || reservationContext.productName
+    );
+    const hasSchedulingSignalNow =
+      looksLikeReservationIntent(ctx.messageContent) ||
+      looksLikeReservationIntent(intentProbeText) ||
+      containsDateOrTimeHint(ctx.messageContent) ||
+      containsDateOrTimeHint(intentProbeText);
+
+    if (
+      !hasKnownNeedForReservation &&
+      hasSchedulingSignalNow &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      const needPrompt = buildNeedDiscoveryPrompt(intentProbeText);
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_need");
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, *${contactName}*. Antes de agendar, ${needPrompt.toLowerCase()}`
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "reservation_collect_need_before_datetime",
+        decision: "tool_then_ai",
+        reason: "Fluxo exige identificar a dúvida/serviço antes de sugerir horário",
+        traceId: params.traceId,
+        stage: "orchestrator.reservations",
+        decisionCode: "RESERVATION_COLLECT_NEED_BEFORE_DATETIME",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          messageContent: ctx.messageContent,
+          contactName,
+          vehicleSlots: ctx.vehicleSlots ?? null,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Coletando dúvida/serviço antes do agendamento",
+        silence: false,
+      };
+    }
 
     if (
       parsedDateOnly &&
