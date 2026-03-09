@@ -2021,6 +2021,10 @@ async function buildOilAvailabilityReply(
   return null;
 }
 
+function stripOilScheduleCallToAction(reply: string): string {
+  return reply.replace(/(?:[.!?]\s*)?Vamos agendar sua visita\?\s*$/i, "").trim();
+}
+
 async function findLatestInboundReservationDateTime(
   conversationId: string
 ): Promise<{ dateStr: string; timeStr: string } | null> {
@@ -3905,6 +3909,46 @@ export async function processInboundMessage(
           ctx.messageContent
         );
         if (oilReplyNow?.status === "available") {
+          const missingNameForSchedule = !contactName;
+          if (missingNameForSchedule) {
+            await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+              awaitingOilVehicle: false,
+              awaitingOilScheduleConfirmation: false,
+            });
+            await persistReservationContext(ctx.conversationId, conversationMetadata, {
+              serviceName: "Troca de Óleo",
+              productName: reservationContext.productName,
+            });
+            await persistIntakeStage(
+              ctx.conversationId,
+              conversationMetadata,
+              "awaiting_reservation_profile"
+            );
+            const promptKey = buildProfilePromptKey(true, []);
+            const promptState = getPromptRepeatState(conversationMetadata, promptKey);
+            const profilePrompt = buildSmartMissingReservationProfileReply(
+              true,
+              [],
+              promptState.repeatCount
+            );
+            const oilAvailabilityLine = stripOilScheduleCallToAction(oilReplyNow.reply);
+            await sendMessage(
+              ctx.conversationId,
+              `${oilAvailabilityLine}\n${profilePrompt}`.trim()
+            );
+            await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+              collectionStage: "collect_profile",
+              lastPromptKey: promptKey,
+              lastPromptRepeatCount: promptState.nextCount,
+              slotConfidence: buildSlotConfidenceMap(contactName, mergedVehicle),
+            });
+            return {
+              didReply: true,
+              decision: "tool_then_ai",
+              reason: "Óleo disponível; coletando nome antes de confirmar agendamento",
+              silence: false,
+            };
+          }
           await persistOilFlowState(ctx.conversationId, conversationMetadata, {
             awaitingOilVehicle: false,
             awaitingOilScheduleConfirmation: true,
@@ -4017,6 +4061,47 @@ export async function processInboundMessage(
                 `${vehiclePolicyDecision.reason}\n\nPosso te encaminhar para um mecânico técnico verificar outras opções.`
               );
               return { didReply: true, decision: "tool_then_ai", reason: "Veículo não atendido pela política", silence: false };
+            }
+            const missingNameForSchedule = !contactName;
+            if (missingNameForSchedule) {
+              await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+                awaitingOilYesNo: false,
+                awaitingOilSpec: false,
+                awaitingOilScheduleConfirmation: false,
+              });
+              await persistReservationContext(ctx.conversationId, conversationMetadata, {
+                serviceName: "Troca de Óleo",
+                productName: reservationContext.productName,
+              });
+              await persistIntakeStage(
+                ctx.conversationId,
+                conversationMetadata,
+                "awaiting_reservation_profile"
+              );
+              const promptKey = buildProfilePromptKey(true, []);
+              const promptState = getPromptRepeatState(conversationMetadata, promptKey);
+              const profilePrompt = buildSmartMissingReservationProfileReply(
+                true,
+                [],
+                promptState.repeatCount
+              );
+              const oilAvailabilityLine = stripOilScheduleCallToAction(oilReply.reply);
+              await sendMessage(
+                ctx.conversationId,
+                `${oilAvailabilityLine}\n${profilePrompt}`.trim()
+              );
+              await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+                collectionStage: "collect_profile",
+                lastPromptKey: promptKey,
+                lastPromptRepeatCount: promptState.nextCount,
+                slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+              });
+              return {
+                didReply: true,
+                decision: "tool_then_ai",
+                reason: "Óleo extraído; coletando nome antes de confirmar agendamento",
+                silence: false,
+              };
             }
             await persistOilFlowState(ctx.conversationId, conversationMetadata, {
               awaitingOilYesNo: false,
