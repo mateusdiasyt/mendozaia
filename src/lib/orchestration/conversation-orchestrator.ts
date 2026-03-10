@@ -2629,15 +2629,7 @@ function buildVehicleFollowUpForOilQuote(slots: VehicleSlots | undefined): strin
     return "Consegue me passar a *quilometragem (km)* do veículo? Isso ajuda a deixar o orçamento mais preciso. Se não souber, é só me avisar que eu continuo o atendimento.";
   }
 
-  const vehicleLabel = [
-    vehicleSlots.modelo ? vehicleSlots.modelo : null,
-    vehicleSlots.ano ? String(vehicleSlots.ano) : null,
-    vehicleSlots.km ? `${vehicleSlots.km} km` : null,
-  ]
-    .filter(Boolean)
-    .join(" - ");
-
-  return `Antes de seguir, confirmando: estou com o veículo *${vehicleLabel}*.\nSe mudou, me informe o novo *modelo, ano e km* para eu atualizar.`;
+  return "";
 }
 
 async function persistReservationFlowMetadata(
@@ -6435,10 +6427,24 @@ export async function processInboundMessage(
 
   // Consulta determinística de catálogo (produtos/serviços) para perguntas de preço.
   // Só entra quando não há intenção clara de reservar horário.
+  const reservationFlowIsCollectingProfile =
+    reservationFlow.collectionStage === "collect_profile" ||
+    intakeStage === "awaiting_reservation_profile";
+  const reservationFlowIsAwaitingConfirmation =
+    reservationFlow.collectionStage === "confirm_reservation";
+  const nameReplyDuringProfileCollection =
+    justCapturedName &&
+    reservationFlowIsCollectingProfile &&
+    !containsDateOrTimeHint(ctx.messageContent);
+
   if (
     !looksLikeReservationIntent(intentProbeText) &&
     !containsDateOrTimeHint(intentProbeText) &&
-    !looksLikeReservationConfirmation(ctx.messageContent)
+    !looksLikeReservationConfirmation(ctx.messageContent) &&
+    !ctx.pendingReservation &&
+    !reservationFlowIsCollectingProfile &&
+    !reservationFlowIsAwaitingConfirmation &&
+    !nameReplyDuringProfileCollection
   ) {
     if (intakeStage === "awaiting_issue" && isRevisionServiceIntent(intentProbeText)) {
       const slots = ctx.vehicleSlots ?? {};
@@ -6634,9 +6640,13 @@ export async function processInboundMessage(
         normalizeForSearch(catalog.selectedProductName ?? "").includes("oleo") ||
         normalizeForSearch(reservationContext.serviceName ?? "").includes("oleo") ||
         isOilExchangeIntent(ctx.messageContent);
-      const finalCatalogReply = oilCatalogContext
-        ? `${catalog.reply}\n\n${buildVehicleFollowUpForOilQuote(ctx.vehicleSlots)}`
-        : catalog.reply;
+      const oilVehicleFollowUp = oilCatalogContext
+        ? buildVehicleFollowUpForOilQuote(ctx.vehicleSlots)
+        : "";
+      const finalCatalogReply =
+        oilCatalogContext && oilVehicleFollowUp
+          ? `${catalog.reply}\n\n${oilVehicleFollowUp}`
+          : catalog.reply;
 
       await sendMessage(ctx.conversationId, finalCatalogReply);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
