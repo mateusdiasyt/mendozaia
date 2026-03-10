@@ -61,6 +61,23 @@ export function ReservationGroupNotificationsForm({
   async function handleTest() {
     setTesting(true);
     setMessage(null);
+    const preSave = await updateReservationGroupNotificationsConfig({
+      enabled,
+      groupId,
+      detectedGroupIds: uniqueDetected,
+    });
+    if (preSave?.error) {
+      setTesting(false);
+      setMessage({ type: "error", text: preSave.error });
+      return;
+    }
+
+    if (preSave?.config) {
+      setEnabled(preSave.config.enabled);
+      setGroupId(preSave.config.groupId ?? "");
+      setDetectedGroupIds(preSave.config.detectedGroupIds ?? []);
+    }
+
     const result = await sendReservationGroupNotificationsTest();
     setTesting(false);
     if (result?.error) {
