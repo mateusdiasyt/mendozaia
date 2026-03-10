@@ -11,6 +11,7 @@ import {
   Table,
 } from "lucide-react";
 import { CancelReservationButton } from "./cancel-reservation-button";
+import { ReservationsFilters } from "./reservations-filters";
 
 type ReservationRow = ListReservation & {
   customerName?: string | null;
@@ -41,9 +42,9 @@ const MONTH_NAMES = [
   "dezembro",
 ];
 
-const CALENDAR_START_HOUR = 8;
-const CALENDAR_END_HOUR = 18;
-const CALENDAR_TOTAL_MINUTES = (CALENDAR_END_HOUR - CALENDAR_START_HOUR) * 60;
+const DEFAULT_CALENDAR_START_HOUR = 8;
+const DEFAULT_CALENDAR_END_HOUR = 18;
+const CALENDAR_BODY_HEIGHT_PX = 760;
 
 function toDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
@@ -234,6 +235,45 @@ export function ReservationsTable({
     [normalizedReservations, weekEnd, weekStart]
   );
 
+  const calendarWindow = useMemo(() => {
+    if (reservationsForWeek.length === 0) {
+      const startHour = DEFAULT_CALENDAR_START_HOUR;
+      const endHour = DEFAULT_CALENDAR_END_HOUR;
+      return {
+        startHour,
+        endHour,
+        totalMinutes: (endHour - startHour) * 60,
+      };
+    }
+
+    const minStartMinutes = Math.min(
+      ...reservationsForWeek.map(
+        (item) => item.startAtDate.getHours() * 60 + item.startAtDate.getMinutes()
+      )
+    );
+    const maxEndMinutes = Math.max(
+      ...reservationsForWeek.map((item) => {
+        const startMinutes =
+          item.startAtDate.getHours() * 60 + item.startAtDate.getMinutes();
+        const duration = Math.max(15, item.durationMinutes ?? 60);
+        return startMinutes + duration;
+      })
+    );
+
+    const computedStartHour = Math.max(0, Math.floor((minStartMinutes - 30) / 60));
+    const computedEndHour = Math.min(24, Math.ceil((maxEndMinutes + 30) / 60));
+
+    const startHour = Math.min(DEFAULT_CALENDAR_START_HOUR, computedStartHour);
+    const endHour = Math.max(DEFAULT_CALENDAR_END_HOUR, computedEndHour);
+    const safeEndHour = endHour > startHour ? endHour : startHour + 1;
+
+    return {
+      startHour,
+      endHour: safeEndHour,
+      totalMinutes: (safeEndHour - startHour) * 60,
+    };
+  }, [reservationsForWeek]);
+
   const hasReservationByDay = useMemo(() => {
     const map = new Set<string>();
     normalizedReservations.forEach((item) => {
@@ -399,6 +439,8 @@ export function ReservationsTable({
           </aside>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <ReservationsFilters className="mb-4" />
+
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <button
@@ -452,10 +494,16 @@ export function ReservationsTable({
                 </div>
 
                 <div className="grid grid-cols-[64px_1fr]">
-                  <div className="relative h-[640px] border-r border-slate-200">
-                    {Array.from({ length: CALENDAR_END_HOUR - CALENDAR_START_HOUR + 1 }).map((_, idx) => {
-                      const hour = CALENDAR_START_HOUR + idx;
-                      const top = (idx / (CALENDAR_END_HOUR - CALENDAR_START_HOUR)) * 100;
+                  <div
+                    className="relative border-r border-slate-200"
+                    style={{ height: `${CALENDAR_BODY_HEIGHT_PX}px` }}
+                  >
+                    {Array.from({
+                      length: calendarWindow.endHour - calendarWindow.startHour + 1,
+                    }).map((_, idx) => {
+                      const hour = calendarWindow.startHour + idx;
+                      const top =
+                        (idx / (calendarWindow.endHour - calendarWindow.startHour)) * 100;
                       return (
                         <span
                           key={`hour-${hour}`}
@@ -468,15 +516,21 @@ export function ReservationsTable({
                     })}
                   </div>
 
-                  <div className="relative h-[640px]">
+                  <div
+                    className="relative"
+                    style={{ height: `${CALENDAR_BODY_HEIGHT_PX}px` }}
+                  >
                     <div className="absolute inset-0 grid grid-cols-7">
                       {weekDays.map((day) => (
                         <div key={`col-${day.toISOString()}`} className="border-l border-slate-100 first:border-l-0" />
                       ))}
                     </div>
 
-                    {Array.from({ length: CALENDAR_END_HOUR - CALENDAR_START_HOUR + 1 }).map((_, idx) => {
-                      const top = (idx / (CALENDAR_END_HOUR - CALENDAR_START_HOUR)) * 100;
+                    {Array.from({
+                      length: calendarWindow.endHour - calendarWindow.startHour + 1,
+                    }).map((_, idx) => {
+                      const top =
+                        (idx / (calendarWindow.endHour - calendarWindow.startHour)) * 100;
                       return (
                         <div
                           key={`line-${idx}`}
@@ -492,34 +546,51 @@ export function ReservationsTable({
 
                       const startMinutes =
                         reservation.startAtDate.getHours() * 60 + reservation.startAtDate.getMinutes();
-                      const minutesFromStart = startMinutes - CALENDAR_START_HOUR * 60;
-                      const clampedStart = Math.max(0, Math.min(CALENDAR_TOTAL_MINUTES, minutesFromStart));
+                      const minutesFromStart = startMinutes - calendarWindow.startHour * 60;
+                      const clampedStart = Math.max(
+                        0,
+                        Math.min(calendarWindow.totalMinutes, minutesFromStart)
+                      );
 
                       const duration = Math.max(15, reservation.durationMinutes ?? 60);
-                      const endMinutes = Math.min(CALENDAR_TOTAL_MINUTES, clampedStart + duration);
+                      const endMinutes = Math.min(
+                        calendarWindow.totalMinutes,
+                        clampedStart + duration
+                      );
                       const blockMinutes = Math.max(18, endMinutes - clampedStart);
 
-                      const topPercent = (clampedStart / CALENDAR_TOTAL_MINUTES) * 100;
-                      const heightPercent = (blockMinutes / CALENDAR_TOTAL_MINUTES) * 100;
+                      const topPercent = (clampedStart / calendarWindow.totalMinutes) * 100;
+                      const heightPercent = (blockMinutes / calendarWindow.totalMinutes) * 100;
+                      const blockHeightPx = (heightPercent / 100) * CALENDAR_BODY_HEIGHT_PX;
 
                       const palette = eventPalette(reservation.status);
                       const title = reservation.serviceName ?? reservation.productName ?? "Reserva";
                       const customer = reservation.customerName ?? reservation.contactName ?? "Sem nome";
+                      const showCustomerLine = blockHeightPx >= 42;
+                      const showMetaLine = blockHeightPx >= 56;
+                      const tooltipText = `${title}\n${customer}\n${formatTime(
+                        reservation.startAtDate
+                      )} · ${reservation.durationMinutes ?? 60} min`;
 
                       return (
                         <div
                           key={reservation.id}
                           className={`absolute overflow-hidden rounded-lg border ${palette.block} shadow-sm`}
                           style={buildEventStyle(dayIndex, topPercent, heightPercent)}
-                          title={`${title} · ${customer}`}
+                          title={tooltipText}
                         >
                           <div className={`absolute inset-y-0 left-0 w-1 ${palette.strip}`} />
-                          <div className="h-full space-y-0.5 p-2 pl-3 text-xs">
+                          <div className="h-full space-y-0.5 p-2 pl-3 text-xs leading-tight">
                             <p className="truncate font-semibold">{title}</p>
-                            <p className="truncate text-[11px] opacity-80">{customer}</p>
-                            <p className="text-[11px] font-medium opacity-80">
-                              {formatTime(reservation.startAtDate)} · {reservation.durationMinutes} min
-                            </p>
+                            {showCustomerLine ? (
+                              <p className="truncate text-[11px] opacity-80">{customer}</p>
+                            ) : null}
+                            {showMetaLine ? (
+                              <p className="truncate text-[11px] font-medium opacity-80">
+                                {formatTime(reservation.startAtDate)} ·{" "}
+                                {reservation.durationMinutes ?? 60} min
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                       );

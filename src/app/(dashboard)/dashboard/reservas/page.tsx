@@ -1,10 +1,9 @@
-import { Suspense } from "react";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { listReservations } from "@/app/actions/reservations";
 import Link from "next/link";
 import { CalendarClock, Plus } from "lucide-react";
-import { ReservationsFilters } from "@/components/reservations/reservations-filters";
 import { ReservationsTable } from "@/components/reservations/reservations-table";
+import { SendReservationListButton } from "@/components/reservations/send-reservation-list-button";
 
 export default async function ReservasPage({
   searchParams,
@@ -78,13 +77,16 @@ export default async function ReservasPage({
             Visual em calendário + planilha para acompanhar horários com clareza.
           </p>
         </div>
-        <Link
-          href="/dashboard/reservas/nova"
-          className="inline-flex h-fit items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-        >
-          <Plus className="h-5 w-5" />
-          Nova reserva
-        </Link>
+        <div className="flex flex-wrap items-start gap-2">
+          <SendReservationListButton />
+          <Link
+            href="/dashboard/reservas/nova"
+            className="inline-flex h-fit items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            <Plus className="h-5 w-5" />
+            Nova reserva
+          </Link>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -93,12 +95,6 @@ export default async function ReservasPage({
         <InfoPill label="Pendentes" value={String(pendingReservations)} />
         <InfoPill label="Canceladas" value={String(cancelledReservations)} />
       </div>
-
-      <Suspense
-        fallback={<div className="h-28 animate-pulse rounded-2xl bg-slate-100" />}
-      >
-        <ReservationsFilters />
-      </Suspense>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <ReservationsTable reservations={reservations} />

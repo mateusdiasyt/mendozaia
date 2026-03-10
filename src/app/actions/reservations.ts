@@ -8,6 +8,7 @@ import { eq, and, gte, lt, or } from "drizzle-orm";
 import {
   checkAvailabilityForOrg,
   createReservationForOrg,
+  sendReservationGroupListForOrg,
 } from "@/lib/reservations";
 
 export async function createReservation(input: {
@@ -206,4 +207,16 @@ export async function createReservationFromAI(
     notes: input.notes,
     source: "ai",
   });
+}
+
+export async function sendReservationListToGroupNow() {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Não autorizado" };
+
+  const result = await sendReservationGroupListForOrg(org.id);
+  if (!result.ok) {
+    return { error: result.error ?? "Falha ao enviar lista para o grupo." };
+  }
+
+  return { success: true };
 }

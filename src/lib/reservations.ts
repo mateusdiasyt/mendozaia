@@ -348,7 +348,9 @@ function buildDailyReservationsMessage(params: {
   return lines.join("\n").trim();
 }
 
-async function notifyReservationGroupList(organizationId: string): Promise<void> {
+export async function sendReservationGroupListForOrg(
+  organizationId: string
+): Promise<{ ok: boolean; error?: string }> {
   const [org] = await db
     .select({ settings: organizations.settings })
     .from(organizations)
@@ -359,7 +361,10 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
     settings.reservationGroupNotifications
   );
   if (!groupConfig.enabled || !groupConfig.groupId) {
-    return;
+    return {
+      ok: false,
+      error: "Notificação em grupo desativada ou grupo não configurado.",
+    };
   }
 
   const reservationSchedule =
@@ -392,10 +397,14 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
     )
     .orderBy(desc(reservations.createdAt), desc(reservations.startAt))
     .limit(120);
-  if (rows.length === 0) return;
+  if (rows.length === 0) {
+    return { ok: false, error: "Nenhuma reserva confirmada/pendente para enviar." };
+  }
 
   const sessionId = await findBestWhatsappSessionIdForOrg(organizationId);
-  if (!sessionId) return;
+  if (!sessionId) {
+    return { ok: false, error: "Nenhuma sessão WhatsApp conectada para envio." };
+  }
 
   const message = buildDailyReservationsMessage({
     timeZone,
@@ -409,8 +418,13 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
   });
 
   if (!result.ok) {
-    console.warn("[reservations] group notification failed:", result.error);
+    return {
+      ok: false,
+      error: result.error ?? "Falha ao enviar mensagem para o grupo.",
+    };
   }
+
+  return { ok: true };
 }
 
 export async function createReservationForOrg(
@@ -442,9 +456,12 @@ export async function createReservationForOrg(
     .returning();
 
   try {
-    await notifyReservationGroupList(organizationId);
+    const notifyResult = await sendReservationGroupListForOrg(organizationId);
+    if (!notifyResult.ok) {
+      console.warn("[reservations] group notification skipped/failed:", notifyResult.error);
+    }
   } catch (err) {
-    console.warn("[reservations] notifyReservationGroupList error:", err);
+    console.warn("[reservations] sendReservationGroupListForOrg error:", err);
   }
 
   return { success: true, reservation };
