@@ -2368,6 +2368,51 @@ function normalizePlainText(value: string): string {
     .trim();
 }
 
+function stripContactNamePrefixFromVehicleModel(
+  model: string | undefined | null,
+  contactName: string | undefined | null
+): string | undefined {
+  if (!model?.trim()) return undefined;
+  if (!contactName?.trim()) return model.trim();
+
+  const rawModelTokens = model.trim().split(/\s+/).filter(Boolean);
+  if (rawModelTokens.length < 2) return model.trim();
+
+  const modelTokens = normalizePlainText(model).split(/\s+/).filter(Boolean);
+  const nameTokens = normalizePlainText(contactName).split(/\s+/).filter(Boolean);
+  if (modelTokens.length < 2 || nameTokens.length === 0) return model.trim();
+
+  let removeCount = 0;
+  if (
+    nameTokens.length <= modelTokens.length &&
+    nameTokens.every((token, index) => modelTokens[index] === token)
+  ) {
+    removeCount = nameTokens.length;
+  } else if (modelTokens[0] === nameTokens[0]) {
+    removeCount = 1;
+  }
+
+  if (removeCount <= 0 || rawModelTokens.length <= removeCount) {
+    return model.trim();
+  }
+
+  const stripped = rawModelTokens.slice(removeCount).join(" ").trim();
+  return stripped || model.trim();
+}
+
+function sanitizeVehicleSlotsByContactName(
+  slots: VehicleSlots,
+  contactName: string | undefined | null
+): VehicleSlots {
+  if (!slots.modelo) return slots;
+  const sanitizedModel = stripContactNamePrefixFromVehicleModel(
+    slots.modelo,
+    contactName
+  );
+  if (!sanitizedModel || sanitizedModel === slots.modelo) return slots;
+  return { ...slots, modelo: sanitizedModel };
+}
+
 function isLikelySingleWordHumanName(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
@@ -3161,7 +3206,11 @@ export async function loadConversationContext(
     km: rememberedKm && Number.isFinite(rememberedKm) ? rememberedKm : undefined,
   };
   const metadataSlots = metadata.vehicleSlots as VehicleSlots | undefined;
-  const existingSlots = mergeVehicleSlots(memoryVehicleSlots, metadataSlots ?? {});
+  const existingSlotsRaw = mergeVehicleSlots(memoryVehicleSlots, metadataSlots ?? {});
+  const existingSlots = sanitizeVehicleSlotsByContactName(
+    existingSlotsRaw,
+    contact?.name ?? null
+  );
   const pendingReservation = metadata.pendingReservation as
     | { dateStr?: string; timeStr?: string; durationMinutes?: number }
     | undefined;
@@ -3177,9 +3226,12 @@ export async function loadConversationContext(
       .limit(20);
     const recentRows = [...recentDesc].reverse(); // ordem cronológica para extração
     const extracted = extractSlotsFromMessages(recentRows);
-    vehicleSlots = mergeVehicleSlots(existingSlots, extracted);
+    vehicleSlots = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(existingSlots, extracted),
+      contact?.name ?? null
+    );
 
-    if (JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlots)) {
+    if (JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlotsRaw)) {
       await db
         .update(conversations)
         .set({
