@@ -4080,41 +4080,45 @@ export async function processInboundMessage(
         productName: reservationContext.productName,
       });
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_reservation_profile");
-      const missingNameForSchedule = !contactName;
-      const missingForSchedule = getMissingSlots(ctx.vehicleSlots ?? {});
-      if (missingNameForSchedule || missingForSchedule.length > 0) {
-        await sendMessage(
-          ctx.conversationId,
-          buildMissingReservationProfileReply(missingNameForSchedule, missingForSchedule)
-        );
-      } else {
-        const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
-        const reservationWindowLabel = `${
-          ctx.reservationSchedule?.start ?? "09:00"
-        } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
-        if (knownDate && !isDateAllowedForReservation(knownDate, ctx.reservationSchedule)) {
+      // Se já existe data/hora pendente, deixa o fluxo de confirmação da reserva
+      // (mais abaixo) assumir esta mensagem e finalizar corretamente.
+      if (!ctx.pendingReservation) {
+        const missingNameForSchedule = !contactName;
+        const missingForSchedule = getMissingSlots(ctx.vehicleSlots ?? {});
+        if (missingNameForSchedule || missingForSchedule.length > 0) {
           await sendMessage(
             ctx.conversationId,
-            buildDateClosedSuggestionReply(
-              knownDate,
-              reservationWindowLabel,
-              ctx.reservationSchedule
-            )
+            buildMissingReservationProfileReply(missingNameForSchedule, missingForSchedule)
           );
         } else {
-          const dateLabel = knownDate ? ` para *${formatDateForPtBr(knownDate)}*` : "";
-          await sendMessage(
-            ctx.conversationId,
-            `Perfeito! Vamos agendar${dateLabel}. Qual horario voce prefere?`
-          );
+          const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
+          const reservationWindowLabel = `${
+            ctx.reservationSchedule?.start ?? "09:00"
+          } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
+          if (knownDate && !isDateAllowedForReservation(knownDate, ctx.reservationSchedule)) {
+            await sendMessage(
+              ctx.conversationId,
+              buildDateClosedSuggestionReply(
+                knownDate,
+                reservationWindowLabel,
+                ctx.reservationSchedule
+              )
+            );
+          } else {
+            const dateLabel = knownDate ? ` para *${formatDateForPtBr(knownDate)}*` : "";
+            await sendMessage(
+              ctx.conversationId,
+              `Perfeito! Vamos agendar${dateLabel}. Qual horario voce prefere?`
+            );
+          }
         }
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Cliente confirmou agendamento de troca de oleo",
+          silence: false,
+        };
       }
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Cliente confirmou agendamento de troca de oleo",
-        silence: false,
-      };
     }
 
     if (oilFlowState.awaitingOilYesNo) {
