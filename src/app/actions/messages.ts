@@ -15,6 +15,7 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { saveContactMemory } from "@/lib/contact-memories";
 import { learnFromHumanMessage } from "@/lib/ai-training";
+import { normalizeContactName } from "@/lib/contact-name";
 
 type OrchestrationLogMetadata = Record<string, unknown> | null;
 
@@ -257,7 +258,7 @@ export async function updateConversationContactData(
     updatedAt: new Date(),
   };
   if ("name" in data) {
-    patch.name = normalize(data.name);
+    patch.name = normalizeContactName(data.name);
   }
   if ("email" in data) {
     patch.email = normalize(data.email);

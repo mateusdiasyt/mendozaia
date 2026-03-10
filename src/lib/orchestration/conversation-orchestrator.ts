@@ -32,6 +32,7 @@ import {
 } from "@/lib/faq-engine";
 import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
 import { getContactMemories, saveContactMemory } from "@/lib/contact-memories";
+import { normalizeContactName } from "@/lib/contact-name";
 import {
   extractSlotsFromMessages,
   extractVehicleSlotsFromText,
@@ -4816,6 +4817,9 @@ export async function processInboundMessage(
     if (latestMessageName) {
       inferredName = latestMessageName;
     }
+  }
+  if (inferredName) {
+    inferredName = normalizeContactName(inferredName);
   }
   const justCapturedName = !contactName && !!inferredName;
   const detectedOilSpec = extractOilSpec(intentProbeText);

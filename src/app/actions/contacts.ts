@@ -3,6 +3,7 @@
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { contacts } from "@/lib/db/schema";
+import { normalizeContactName } from "@/lib/contact-name";
 
 export async function createContact(
   organizationId: string,
@@ -21,7 +22,7 @@ export async function createContact(
   await db.insert(contacts).values({
     organizationId,
     phone: phone.startsWith("55") ? phone : `55${phone}`,
-    name: (formData.get("name") as string) || null,
+    name: normalizeContactName(formData.get("name") as string),
     email: (formData.get("email") as string) || null,
   });
 

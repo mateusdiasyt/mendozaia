@@ -5,6 +5,7 @@
 import { db } from "@/lib/db";
 import { contactMemories, contacts } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
+import { normalizeContactName } from "@/lib/contact-name";
 
 function isSafeContactName(value: string): boolean {
   const trimmed = value.trim();
@@ -90,11 +91,16 @@ export async function saveContactMemory(
   }
 
   // Sincroniza "name" com o campo do contato
-  if (normalizedKey === "name" && isSafeContactName(trimmed)) {
+  const normalizedContactName = normalizeContactName(trimmed);
+  if (
+    normalizedKey === "name" &&
+    normalizedContactName &&
+    isSafeContactName(normalizedContactName)
+  ) {
     await db
       .update(contacts)
       .set({
-        name: trimmed.slice(0, 255),
+        name: normalizedContactName.slice(0, 255),
         updatedAt: new Date(),
       })
       .where(eq(contacts.id, contactId));
