@@ -6202,7 +6202,15 @@ export async function processInboundMessage(
     };
   }
 
-  if (intakeStage === "awaiting_need" && !looksLikeReservationIntent(intentProbeText)) {
+  if (
+    intakeStage === "awaiting_need" &&
+    !looksLikeReservationIntent(intentProbeText) &&
+    !containsDateOrTimeHint(ctx.messageContent) &&
+    !containsDateOrTimeHint(intentProbeText) &&
+    !ctx.pendingReservation &&
+    !reservationContext.serviceName &&
+    !reservationContext.productName
+  ) {
     if (looksLikeDirectHumanMechanicalIssue(intentProbeText) && ctx.usesVehicleSlots) {
       const safeContactName = (contactName ?? "cliente").trim();
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
