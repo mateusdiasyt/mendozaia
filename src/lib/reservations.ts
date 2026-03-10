@@ -374,6 +374,7 @@ export async function sendReservationGroupListForOrg(
     reservationSchedule.timezone.trim().length > 0
       ? reservationSchedule.timezone.trim()
       : "America/Sao_Paulo";
+  const now = new Date();
 
   const rows = await db
     .select({
@@ -392,7 +393,8 @@ export async function sendReservationGroupListForOrg(
         or(
           eq(reservations.status, "confirmed"),
           eq(reservations.status, "pending")
-        )
+        ),
+        gte(reservations.startAt, now)
       )
     )
     .orderBy(desc(reservations.createdAt), desc(reservations.startAt))
