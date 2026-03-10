@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import Link from "next/link";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { AiAgentForm } from "./ai-agent-form";
 import { ReservationsToggle } from "@/components/configuracoes/reservations-toggle";
@@ -10,10 +11,60 @@ import { OfferedServicesForm } from "@/components/configuracoes/offered-services
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 
-export default async function ConfiguracoesPage() {
+type SettingsSection =
+  | "geral"
+  | "reservas"
+  | "bot"
+  | "perfil"
+  | "veiculos"
+  | "servicos"
+  | "agenda"
+  | "ia";
+
+const SETTINGS_MENU: Array<{ key: SettingsSection; label: string }> = [
+  { key: "geral", label: "Geral" },
+  { key: "reservas", label: "Reservas" },
+  { key: "bot", label: "Tom do bot" },
+  { key: "perfil", label: "Perfil" },
+  { key: "veiculos", label: "Veiculos" },
+  { key: "servicos", label: "Servicos" },
+  { key: "agenda", label: "Agenda" },
+  { key: "ia", label: "IA" },
+];
+
+function isSettingsSection(value: string): value is SettingsSection {
+  return SETTINGS_MENU.some((item) => item.key === value);
+}
+
+type SearchParamsInput =
+  | Record<string, string | string[] | undefined>
+  | Promise<Record<string, string | string[] | undefined>>;
+
+async function resolveSearchParams(
+  input: SearchParamsInput | undefined
+): Promise<Record<string, string | string[] | undefined>> {
+  if (!input) return {};
+  if ("then" in input && typeof input.then === "function") {
+    return input;
+  }
+  return input;
+}
+
+export default async function ConfiguracoesPage({
+  searchParams,
+}: {
+  searchParams?: SearchParamsInput;
+}) {
   const session = await auth();
   const org = await getCurrentOrganization();
   if (!org) return null;
+
+  const resolvedSearchParams = await resolveSearchParams(searchParams);
+  const requestedSection =
+    typeof resolvedSearchParams.sec === "string" ? resolvedSearchParams.sec : "geral";
+  const activeSection: SettingsSection = isSettingsSection(requestedSection)
+    ? requestedSection
+    : "geral";
 
   const settings = (org.settings as Record<string, unknown>) ?? {};
   const aiAgent = (settings.aiAgent as Record<string, unknown>) ?? {};
@@ -61,133 +112,172 @@ export default async function ConfiguracoesPage() {
 
   return (
     <div className="p-8">
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="text-2xl font-semibold text-slate-900">Configuracoes</h1>
         <p className="mt-1 text-slate-500">Gerencie sua conta e organizacao</p>
       </div>
 
       {!isPlanActive && (
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           Seu plano ainda nao esta ativo. As configuracoes estao visiveis, mas bloqueadas com
           cadeado ate a liberacao do pagamento.
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 2xl:grid-cols-3">
-        <SectionCard>
-          <h3 className="font-medium text-slate-900">Sua conta</h3>
-          <dl className="mt-4 space-y-3 text-sm">
-            <div>
-              <dt className="text-slate-500">Nome</dt>
-              <dd className="font-medium text-slate-900">{session?.user?.name}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Email</dt>
-              <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
-            </div>
-          </dl>
-        </SectionCard>
+      <div className="mb-6 overflow-x-auto pb-1">
+        <div className="inline-flex min-w-full gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+          {SETTINGS_MENU.map((item) => {
+            const active = item.key === activeSection;
+            return (
+              <Link
+                key={item.key}
+                href={`/dashboard/configuracoes?sec=${item.key}`}
+                className={`whitespace-nowrap rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      </div>
 
-        <SectionCard>
-          <h3 className="font-medium text-slate-900">Organizacao</h3>
-          <dl className="mt-4 space-y-3 text-sm">
-            <div>
-              <dt className="text-slate-500">Nome</dt>
-              <dd className="font-medium text-slate-900">{org.name}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Plano</dt>
-              <dd className="font-medium text-slate-900">{planLabel}</dd>
-            </div>
-          </dl>
-        </SectionCard>
+      <div className="max-w-5xl">
+        {activeSection === "geral" && (
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <SectionCard>
+              <h3 className="font-medium text-slate-900">Sua conta</h3>
+              <dl className="mt-4 space-y-3 text-sm">
+                <div>
+                  <dt className="text-slate-500">Nome</dt>
+                  <dd className="font-medium text-slate-900">{session?.user?.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Email</dt>
+                  <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
+                </div>
+              </dl>
+            </SectionCard>
 
-        <SectionCard className="relative">
-          <ReservationsToggle initialEnabled={reservationsEnabled} />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+            <SectionCard>
+              <h3 className="font-medium text-slate-900">Organizacao</h3>
+              <dl className="mt-4 space-y-3 text-sm">
+                <div>
+                  <dt className="text-slate-500">Nome</dt>
+                  <dd className="font-medium text-slate-900">{org.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-500">Plano</dt>
+                  <dd className="font-medium text-slate-900">{planLabel}</dd>
+                </div>
+              </dl>
+            </SectionCard>
+          </div>
+        )}
 
-        <SectionCard className="relative">
-          <BotPersonalizationForm
-            initialConfig={{
-              segment:
-                (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
-                "mecanica",
-              tone:
-                (botConfig.tone as "formal" | "neutro" | "casual" | undefined) ??
-                "neutro",
-              language: (botConfig.language as string | undefined) ?? "pt-BR",
-              useAIFallback: aiAgent.useAsFallback !== false,
-            }}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "reservas" && (
+          <SectionCard className="relative">
+            <ReservationsToggle initialEnabled={reservationsEnabled} />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
 
-        <SectionCard className="relative">
-          <BusinessProfileForm
-            initialConfig={{
-              botName: (businessProfile.botName as string | undefined) ?? "",
-              instagram: (businessProfile.instagram as string | undefined) ?? "",
-              address: (businessProfile.address as string | undefined) ?? "",
-              mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
-              about: (businessProfile.about as string | undefined) ?? "",
-            }}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "bot" && (
+          <SectionCard className="relative">
+            <BotPersonalizationForm
+              initialConfig={{
+                segment:
+                  (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
+                  "mecanica",
+                tone:
+                  (botConfig.tone as "formal" | "neutro" | "casual" | undefined) ??
+                  "neutro",
+                language: (botConfig.language as string | undefined) ?? "pt-BR",
+                useAIFallback: aiAgent.useAsFallback !== false,
+              }}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
 
-        <SectionCard className="relative lg:col-span-2 2xl:col-span-2">
-          <VehicleServicePolicyForm
-            initialConfig={{
-              minAllowedYear:
-                typeof vehicleServicePolicy.minAllowedYear === "number"
-                  ? vehicleServicePolicy.minAllowedYear
-                  : null,
-              supportedModels: Array.isArray(vehicleServicePolicy.supportedModels)
-                ? (vehicleServicePolicy.supportedModels as string[])
-                : [],
-              blockedModels: Array.isArray(vehicleServicePolicy.blockedModels)
-                ? (vehicleServicePolicy.blockedModels as string[])
-                : [],
-            }}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "perfil" && (
+          <SectionCard className="relative">
+            <BusinessProfileForm
+              initialConfig={{
+                botName: (businessProfile.botName as string | undefined) ?? "",
+                instagram: (businessProfile.instagram as string | undefined) ?? "",
+                address: (businessProfile.address as string | undefined) ?? "",
+                mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
+                about: (businessProfile.about as string | undefined) ?? "",
+              }}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
 
-        <SectionCard className="relative">
-          <OfferedServicesForm
-            initialSelectedServices={Array.isArray(offeredServicesConfig.selectedServices)
-              ? (offeredServicesConfig.selectedServices as string[])
-              : []}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "veiculos" && (
+          <SectionCard className="relative">
+            <VehicleServicePolicyForm
+              initialConfig={{
+                minAllowedYear:
+                  typeof vehicleServicePolicy.minAllowedYear === "number"
+                    ? vehicleServicePolicy.minAllowedYear
+                    : null,
+                supportedModels: Array.isArray(vehicleServicePolicy.supportedModels)
+                  ? (vehicleServicePolicy.supportedModels as string[])
+                  : [],
+                blockedModels: Array.isArray(vehicleServicePolicy.blockedModels)
+                  ? (vehicleServicePolicy.blockedModels as string[])
+                  : [],
+              }}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
 
-        <SectionCard className="relative">
-          <ReservationScheduleForm
-            initialConfig={{
-              start: scheduleStart,
-              end: scheduleEnd,
-              timezone: scheduleTimezone,
-              workingDays: scheduleWorkingDays,
-              blockedDates: scheduleBlockedDates,
-            }}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "servicos" && (
+          <SectionCard className="relative">
+            <OfferedServicesForm
+              initialSelectedServices={Array.isArray(offeredServicesConfig.selectedServices)
+                ? (offeredServicesConfig.selectedServices as string[])
+                : []}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
 
-        <SectionCard className="relative lg:col-span-2 2xl:col-span-2">
-          <AiAgentForm
-            initialConfig={{
-              enabled: aiAgent.enabled as boolean | undefined,
-              useAsFallback: aiAgent.useAsFallback as boolean | undefined,
-              systemPrompt: aiAgent.systemPrompt as string | undefined,
-              model: aiAgent.model as string | undefined,
-              hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
-            }}
-          />
-          {!isPlanActive && <LockedOverlay />}
-        </SectionCard>
+        {activeSection === "agenda" && (
+          <SectionCard className="relative">
+            <ReservationScheduleForm
+              initialConfig={{
+                start: scheduleStart,
+                end: scheduleEnd,
+                timezone: scheduleTimezone,
+                workingDays: scheduleWorkingDays,
+                blockedDates: scheduleBlockedDates,
+              }}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
+
+        {activeSection === "ia" && (
+          <SectionCard className="relative">
+            <AiAgentForm
+              initialConfig={{
+                enabled: aiAgent.enabled as boolean | undefined,
+                useAsFallback: aiAgent.useAsFallback as boolean | undefined,
+                systemPrompt: aiAgent.systemPrompt as string | undefined,
+                model: aiAgent.model as string | undefined,
+                hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
+              }}
+            />
+            {!isPlanActive && <LockedOverlay />}
+          </SectionCard>
+        )}
       </div>
     </div>
   );
