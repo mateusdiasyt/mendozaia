@@ -39,7 +39,7 @@ export function CancelReservationButton({
           setOpenConfirm(true);
         }}
         disabled={loading}
-        className="text-sm font-medium text-red-600 hover:text-red-500 disabled:opacity-50"
+        className="inline-flex items-center rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
       >
         {loading ? "Cancelando..." : "Cancelar"}
       </button>
