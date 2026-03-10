@@ -182,6 +182,10 @@ export async function sendReservationGroupNotificationsTest() {
     settings.reservationGroupNotifications
   );
 
+  if (!config.enabled) {
+    return { error: "Ative as notificações de agendamento antes de enviar teste." };
+  }
+
   if (!config.groupId) {
     return { error: "Informe um grupo antes de enviar teste." };
   }

@@ -358,7 +358,9 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
   const groupConfig = parseReservationGroupNotifications(
     settings.reservationGroupNotifications
   );
-  if (!groupConfig.enabled || !groupConfig.groupId) return;
+  if (!groupConfig.enabled || !groupConfig.groupId) {
+    return;
+  }
 
   const reservationSchedule =
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
@@ -367,11 +369,6 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
     reservationSchedule.timezone.trim().length > 0
       ? reservationSchedule.timezone.trim()
       : "America/Sao_Paulo";
-
-  const now = new Date();
-  const todayKey = formatDateKeyInTimezone(now, timeZone);
-  const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const windowEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   const rows = await db
     .select({
@@ -390,24 +387,19 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
         or(
           eq(reservations.status, "confirmed"),
           eq(reservations.status, "pending")
-        ),
-        gte(reservations.startAt, windowStart),
-        lt(reservations.startAt, windowEnd)
+        )
       )
     )
-    .orderBy(desc(reservations.createdAt), desc(reservations.startAt));
-
-  const upcomingReservations = rows.filter(
-    (row) => formatDateKeyInTimezone(row.startAt, timeZone) >= todayKey
-  );
-  if (upcomingReservations.length === 0) return;
+    .orderBy(desc(reservations.createdAt), desc(reservations.startAt))
+    .limit(120);
+  if (rows.length === 0) return;
 
   const sessionId = await findBestWhatsappSessionIdForOrg(organizationId);
   if (!sessionId) return;
 
   const message = buildDailyReservationsMessage({
     timeZone,
-    reservations: upcomingReservations,
+    reservations: rows,
   });
 
   const result = await sendTextToWhatsAppGroup({
