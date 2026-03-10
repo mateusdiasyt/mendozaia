@@ -8,6 +8,7 @@ import { eq, and, gte, lt, or } from "drizzle-orm";
 import {
   checkAvailabilityForOrg,
   createReservationForOrg,
+  listAvailableSlotsForOrg,
   sendReservationGroupListForOrg,
 } from "@/lib/reservations";
 
@@ -168,6 +169,20 @@ export async function checkAvailability(
   const org = await getCurrentOrganization();
   if (!org) return { available: false, message: "Organização não encontrada" };
   return checkAvailabilityForOrg(org.id, dateStr, timeStr, durationMinutes);
+}
+
+export async function listAvailableReservationSlots(
+  dateStr: string,
+  durationMinutes: number = 60
+): Promise<{ slots: string[]; message: string; error?: string }> {
+  const org = await getCurrentOrganization();
+  if (!org) return { slots: [], message: "", error: "Não autorizado" };
+
+  const result = await listAvailableSlotsForOrg(org.id, dateStr, durationMinutes);
+  return {
+    slots: result.slots,
+    message: result.message,
+  };
 }
 
 export async function createReservationFromAI(

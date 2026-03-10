@@ -189,8 +189,144 @@ export async function checkAvailabilityForOrg(
   };
 }
 
+export async function listAvailableSlotsForOrg(
+  organizationId: string,
+  dateStr: string,
+  durationMinutes: number = 60
+): Promise<{
+  slots: string[];
+  message: string;
+  reason:
+    | "ok"
+    | "reservations_disabled"
+    | "date_not_allowed"
+    | "outside_business_hours"
+    | "no_slots";
+  start?: string;
+  end?: string;
+}> {
+  const [org] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+
+  const settings = (org?.settings as Record<string, unknown>) ?? {};
+  const schedule =
+    (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
+  const businessHours =
+    (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+
+  if (!(settings.reservationsEnabled as boolean)) {
+    return {
+      slots: [],
+      message: "Sistema de reservas não está ativado.",
+      reason: "reservations_disabled",
+    };
+  }
+
+  const start =
+    (schedule.start as string | undefined) ||
+    (businessHours.start as string | undefined) ||
+    "09:00";
+  const end =
+    (schedule.end as string | undefined) ||
+    (businessHours.end as string | undefined) ||
+    "17:00";
+  const workingDays = Array.isArray(schedule.workingDays)
+    ? (schedule.workingDays as number[])
+    : [1, 2, 3, 4, 5];
+  const blockedDates = Array.isArray(schedule.blockedDates)
+    ? (schedule.blockedDates as string[])
+    : [];
+
+  if (!isValidDateForSchedule(dateStr, workingDays, blockedDates)) {
+    return {
+      slots: [],
+      message: "Não atendemos nessa data.",
+      reason: "date_not_allowed",
+      start,
+      end,
+    };
+  }
+
+  const openMinutes = toMinutes(start);
+  const closeMinutes = toMinutes(end);
+  if (openMinutes < 0 || closeMinutes <= openMinutes) {
+    return {
+      slots: [],
+      message: "Horário de atendimento inválido nas configurações.",
+      reason: "outside_business_hours",
+      start,
+      end,
+    };
+  }
+
+  const year = parseInt(dateStr.slice(0, 4), 10);
+  const month = parseInt(dateStr.slice(5, 7), 10) - 1;
+  const day = parseInt(dateStr.slice(8, 10), 10);
+  const dayStart = new Date(year, month, day, 0, 0, 0);
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+  const dayReservations = await db
+    .select({
+      startAt: reservations.startAt,
+      durationMinutes: reservations.durationMinutes,
+    })
+    .from(reservations)
+    .where(
+      and(
+        eq(reservations.organizationId, organizationId),
+        or(
+          eq(reservations.status, "confirmed"),
+          eq(reservations.status, "pending")
+        ),
+        gte(reservations.startAt, dayStart),
+        lt(reservations.startAt, dayEnd)
+      )
+    );
+
+  const slots: string[] = [];
+  for (
+    let candidateStart = openMinutes;
+    candidateStart + durationMinutes <= closeMinutes;
+    candidateStart += 30
+  ) {
+    const candidateEnd = candidateStart + durationMinutes;
+    const overlaps = dayReservations.some((r) => {
+      const reservationStartMinutes = r.startAt.getHours() * 60 + r.startAt.getMinutes();
+      const reservationDuration = r.durationMinutes || 60;
+      const reservationEndMinutes = reservationStartMinutes + reservationDuration;
+      return reservationStartMinutes < candidateEnd && reservationEndMinutes > candidateStart;
+    });
+
+    if (!overlaps) {
+      slots.push(toTimeStrFromMinutes(candidateStart));
+    }
+  }
+
+  if (slots.length === 0) {
+    return {
+      slots: [],
+      message: "Sem horários disponíveis nessa data.",
+      reason: "no_slots",
+      start,
+      end,
+    };
+  }
+
+  return {
+    slots,
+    message: `Horários disponíveis entre ${start} e ${end}.`,
+    reason: "ok",
+    start,
+    end,
+  };
+}
+
 type ReservationNotesPayload = {
   customerName?: string | null;
+  customerPhone?: string | null;
   vehicle?: {
     modelo?: string | null;
     ano?: number | string | null;
@@ -338,7 +474,9 @@ function buildDailyReservationsMessage(params: {
         parsedNotes.customerName ??
         reservation.contactName ??
         "Nao informado";
-      const customerPhone = formatContactPhone(reservation.contactPhone);
+      const customerPhone = formatContactPhone(
+        parsedNotes.customerPhone ?? reservation.contactPhone
+      );
 
       lines.push(`🕒 Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`);
       lines.push(`🔧 Sobre: ${service}`);
