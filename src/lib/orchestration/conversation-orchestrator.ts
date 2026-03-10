@@ -7552,10 +7552,45 @@ export async function processInboundMessage(
       ? getMissingSlots(ctx.vehicleSlots ?? {})
       : [];
     const missingName = !contactName;
+    const pendingServiceRequiresHuman = serviceRequiresHumanByRule(
+      reservationContext.serviceName ?? null,
+      ctx.serviceHumanPolicyByName
+    );
     const missingRestaurantPeople =
       ctx.botConfig?.segment === "restaurante" &&
       !getRestaurantReservationFlow(conversationMetadata)?.peopleCount &&
       !missingName;
+
+    if (
+      pendingServiceRequiresHuman &&
+      !missingName &&
+      missingVehicle.length === 0
+    ) {
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, para *${reservationContext.serviceName}* vou te encaminhar para um atendente humano confirmar os detalhes.`
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        `Serviço ${reservationContext.serviceName} configurado para atendimento humano`
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Serviço exige atendimento humano durante confirmação de reserva",
+        silence: false,
+      };
+    }
 
     const nowRef = getNowInTimezone(ctx.reservationSchedule?.timezone);
     const parsedNewDateTime = extractReservationDateTime(ctx.messageContent, nowRef);
