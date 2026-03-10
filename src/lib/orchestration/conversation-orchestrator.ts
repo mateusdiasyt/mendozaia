@@ -3640,9 +3640,12 @@ export async function processInboundMessage(
       const looseModel = extractLooseVehicleModelFromReply(ctx.messageContent);
       if (looseModel) extractedFromMessage.modelo = looseModel;
     }
-    const mergedVehicle = mergeVehicleSlots(
-      ctx.vehicleSlots ?? {},
-      extractedFromMessage
+    const mergedVehicle = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        extractedFromMessage
+      ),
+      contactName
     );
     const mandatoryMissing = getMandatoryVehicleMissing(mergedVehicle);
 
@@ -4014,9 +4017,12 @@ export async function processInboundMessage(
     const engineCode = extractEngineCodeFromText(ctx.messageContent);
 
     if (oilFlowState.awaitingOilVehicle) {
-      const mergedVehicle = mergeVehicleSlots(
-        ctx.vehicleSlots ?? {},
-        extractVehicleSlotsFromText(ctx.messageContent)
+      const mergedVehicle = sanitizeVehicleSlotsByContactName(
+        mergeVehicleSlots(
+          ctx.vehicleSlots ?? {},
+          extractVehicleSlotsFromText(ctx.messageContent)
+        ),
+        contactName
       );
       const missingAfterMerge = getMissingSlots(mergedVehicle);
       const hasModelAndYearNow = !!(mergedVehicle.modelo && mergedVehicle.ano);
@@ -4112,7 +4118,12 @@ export async function processInboundMessage(
           return { didReply: true, decision: "tool_then_ai", reason: "Óleo sem estoque; oferecendo encaminhamento", silence: false };
         }
       }
-      const stillMissing = getMissingSlots(mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)));
+      const stillMissing = getMissingSlots(
+        sanitizeVehicleSlotsByContactName(
+          mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)),
+          contactName
+        )
+      );
       if (stillMissing.length > 0) {
         await sendMessage(
           ctx.conversationId,
@@ -4427,9 +4438,12 @@ export async function processInboundMessage(
       productName: reservationContext.productName,
     });
     const extractedIssueVehicle = extractVehicleSlotsFromText(ctx.messageContent);
-    const mergedIssueVehicle = mergeVehicleSlots(
-      ctx.vehicleSlots ?? {},
-      extractedIssueVehicle
+    const mergedIssueVehicle = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        extractedIssueVehicle
+      ),
+      contactName
     );
     const missingIssueVehicle = getMissingSlots(mergedIssueVehicle);
     if (
@@ -4539,7 +4553,10 @@ export async function processInboundMessage(
       !!extractedNew.km;
 
     if (hasNewVehicleInfo) {
-      const merged = mergeVehicleSlots(knownVehicle, extractedNew);
+      const merged = sanitizeVehicleSlotsByContactName(
+        mergeVehicleSlots(knownVehicle, extractedNew),
+        contactName
+      );
       const missing = getMissingSlots(merged);
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
       if (missing.length === 0) {
@@ -4926,9 +4943,12 @@ export async function processInboundMessage(
     looksLikeDirectHumanMechanicalIssue(intentProbeText) ||
     isRevisionServiceIntent(intentProbeText) ||
     shouldAskOilQualification(intentProbeText);
-  const vehiclePolicyCandidateSlots = mergeVehicleSlots(
-    ctx.vehicleSlots ?? {},
-    vehicleSlotsFromCurrentMessage
+  const vehiclePolicyCandidateSlots = sanitizeVehicleSlotsByContactName(
+    mergeVehicleSlots(
+      ctx.vehicleSlots ?? {},
+      vehicleSlotsFromCurrentMessage
+    ),
+    contactName
   );
   const shouldEvaluateVehiclePolicy =
     !!ctx.usesVehicleSlots && (hasVehicleInfoInCurrentMessage || hasAutomotiveIntentNow);
@@ -5240,9 +5260,12 @@ export async function processInboundMessage(
         vehicleSlotsFromVehicleStage.modelo = looseVehicleModel;
       }
     }
-    const mergedVehicleSlotsForVehicleStage = mergeVehicleSlots(
-      ctx.vehicleSlots ?? {},
-      vehicleSlotsFromVehicleStage
+    const mergedVehicleSlotsForVehicleStage = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(
+        ctx.vehicleSlots ?? {},
+        vehicleSlotsFromVehicleStage
+      ),
+      contactName
     );
     if (
       JSON.stringify(mergedVehicleSlotsForVehicleStage) !==
@@ -5507,9 +5530,12 @@ export async function processInboundMessage(
       )
     ) {
       const correctedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
-      const mergedCorrectedSlots = mergeVehicleSlots(
-        ctx.vehicleSlots ?? {},
-        correctedFromMessage
+      const mergedCorrectedSlots = sanitizeVehicleSlotsByContactName(
+        mergeVehicleSlots(
+          ctx.vehicleSlots ?? {},
+          correctedFromMessage
+        ),
+        contactName
       );
       const hasModelAndYearAfterCorrection = !!(
         mergedCorrectedSlots.modelo && mergedCorrectedSlots.ano
