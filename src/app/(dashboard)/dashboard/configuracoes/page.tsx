@@ -13,23 +13,19 @@ import type { ReactNode } from "react";
 
 type SettingsSection =
   | "geral"
-  | "reservas"
+  | "plugins"
   | "bot"
-  | "perfil"
   | "veiculos"
   | "servicos"
-  | "agenda"
-  | "ia";
+  | "agenda";
 
 const SETTINGS_MENU: Array<{ key: SettingsSection; label: string }> = [
   { key: "geral", label: "Geral" },
-  { key: "reservas", label: "Reservas" },
-  { key: "bot", label: "Tom do bot" },
-  { key: "perfil", label: "Perfil" },
+  { key: "plugins", label: "Plugins" },
+  { key: "bot", label: "Configuracoes do bot" },
   { key: "veiculos", label: "Veiculos" },
   { key: "servicos", label: "Servicos" },
   { key: "agenda", label: "Agenda" },
-  { key: "ia", label: "IA" },
 ];
 
 function isSettingsSection(value: string): value is SettingsSection {
@@ -60,8 +56,14 @@ export default async function ConfiguracoesPage({
   if (!org) return null;
 
   const resolvedSearchParams = await resolveSearchParams(searchParams);
-  const requestedSection =
+  const requestedSectionRaw =
     typeof resolvedSearchParams.sec === "string" ? resolvedSearchParams.sec : "geral";
+  const requestedSection =
+    requestedSectionRaw === "reservas"
+      ? "plugins"
+      : requestedSectionRaw === "perfil" || requestedSectionRaw === "ia"
+        ? "bot"
+        : requestedSectionRaw;
   const activeSection: SettingsSection = isSettingsSection(requestedSection)
     ? requestedSection
     : "geral";
@@ -178,7 +180,7 @@ export default async function ConfiguracoesPage({
           </div>
         )}
 
-        {activeSection === "reservas" && (
+        {activeSection === "plugins" && (
           <SectionCard className="relative">
             <ReservationsToggle initialEnabled={reservationsEnabled} />
             {!isPlanActive && <LockedOverlay />}
@@ -186,36 +188,49 @@ export default async function ConfiguracoesPage({
         )}
 
         {activeSection === "bot" && (
-          <SectionCard className="relative">
-            <BotPersonalizationForm
-              initialConfig={{
-                segment:
-                  (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
-                  "mecanica",
-                tone:
-                  (botConfig.tone as "formal" | "neutro" | "casual" | undefined) ??
-                  "neutro",
-                language: (botConfig.language as string | undefined) ?? "pt-BR",
-                useAIFallback: aiAgent.useAsFallback !== false,
-              }}
-            />
-            {!isPlanActive && <LockedOverlay />}
-          </SectionCard>
-        )}
+          <div className="space-y-6">
+            <SectionCard className="relative">
+              <BotPersonalizationForm
+                initialConfig={{
+                  segment:
+                    (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
+                    "mecanica",
+                  tone:
+                    (botConfig.tone as "formal" | "neutro" | "casual" | undefined) ??
+                    "neutro",
+                  language: (botConfig.language as string | undefined) ?? "pt-BR",
+                  useAIFallback: aiAgent.useAsFallback !== false,
+                }}
+              />
+              {!isPlanActive && <LockedOverlay />}
+            </SectionCard>
 
-        {activeSection === "perfil" && (
-          <SectionCard className="relative">
-            <BusinessProfileForm
-              initialConfig={{
-                botName: (businessProfile.botName as string | undefined) ?? "",
-                instagram: (businessProfile.instagram as string | undefined) ?? "",
-                address: (businessProfile.address as string | undefined) ?? "",
-                mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
-                about: (businessProfile.about as string | undefined) ?? "",
-              }}
-            />
-            {!isPlanActive && <LockedOverlay />}
-          </SectionCard>
+            <SectionCard className="relative">
+              <BusinessProfileForm
+                initialConfig={{
+                  botName: (businessProfile.botName as string | undefined) ?? "",
+                  instagram: (businessProfile.instagram as string | undefined) ?? "",
+                  address: (businessProfile.address as string | undefined) ?? "",
+                  mapsLink: (businessProfile.mapsLink as string | undefined) ?? "",
+                  about: (businessProfile.about as string | undefined) ?? "",
+                }}
+              />
+              {!isPlanActive && <LockedOverlay />}
+            </SectionCard>
+
+            <SectionCard className="relative">
+              <AiAgentForm
+                initialConfig={{
+                  enabled: aiAgent.enabled as boolean | undefined,
+                  useAsFallback: aiAgent.useAsFallback as boolean | undefined,
+                  systemPrompt: aiAgent.systemPrompt as string | undefined,
+                  model: aiAgent.model as string | undefined,
+                  hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
+                }}
+              />
+              {!isPlanActive && <LockedOverlay />}
+            </SectionCard>
+          </div>
         )}
 
         {activeSection === "veiculos" && (
@@ -264,20 +279,6 @@ export default async function ConfiguracoesPage({
           </SectionCard>
         )}
 
-        {activeSection === "ia" && (
-          <SectionCard className="relative">
-            <AiAgentForm
-              initialConfig={{
-                enabled: aiAgent.enabled as boolean | undefined,
-                useAsFallback: aiAgent.useAsFallback as boolean | undefined,
-                systemPrompt: aiAgent.systemPrompt as string | undefined,
-                model: aiAgent.model as string | undefined,
-                hasApiKey: !!(aiAgent.apiKey && String(aiAgent.apiKey).trim()),
-              }}
-            />
-            {!isPlanActive && <LockedOverlay />}
-          </SectionCard>
-        )}
       </div>
     </div>
   );
@@ -307,4 +308,3 @@ function LockedOverlay() {
     </div>
   );
 }
-
