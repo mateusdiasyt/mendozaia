@@ -268,6 +268,13 @@ function formatKm(km: number | string | null | undefined): string {
   return "Nao informado";
 }
 
+function formatContactPhone(phone: string | null | undefined): string {
+  if (typeof phone === "string" && phone.trim().length > 0) {
+    return phone.trim();
+  }
+  return "Nao informado";
+}
+
 function buildDailyReservationsMessage(params: {
   timeZone: string;
   reservations: Array<{
@@ -277,6 +284,7 @@ function buildDailyReservationsMessage(params: {
     productName: string | null;
     notes: string | null;
     contactName: string | null;
+    contactPhone: string | null;
   }>;
 }): string {
   const maxItems = 30;
@@ -330,6 +338,7 @@ function buildDailyReservationsMessage(params: {
         parsedNotes.customerName ??
         reservation.contactName ??
         "Nao informado";
+      const customerPhone = formatContactPhone(reservation.contactPhone);
 
       lines.push(`🕒 Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`);
       lines.push(`🔧 Sobre: ${service}`);
@@ -337,6 +346,7 @@ function buildDailyReservationsMessage(params: {
       lines.push(`📏 KM: ${formatKm(parsedNotes.vehicle?.km)}`);
       lines.push(`🏷️ Ano: ${vehicleYear}`);
       lines.push(`🙋 Cliente: ${customerName}`);
+      lines.push(`📱 Contato: ${customerPhone}`);
       lines.push("");
     }
   }
@@ -384,6 +394,7 @@ export async function sendReservationGroupListForOrg(
       productName: reservations.productName,
       notes: reservations.notes,
       contactName: contacts.name,
+      contactPhone: contacts.phone,
     })
     .from(reservations)
     .leftJoin(contacts, eq(reservations.contactId, contacts.id))
