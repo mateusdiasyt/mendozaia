@@ -206,16 +206,17 @@ export async function sendReservationGroupNotificationsTest() {
   }).format(now);
 
   const text = [
-    `*Agendamentos de hoje (${dateLabel})*`,
+    "📅 *Agendamentos por data*",
+    `⏱️ Atualizado: ${timeLabel}`,
     "",
-    "---------------------",
-    `Horario: ${timeLabel}`,
-    "Sobre: Mensagem de teste",
-    "Carro: Exemplo",
-    "KM: 70000",
-    "Ano: 2022",
-    "Cliente: Teste",
-    "---------------------",
+    "━━━━━━━━━━━━",
+    `📆 *${dateLabel}*`,
+    `🕒 Horario: ${timeLabel}`,
+    "🔧 Sobre: Mensagem de teste",
+    "🚗 Carro: Exemplo",
+    "📏 KM: 70000",
+    "🏷️ Ano: 2022",
+    "🙋 Cliente: Teste",
   ].join("\n");
 
   const sent = await sendTextToWhatsAppGroup({

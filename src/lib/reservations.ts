@@ -8,7 +8,7 @@ import {
   contacts,
   organizations,
 } from "@/lib/db/schema";
-import { eq, and, gte, lt, or, asc } from "drizzle-orm";
+import { eq, and, gte, lt, or, desc } from "drizzle-orm";
 import {
   findBestWhatsappSessionIdForOrg,
   parseReservationGroupNotifications,
@@ -269,64 +269,83 @@ function formatKm(km: number | string | null | undefined): string {
 }
 
 function buildDailyReservationsMessage(params: {
-  dateLabel: string;
   timeZone: string;
   reservations: Array<{
     startAt: Date;
+    createdAt: Date;
     serviceName: string | null;
     productName: string | null;
     notes: string | null;
     contactName: string | null;
   }>;
 }): string {
-  const maxItems = 20;
+  const maxItems = 30;
   const sorted = [...params.reservations].sort(
-    (a, b) => a.startAt.getTime() - b.startAt.getTime()
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
   );
   const visible = sorted.slice(0, maxItems);
   const hiddenCount = Math.max(0, sorted.length - visible.length);
 
-  const lines: string[] = [`*Agendamentos de hoje (${params.dateLabel})*`, ""];
-
-  for (const reservation of visible) {
-    const parsedNotes = parseReservationNotes(reservation.notes);
-    const service =
-      reservation.serviceName ??
-      parsedNotes.serviceName ??
-      reservation.productName ??
-      parsedNotes.productName ??
-      "Nao informado";
-    const vehicleModel = parsedNotes.vehicle?.modelo ?? "Nao informado";
-    const vehicleYear =
-      parsedNotes.vehicle?.ano !== undefined &&
-      parsedNotes.vehicle?.ano !== null &&
-      String(parsedNotes.vehicle.ano).trim().length > 0
-        ? String(parsedNotes.vehicle.ano)
-        : "Nao informado";
-    const customerName =
-      parsedNotes.customerName ??
-      reservation.contactName ??
-      "Nao informado";
-
-    lines.push("---------------------");
-    lines.push(
-      `Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`
-    );
-    lines.push(`Sobre: ${service}`);
-    lines.push(`Carro: ${vehicleModel}`);
-    lines.push(`KM: ${formatKm(parsedNotes.vehicle?.km)}`);
-    lines.push(`Ano: ${vehicleYear}`);
-    lines.push(`Cliente: ${customerName}`);
+  const grouped = new Map<string, typeof visible>();
+  for (const item of visible) {
+    const key = formatDateKeyInTimezone(item.startAt, params.timeZone);
+    const existing = grouped.get(key) ?? [];
+    existing.push(item);
+    grouped.set(key, existing);
   }
 
-  if (visible.length > 0) {
-    lines.push("---------------------");
+  const now = new Date();
+  const lines: string[] = [
+    "📅 *Agendamentos por data*",
+    `⏱️ Atualizado: ${formatTimeLabelPtBr(now, params.timeZone)}`,
+    "",
+  ];
+
+  const groups = Array.from(grouped.entries()).sort(([a], [b]) =>
+    b.localeCompare(a)
+  );
+
+  for (const [dateKey, items] of groups) {
+    const [year, month, day] = dateKey.split("-").map(Number);
+    const asDate = new Date(year, (month || 1) - 1, day || 1);
+    lines.push(`━━━━━━━━━━━━`);
+    lines.push(`📆 *${formatDateLabelPtBr(asDate, params.timeZone)}*`);
+
+    for (const reservation of items) {
+      const parsedNotes = parseReservationNotes(reservation.notes);
+      const service =
+        reservation.serviceName ??
+        parsedNotes.serviceName ??
+        reservation.productName ??
+        parsedNotes.productName ??
+        "Nao informado";
+      const vehicleModel = parsedNotes.vehicle?.modelo ?? "Nao informado";
+      const vehicleYear =
+        parsedNotes.vehicle?.ano !== undefined &&
+        parsedNotes.vehicle?.ano !== null &&
+        String(parsedNotes.vehicle.ano).trim().length > 0
+          ? String(parsedNotes.vehicle.ano)
+          : "Nao informado";
+      const customerName =
+        parsedNotes.customerName ??
+        reservation.contactName ??
+        "Nao informado";
+
+      lines.push(`🕒 Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`);
+      lines.push(`🔧 Sobre: ${service}`);
+      lines.push(`🚗 Carro: ${vehicleModel}`);
+      lines.push(`📏 KM: ${formatKm(parsedNotes.vehicle?.km)}`);
+      lines.push(`🏷️ Ano: ${vehicleYear}`);
+      lines.push(`🙋 Cliente: ${customerName}`);
+      lines.push("");
+    }
   }
+
   if (hiddenCount > 0) {
-    lines.push(`... e mais ${hiddenCount} agendamento(s).`);
+    lines.push(`➕ ... e mais ${hiddenCount} agendamento(s).`);
   }
 
-  return lines.join("\n");
+  return lines.join("\n").trim();
 }
 
 async function notifyReservationGroupList(organizationId: string): Promise<void> {
@@ -352,11 +371,12 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
   const now = new Date();
   const todayKey = formatDateKeyInTimezone(now, timeZone);
   const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const windowEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+  const windowEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   const rows = await db
     .select({
       startAt: reservations.startAt,
+      createdAt: reservations.createdAt,
       serviceName: reservations.serviceName,
       productName: reservations.productName,
       notes: reservations.notes,
@@ -375,20 +395,19 @@ async function notifyReservationGroupList(organizationId: string): Promise<void>
         lt(reservations.startAt, windowEnd)
       )
     )
-    .orderBy(asc(reservations.startAt));
+    .orderBy(desc(reservations.createdAt), desc(reservations.startAt));
 
-  const todayReservations = rows.filter(
-    (row) => formatDateKeyInTimezone(row.startAt, timeZone) === todayKey
+  const upcomingReservations = rows.filter(
+    (row) => formatDateKeyInTimezone(row.startAt, timeZone) >= todayKey
   );
-  if (todayReservations.length === 0) return;
+  if (upcomingReservations.length === 0) return;
 
   const sessionId = await findBestWhatsappSessionIdForOrg(organizationId);
   if (!sessionId) return;
 
   const message = buildDailyReservationsMessage({
-    dateLabel: formatDateLabelPtBr(now, timeZone),
     timeZone,
-    reservations: todayReservations,
+    reservations: upcomingReservations,
   });
 
   const result = await sendTextToWhatsAppGroup({
