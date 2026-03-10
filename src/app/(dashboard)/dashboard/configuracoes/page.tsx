@@ -8,8 +8,10 @@ import { BusinessProfileForm } from "@/components/configuracoes/business-profile
 import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
 import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
 import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
+import { ReservationGroupNotificationsForm } from "@/components/configuracoes/reservation-group-notifications-form";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
+import { parseReservationGroupNotifications } from "@/lib/whatsapp-group-notifications";
 
 type SettingsSection =
   | "geral"
@@ -78,6 +80,9 @@ export default async function ConfiguracoesPage({
   const vehicleServicePolicy =
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
+  const reservationGroupNotifications = parseReservationGroupNotifications(
+    settings.reservationGroupNotifications
+  );
   const reservationSchedule =
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
   const businessHours =
@@ -182,7 +187,17 @@ export default async function ConfiguracoesPage({
 
         {activeSection === "plugins" && (
           <SectionCard className="relative">
-            <ReservationsToggle initialEnabled={reservationsEnabled} />
+            <div className="space-y-6">
+              <ReservationsToggle initialEnabled={reservationsEnabled} />
+              <ReservationGroupNotificationsForm
+                initialConfig={{
+                  enabled: reservationGroupNotifications.enabled,
+                  groupId: reservationGroupNotifications.groupId ?? "",
+                  detectedGroupIds:
+                    reservationGroupNotifications.detectedGroupIds ?? [],
+                }}
+              />
+            </div>
             {!isPlanActive && <LockedOverlay />}
           </SectionCard>
         )}

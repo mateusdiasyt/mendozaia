@@ -9,6 +9,12 @@ import { organizations, memberships } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
+import {
+  findBestWhatsappSessionIdForOrg,
+  normalizeGroupId,
+  parseReservationGroupNotifications,
+  sendTextToWhatsAppGroup,
+} from "@/lib/whatsapp-group-notifications";
 
 export interface AiAgentConfig {
   enabled?: boolean;
@@ -50,6 +56,12 @@ export interface VehicleServicePolicyConfig {
 
 export interface OfferedServicesConfig {
   selectedServices?: string[];
+}
+
+export interface ReservationGroupNotificationsConfigInput {
+  enabled?: boolean;
+  groupId?: string | null;
+  detectedGroupIds?: string[];
 }
 
 const BILLING_PIX_KEY = "113.673.289-69";
@@ -108,6 +120,117 @@ export async function updateReservationsEnabled(enabled: boolean) {
       updatedAt: new Date(),
     })
     .where(eq(organizations.id, org.id));
+
+  return { success: true };
+}
+
+export async function updateReservationGroupNotificationsConfig(
+  input: ReservationGroupNotificationsConfigInput
+) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Nao autorizado" };
+
+  const [current] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, org.id))
+    .limit(1);
+
+  const settings = (current?.settings as Record<string, unknown>) ?? {};
+  const currentConfig = parseReservationGroupNotifications(
+    settings.reservationGroupNotifications
+  );
+
+  const mergedDetected = Array.isArray(input.detectedGroupIds)
+    ? input.detectedGroupIds
+    : currentConfig.detectedGroupIds;
+  const normalizedGroupId =
+    input.groupId === undefined
+      ? currentConfig.groupId
+      : normalizeGroupId(input.groupId);
+
+  const nextConfig = parseReservationGroupNotifications({
+    enabled:
+      typeof input.enabled === "boolean" ? input.enabled : currentConfig.enabled,
+    groupId: normalizedGroupId,
+    detectedGroupIds: mergedDetected,
+    updatedAt: new Date().toISOString(),
+  });
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        reservationGroupNotifications: nextConfig,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard");
+  return { success: true, config: nextConfig };
+}
+
+export async function sendReservationGroupNotificationsTest() {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Nao autorizado" };
+
+  const settings = (org.settings as Record<string, unknown>) ?? {};
+  const config = parseReservationGroupNotifications(
+    settings.reservationGroupNotifications
+  );
+
+  if (!config.groupId) {
+    return { error: "Informe um grupo antes de enviar teste." };
+  }
+
+  const sessionId = await findBestWhatsappSessionIdForOrg(org.id);
+  if (!sessionId) {
+    return { error: "Nenhuma sessao WhatsApp encontrada para envio." };
+  }
+
+  const now = new Date();
+  const dateLabel = new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "America/Sao_Paulo",
+  }).format(now);
+  const timeLabel = new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "America/Sao_Paulo",
+  }).format(now);
+
+  const text = [
+    `*Agendamentos de hoje (${dateLabel})*`,
+    "",
+    "---------------------",
+    `Horario: ${timeLabel}`,
+    "Sobre: Mensagem de teste",
+    "Carro: Exemplo",
+    "KM: 70000",
+    "Ano: 2022",
+    "Cliente: Teste",
+    "---------------------",
+  ].join("\n");
+
+  const sent = await sendTextToWhatsAppGroup({
+    sessionId,
+    groupId: config.groupId,
+    text,
+  });
+
+  if (!sent.ok) {
+    return {
+      error:
+        sent.error ||
+        "Falha ao enviar teste para o grupo. Verifique sessao e ID do grupo.",
+    };
+  }
 
   return { success: true };
 }

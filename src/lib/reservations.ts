@@ -8,7 +8,12 @@ import {
   contacts,
   organizations,
 } from "@/lib/db/schema";
-import { eq, and, gte, lt, or } from "drizzle-orm";
+import { eq, and, gte, lt, or, asc } from "drizzle-orm";
+import {
+  findBestWhatsappSessionIdForOrg,
+  parseReservationGroupNotifications,
+  sendTextToWhatsAppGroup,
+} from "@/lib/whatsapp-group-notifications";
 
 function toMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
@@ -184,6 +189,219 @@ export async function checkAvailabilityForOrg(
   };
 }
 
+type ReservationNotesPayload = {
+  customerName?: string | null;
+  vehicle?: {
+    modelo?: string | null;
+    ano?: number | string | null;
+    km?: number | string | null;
+  } | null;
+  serviceName?: string | null;
+  productName?: string | null;
+};
+
+function formatDateKeyInTimezone(date: Date, timeZone: string): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    return `${get("year")}-${get("month")}-${get("day")}`;
+  } catch {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+}
+
+function formatDateLabelPtBr(date: Date, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone,
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("pt-BR").format(date);
+  }
+}
+
+function formatTimeLabelPtBr(date: Date, timeZone: string): string {
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone,
+    }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+}
+
+function parseReservationNotes(notes: string | null): ReservationNotesPayload {
+  if (!notes) return {};
+  try {
+    const parsed = JSON.parse(notes) as ReservationNotesPayload;
+    if (parsed && typeof parsed === "object") return parsed;
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function formatKm(km: number | string | null | undefined): string {
+  if (typeof km === "number" && Number.isFinite(km)) {
+    return km.toLocaleString("pt-BR");
+  }
+  if (typeof km === "string" && km.trim().length > 0) return km.trim();
+  return "Nao informado";
+}
+
+function buildDailyReservationsMessage(params: {
+  dateLabel: string;
+  timeZone: string;
+  reservations: Array<{
+    startAt: Date;
+    serviceName: string | null;
+    productName: string | null;
+    notes: string | null;
+    contactName: string | null;
+  }>;
+}): string {
+  const maxItems = 20;
+  const sorted = [...params.reservations].sort(
+    (a, b) => a.startAt.getTime() - b.startAt.getTime()
+  );
+  const visible = sorted.slice(0, maxItems);
+  const hiddenCount = Math.max(0, sorted.length - visible.length);
+
+  const lines: string[] = [`*Agendamentos de hoje (${params.dateLabel})*`, ""];
+
+  for (const reservation of visible) {
+    const parsedNotes = parseReservationNotes(reservation.notes);
+    const service =
+      reservation.serviceName ??
+      parsedNotes.serviceName ??
+      reservation.productName ??
+      parsedNotes.productName ??
+      "Nao informado";
+    const vehicleModel = parsedNotes.vehicle?.modelo ?? "Nao informado";
+    const vehicleYear =
+      parsedNotes.vehicle?.ano !== undefined &&
+      parsedNotes.vehicle?.ano !== null &&
+      String(parsedNotes.vehicle.ano).trim().length > 0
+        ? String(parsedNotes.vehicle.ano)
+        : "Nao informado";
+    const customerName =
+      parsedNotes.customerName ??
+      reservation.contactName ??
+      "Nao informado";
+
+    lines.push("---------------------");
+    lines.push(
+      `Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`
+    );
+    lines.push(`Sobre: ${service}`);
+    lines.push(`Carro: ${vehicleModel}`);
+    lines.push(`KM: ${formatKm(parsedNotes.vehicle?.km)}`);
+    lines.push(`Ano: ${vehicleYear}`);
+    lines.push(`Cliente: ${customerName}`);
+  }
+
+  if (visible.length > 0) {
+    lines.push("---------------------");
+  }
+  if (hiddenCount > 0) {
+    lines.push(`... e mais ${hiddenCount} agendamento(s).`);
+  }
+
+  return lines.join("\n");
+}
+
+async function notifyReservationGroupList(organizationId: string): Promise<void> {
+  const [org] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+  const settings = (org?.settings as Record<string, unknown>) ?? {};
+  const groupConfig = parseReservationGroupNotifications(
+    settings.reservationGroupNotifications
+  );
+  if (!groupConfig.enabled || !groupConfig.groupId) return;
+
+  const reservationSchedule =
+    (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
+  const timeZone =
+    typeof reservationSchedule.timezone === "string" &&
+    reservationSchedule.timezone.trim().length > 0
+      ? reservationSchedule.timezone.trim()
+      : "America/Sao_Paulo";
+
+  const now = new Date();
+  const todayKey = formatDateKeyInTimezone(now, timeZone);
+  const windowStart = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const windowEnd = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+
+  const rows = await db
+    .select({
+      startAt: reservations.startAt,
+      serviceName: reservations.serviceName,
+      productName: reservations.productName,
+      notes: reservations.notes,
+      contactName: contacts.name,
+    })
+    .from(reservations)
+    .leftJoin(contacts, eq(reservations.contactId, contacts.id))
+    .where(
+      and(
+        eq(reservations.organizationId, organizationId),
+        or(
+          eq(reservations.status, "confirmed"),
+          eq(reservations.status, "pending")
+        ),
+        gte(reservations.startAt, windowStart),
+        lt(reservations.startAt, windowEnd)
+      )
+    )
+    .orderBy(asc(reservations.startAt));
+
+  const todayReservations = rows.filter(
+    (row) => formatDateKeyInTimezone(row.startAt, timeZone) === todayKey
+  );
+  if (todayReservations.length === 0) return;
+
+  const sessionId = await findBestWhatsappSessionIdForOrg(organizationId);
+  if (!sessionId) return;
+
+  const message = buildDailyReservationsMessage({
+    dateLabel: formatDateLabelPtBr(now, timeZone),
+    timeZone,
+    reservations: todayReservations,
+  });
+
+  const result = await sendTextToWhatsAppGroup({
+    sessionId,
+    groupId: groupConfig.groupId,
+    text: message,
+  });
+
+  if (!result.ok) {
+    console.warn("[reservations] group notification failed:", result.error);
+  }
+}
+
 export async function createReservationForOrg(
   organizationId: string,
   input: {
@@ -211,6 +429,12 @@ export async function createReservationForOrg(
       updatedAt: new Date(),
     })
     .returning();
+
+  try {
+    await notifyReservationGroupList(organizationId);
+  } catch (err) {
+    console.warn("[reservations] notifyReservationGroupList error:", err);
+  }
 
   return { success: true, reservation };
 }

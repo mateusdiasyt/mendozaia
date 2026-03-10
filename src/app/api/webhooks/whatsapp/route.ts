@@ -9,6 +9,7 @@ import {
   conversations,
   contacts,
   messages,
+  organizations,
   whatsappSessions,
 } from "@/lib/db/schema";
 import { eq, and, desc, gte, asc } from "drizzle-orm";
@@ -22,6 +23,10 @@ import {
 } from "@/lib/conversation-engine/debouncer";
 import { getRedis } from "@/lib/redis/redis-client";
 import { logOrchestration } from "@/lib/orchestration/logger";
+import {
+  normalizeGroupId,
+  parseReservationGroupNotifications,
+} from "@/lib/whatsapp-group-notifications";
 
 // Formato esperado da Evolution API (texto e mÃ­dia)
 interface MessageContent {
@@ -250,6 +255,51 @@ function normalizeRemotePhone(remoteJid: string): string {
   return withoutDevice.replace(/\D/g, "");
 }
 
+async function captureDetectedReservationGroup(
+  sessionId: string,
+  remoteJid: string
+): Promise<void> {
+  const normalizedGroupId = normalizeGroupId(remoteJid);
+  if (!normalizedGroupId) return;
+
+  const [session] = await db
+    .select({ organizationId: whatsappSessions.organizationId })
+    .from(whatsappSessions)
+    .where(eq(whatsappSessions.sessionId, sessionId))
+    .limit(1);
+  if (!session) return;
+
+  const [org] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, session.organizationId))
+    .limit(1);
+  if (!org) return;
+
+  const settings = (org.settings as Record<string, unknown>) ?? {};
+  const currentConfig = parseReservationGroupNotifications(
+    settings.reservationGroupNotifications
+  );
+  if (currentConfig.detectedGroupIds.includes(normalizedGroupId)) return;
+
+  const nextConfig = parseReservationGroupNotifications({
+    ...currentConfig,
+    detectedGroupIds: [normalizedGroupId, ...currentConfig.detectedGroupIds],
+    updatedAt: new Date().toISOString(),
+  });
+
+  await db
+    .update(organizations)
+    .set({
+      settings: {
+        ...settings,
+        reservationGroupNotifications: nextConfig,
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, session.organizationId));
+}
+
 function parseConnectionStatus(body: WebhookPayload): {
   sessionId: string;
   status: "connected" | "disconnected";
@@ -466,6 +516,11 @@ export async function POST(request: NextRequest) {
 
     // Ignora mensagens de grupos â€” sÃ³ processa contatos diretos (@s.whatsapp.net)
     if (remoteJid.endsWith("@g.us")) {
+      try {
+        await captureDetectedReservationGroup(msgSessionId, remoteJid);
+      } catch (err) {
+        console.warn("[webhook whatsapp] group capture failed:", err);
+      }
       return NextResponse.json({ ok: true }); // Ignora grupos
     }
 
