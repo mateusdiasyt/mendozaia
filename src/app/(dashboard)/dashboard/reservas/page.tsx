@@ -19,12 +19,12 @@ export default async function ReservasPage({
     return (
       <div className="p-8">
         <p className="text-slate-600">
-          O sistema de reservas nÃ£o estÃ¡ ativado. Ative em{" "}
+          O sistema de reservas não está ativado. Ative em{" "}
           <Link
             href="/dashboard/configuracoes"
             className="font-medium text-indigo-600 hover:text-indigo-500"
           >
-            ConfiguraÃ§Ãµes
+            Configurações
           </Link>
           .
         </p>
@@ -54,7 +54,7 @@ export default async function ReservasPage({
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
           <p className="font-medium">Erro ao carregar reservas</p>
           <p className="mt-1 text-sm">
-            Verifique se as migraÃ§Ãµes do banco foram executadas (db:push ou db:migrate).
+            Verifique se as migrações do banco foram executadas (db:push ou db:migrate).
           </p>
         </div>
       </div>
@@ -62,15 +62,9 @@ export default async function ReservasPage({
   }
 
   const totalReservations = reservations.length;
-  const confirmedReservations = reservations.filter(
-    (item) => item.status === "confirmed"
-  ).length;
-  const pendingReservations = reservations.filter(
-    (item) => item.status === "pending"
-  ).length;
-  const cancelledReservations = reservations.filter(
-    (item) => item.status === "cancelled"
-  ).length;
+  const confirmedReservations = reservations.filter((item) => item.status === "confirmed").length;
+  const pendingReservations = reservations.filter((item) => item.status === "pending").length;
+  const cancelledReservations = reservations.filter((item) => item.status === "cancelled").length;
 
   return (
     <div className="space-y-6 p-8">
@@ -81,7 +75,7 @@ export default async function ReservasPage({
             <h1 className="text-2xl font-semibold">Reservas</h1>
           </div>
           <p className="text-sm text-slate-600">
-            Agenda do dia com foco em leitura rÃ¡pida e aÃ§Ãµes diretas.
+            Visual em calendário + planilha para acompanhar horários com clareza.
           </p>
         </div>
         <Link
@@ -116,12 +110,8 @@ export default async function ReservasPage({
 function InfoPill({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="text-lg font-semibold leading-tight text-slate-900">
-        {value}
-      </p>
+      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="text-lg font-semibold leading-tight text-slate-900">{value}</p>
     </div>
   );
 }
