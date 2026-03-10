@@ -150,6 +150,65 @@ export async function createService(formData: FormData) {
   return { success: true };
 }
 
+export async function updateService(formData: FormData) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "NÃ£o autorizado" };
+
+  const id = (formData.get("id") as string)?.trim();
+  const name = (formData.get("name") as string)?.trim();
+  const description = ((formData.get("description") as string) || "").trim();
+  const priceCents = parseCurrencyToCents((formData.get("price") as string) || "0");
+  const durationMinutes = Number(formData.get("durationMinutes") || 60);
+  const isActive = formData.get("isActive") === "on";
+  const requiresHuman = formData.get("requiresHuman") === "on";
+
+  if (!id) return { error: "ServiÃ§o invÃ¡lido" };
+  if (!name) return { error: "Nome do serviÃ§o Ã© obrigatÃ³rio" };
+  if (priceCents <= 0) return { error: "PreÃ§o invÃ¡lido" };
+
+  const [currentService] = await db
+    .select({ id: services.id, name: services.name })
+    .from(services)
+    .where(and(eq(services.id, id), eq(services.organizationId, org.id)))
+    .limit(1);
+
+  if (!currentService) return { error: "ServiÃ§o nÃ£o encontrado" };
+
+  await db
+    .update(services)
+    .set({
+      name,
+      description: description || null,
+      priceCents,
+      durationMinutes: Number.isFinite(durationMinutes)
+        ? Math.max(1, Math.floor(durationMinutes))
+        : 60,
+      isActive,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(services.id, id), eq(services.organizationId, org.id)));
+
+  const { byServiceId, byName } = parseServiceHumanPolicy(
+    (org.settings as Record<string, unknown> | undefined) ?? {}
+  );
+
+  const previousNameKey = normalizeServiceLabel(currentService.name);
+  if (previousNameKey) {
+    delete byName[previousNameKey];
+  }
+
+  const nextNameKey = normalizeServiceLabel(name);
+  byServiceId[id] = requiresHuman;
+  if (nextNameKey) {
+    byName[nextNameKey] = requiresHuman;
+  }
+
+  await persistServiceHumanPolicy(org.id, byServiceId, byName);
+
+  revalidatePath("/dashboard/servicos");
+  return { success: true };
+}
+
 export async function toggleServiceActive(id: string, isActive: boolean) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
