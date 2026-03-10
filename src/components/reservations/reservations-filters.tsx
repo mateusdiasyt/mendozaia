@@ -29,64 +29,55 @@ export function ReservationsFilters({ className = "" }: { className?: string }) 
   return (
     <form
       onSubmit={handleSubmit}
-      className={`rounded-3xl border border-[var(--brand-muted)]/20 bg-white p-4 shadow-sm ${className}`}
+      className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}`}
     >
-      <div className="mb-4 flex items-center gap-2 text-sm font-medium text-[var(--brand-deep)]">
+      <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
         <Filter className="h-4 w-4 text-[var(--brand-primary)]" />
-        Filtros da agenda
+        Filtrar reservas
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 lg:grid-cols-[1fr_1fr_180px_auto_auto] lg:items-end">
         <div>
-          <label
-            htmlFor="from"
-            className="block text-xs font-medium text-[var(--brand-muted)]"
-          >
+          <label htmlFor="from" className="block text-xs font-medium text-slate-600">
             De
           </label>
           <div className="relative mt-1">
-            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--brand-muted)]" />
+            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               id="from"
               name="from"
               type="date"
               defaultValue={searchParams.get("from") ?? ""}
-              className="w-full rounded-xl border border-[var(--brand-muted)]/25 bg-white py-2 pl-9 pr-3 text-sm text-[var(--brand-deep)] focus:border-[var(--brand-primary)] focus:outline-none"
+              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 focus:border-[var(--brand-primary)] focus:outline-none"
             />
           </div>
         </div>
 
         <div>
-          <label
-            htmlFor="to"
-            className="block text-xs font-medium text-[var(--brand-muted)]"
-          >
+          <label htmlFor="to" className="block text-xs font-medium text-slate-600">
             Até
           </label>
           <div className="relative mt-1">
-            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--brand-muted)]" />
+            <Calendar className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               id="to"
               name="to"
               type="date"
               defaultValue={searchParams.get("to") ?? ""}
-              className="w-full rounded-xl border border-[var(--brand-muted)]/25 bg-white py-2 pl-9 pr-3 text-sm text-[var(--brand-deep)] focus:border-[var(--brand-primary)] focus:outline-none"
+              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 focus:border-[var(--brand-primary)] focus:outline-none"
             />
           </div>
         </div>
 
         <div>
-          <label
-            htmlFor="status"
-            className="block text-xs font-medium text-[var(--brand-muted)]"
-          >
+          <label htmlFor="status" className="block text-xs font-medium text-slate-600">
             Status
           </label>
           <select
             id="status"
             name="status"
             defaultValue={searchParams.get("status") ?? ""}
-            className="mt-1 w-full rounded-xl border border-[var(--brand-muted)]/25 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] focus:border-[var(--brand-primary)] focus:outline-none"
+            className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-[var(--brand-primary)] focus:outline-none"
           >
             <option value="">Todos</option>
             <option value="pending">Pendente</option>
@@ -94,27 +85,27 @@ export function ReservationsFilters({ className = "" }: { className?: string }) 
             <option value="cancelled">Cancelada</option>
           </select>
         </div>
-      </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
         <button
           type="submit"
-          className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 text-sm font-semibold text-white transition hover:opacity-90"
         >
           <Filter className="h-4 w-4" />
-          Aplicar filtros
+          Aplicar
         </button>
 
         {hasActiveFilters ? (
           <button
             type="button"
             onClick={() => router.push("/dashboard/reservas")}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white px-4 py-2 text-sm font-medium text-[var(--brand-deep)] transition hover:bg-[var(--brand-soft)]"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             <RefreshCw className="h-4 w-4" />
             Limpar
           </button>
-        ) : null}
+        ) : (
+          <div className="hidden h-10 lg:block" />
+        )}
       </div>
     </form>
   );

@@ -1,9 +1,10 @@
 import type { ListReservation } from "@/app/actions/reservations";
+import type { ReactNode } from "react";
 import {
   CalendarClock,
   CarFront,
   Clock3,
-  Hand,
+  ContactRound,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -48,10 +49,10 @@ function sourceLabel(value: string): string {
 
 function statusClass(value: string): string {
   if (value === "confirmed") {
-    return "bg-emerald-100 text-emerald-700 border-emerald-200";
+    return "bg-emerald-50 text-emerald-700 border-emerald-200";
   }
   if (value === "pending") {
-    return "bg-amber-100 text-amber-700 border-amber-200";
+    return "bg-amber-50 text-amber-700 border-amber-200";
   }
   return "bg-slate-100 text-slate-600 border-slate-200";
 }
@@ -60,7 +61,30 @@ function formatKm(value: number | null | undefined): string {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value.toLocaleString("pt-BR");
   }
-  return "—";
+  return "-";
+}
+
+function FieldCard({
+  icon,
+  label,
+  value,
+  subvalue,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  subvalue?: string;
+}) {
+  return (
+    <div className="space-y-1 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5">
+      <p className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        {icon}
+        {label}
+      </p>
+      <p className="text-base font-semibold leading-tight text-slate-900">{value}</p>
+      {subvalue ? <p className="text-sm text-slate-600">{subvalue}</p> : null}
+    </div>
+  );
 }
 
 export function ReservationsTable({
@@ -74,12 +98,12 @@ export function ReservationsTable({
 
   if (sortedReservations.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[var(--brand-muted)]/25 bg-[var(--brand-surface)] py-16 text-center">
-        <CalendarClock className="h-9 w-9 text-[var(--brand-muted)]" />
-        <p className="mt-3 text-sm font-medium text-[var(--brand-deep)]">
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 py-16 text-center">
+        <CalendarClock className="h-9 w-9 text-slate-400" />
+        <p className="mt-3 text-sm font-medium text-slate-900">
           Nenhuma reserva encontrada
         </p>
-        <p className="mt-1 text-xs text-[var(--brand-muted)]">
+        <p className="mt-1 text-xs text-slate-500">
           Ajuste os filtros ou cadastre uma nova reserva.
         </p>
       </div>
@@ -91,97 +115,84 @@ export function ReservationsTable({
       {sortedReservations.map((reservation) => {
         const row = reservation as ReservationRow;
         const displayName = row.customerName ?? row.contactName ?? "Sem nome";
-        const hasVehicleInfo =
-          !!row.vehicleModel || !!row.vehicleYear || !!row.vehicleKm;
-        const hasCommercialInfo = !!row.serviceName || !!row.productName;
+        const displayPhone = reservation.contactPhone ?? "Sem telefone";
+
+        const vehicleName = row.vehicleModel ?? "Sem dados";
+        const vehicleMeta =
+          row.vehicleYear || row.vehicleKm
+            ? `Ano ${row.vehicleYear ?? "-"} · KM ${formatKm(row.vehicleKm)}`
+            : undefined;
+
+        const serviceName = row.serviceName ?? "Não informado";
+        const serviceMeta = row.productName
+          ? `Produto: ${row.productName}`
+          : undefined;
 
         return (
           <article
             key={reservation.id}
-            className="rounded-2xl border border-[var(--brand-muted)]/20 bg-white p-4 shadow-sm transition hover:shadow-md"
+            className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--brand-primary)]">
+            <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
                   <CalendarClock className="h-3.5 w-3.5" />
                   {formatDate(reservation.startAt)} às {formatTime(reservation.startAt)}
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-xl border border-[var(--brand-muted)]/20 bg-white px-2.5 py-1 text-xs font-medium text-[var(--brand-deep)]">
+                <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700">
                   <Clock3 className="h-3.5 w-3.5" />
                   {reservation.durationMinutes} min
                 </span>
               </div>
-              <span
-                className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass(
-                  reservation.status
-                )}`}
-              >
-                {statusLabel(reservation.status)}
-              </span>
+
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass(
+                    reservation.status
+                  )}`}
+                >
+                  {statusLabel(reservation.status)}
+                </span>
+                {reservation.status !== "cancelled" ? (
+                  <CancelReservationButton reservationId={reservation.id} />
+                ) : null}
+              </div>
+            </header>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <FieldCard
+                icon={<UserRound className="h-3.5 w-3.5" />}
+                label="Contato"
+                value={displayName}
+                subvalue={displayPhone}
+              />
+
+              <FieldCard
+                icon={<CarFront className="h-3.5 w-3.5" />}
+                label="Veículo"
+                value={vehicleName}
+                subvalue={vehicleMeta}
+              />
+
+              <FieldCard
+                icon={<Wrench className="h-3.5 w-3.5" />}
+                label="Serviço / Produto"
+                value={serviceName}
+                subvalue={serviceMeta}
+              />
             </div>
 
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <section className="rounded-xl border border-[var(--brand-muted)]/20 bg-[var(--brand-surface)] p-3">
-                <p className="mb-2 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
-                  <UserRound className="h-3.5 w-3.5" />
-                  Contato
-                </p>
-                <p className="text-sm font-semibold text-[var(--brand-deep)]">
-                  {displayName}
-                </p>
-                <p className="text-xs text-[var(--brand-muted)]">
-                  {reservation.contactPhone ?? "Sem telefone"}
-                </p>
-              </section>
-
-              <section className="rounded-xl border border-[var(--brand-muted)]/20 bg-[var(--brand-surface)] p-3">
-                <p className="mb-2 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
-                  <CarFront className="h-3.5 w-3.5" />
-                  Veículo
-                </p>
-                {hasVehicleInfo ? (
-                  <>
-                    <p className="text-sm font-semibold text-[var(--brand-deep)]">
-                      {row.vehicleModel ?? "—"}
-                    </p>
-                    <p className="text-xs text-[var(--brand-muted)]">
-                      Ano: {row.vehicleYear ?? "—"} · KM: {formatKm(row.vehicleKm)}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm text-[var(--brand-muted)]">Sem dados</p>
-                )}
-              </section>
-
-              <section className="rounded-xl border border-[var(--brand-muted)]/20 bg-[var(--brand-surface)] p-3">
-                <p className="mb-2 inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
-                  <Wrench className="h-3.5 w-3.5" />
-                  Serviço / Produto
-                </p>
-                {hasCommercialInfo ? (
-                  <>
-                    <p className="text-sm font-semibold text-[var(--brand-deep)]">
-                      {row.serviceName ?? "—"}
-                    </p>
-                    <p className="text-xs text-[var(--brand-muted)]">
-                      Produto: {row.productName ?? "—"}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm text-[var(--brand-muted)]">Não informado</p>
-                )}
-              </section>
-            </div>
-
-            <div className="mt-3 flex items-center justify-between">
-              <span className="inline-flex items-center gap-1 rounded-xl border border-[var(--brand-muted)]/20 bg-white px-2.5 py-1 text-xs font-medium text-[var(--brand-deep)]">
-                <Hand className="h-3.5 w-3.5" />
+            <footer className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+              <span className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                <ContactRound className="h-3.5 w-3.5" />
                 Origem: {sourceLabel(reservation.source)}
               </span>
-              {reservation.status !== "cancelled" ? (
-                <CancelReservationButton reservationId={reservation.id} />
+              {reservation.status === "cancelled" ? (
+                <span className="text-xs font-medium text-slate-500">
+                  Reserva já cancelada
+                </span>
               ) : null}
-            </div>
+            </footer>
           </article>
         );
       })}
