@@ -3700,7 +3700,8 @@ export async function processInboundMessage(
       return `Só confirmando antes de seguir: o veículo é *${knownVehicleLabel}*?`;
     }
     if (ctx.pendingReservation) {
-      return "Posso seguir com a reserva. Confirma para mim o *dia* e *horário* desejados?";
+      const friendlyDate = formatDateForPtBr(ctx.pendingReservation.dateStr);
+      return `Posso confirmar sua reserva para *${friendlyDate}* as *${ctx.pendingReservation.timeStr}*? Se estiver tudo certo, responde *sim*.`;
     }
     if (restaurantFlow?.collectionStage === "collect_name") {
       return "Para seguir, me diga seu *nome*, por favor.";
@@ -4613,7 +4614,18 @@ export async function processInboundMessage(
     };
   }
 
-  if (hasActiveFlow && looksLikeGenericFlowMessage(ctx.messageContent)) {
+  const shouldBypassGenericContinuation =
+    Boolean(ctx.pendingReservation) &&
+    (
+      looksLikeReservationConfirmation(ctx.messageContent) ||
+      reservationFlow.collectionStage === "confirm_reservation"
+    );
+
+  if (
+    hasActiveFlow &&
+    looksLikeGenericFlowMessage(ctx.messageContent) &&
+    !shouldBypassGenericContinuation
+  ) {
     const continuationReply = buildActiveFlowContinuationReply(intentProbeText);
 
     if (continuationReply) {
@@ -7747,9 +7759,9 @@ export async function processInboundMessage(
       await sendMessage(
         ctx.conversationId,
         pickVariant(`${pending.dateStr}|${pending.timeStr}|await_confirm`, [
-          "Perfeito. Se estiver tudo certo, responda *sim* para eu confirmar a reserva.",
-          "Se esse horário estiver ok pra você, me confirme com *sim* e eu fecho a reserva.",
-          "Quer que eu confirme agora? Se sim, me responde *sim*.",
+          `Perfeito. Se estiver tudo certo com *${formatDateForPtBr(pending.dateStr)}* as *${pending.timeStr}*, responda *sim* para eu confirmar a reserva.`,
+          `Se esse horario (*${formatDateForPtBr(pending.dateStr)}* as *${pending.timeStr}*) estiver ok pra voce, me confirme com *sim* e eu fecho a reserva.`,
+          `Quer que eu confirme agora para *${formatDateForPtBr(pending.dateStr)}* as *${pending.timeStr}*? Se sim, me responde *sim*.`,
         ])
       );
       await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
