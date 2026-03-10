@@ -19,14 +19,14 @@ export default async function ServicosPage() {
   const segment =
     (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ?? "mecanica";
 
-  const pageTitle = segment === "restaurante" ? "Reservas de mesa" : "Serviços";
+  const pageTitle = segment === "restaurante" ? "Reservas de mesa" : "Servicos";
   const pageDescription =
     segment === "restaurante"
       ? "Cadastre os tipos de atendimento para orientar reservas no WhatsApp."
-      : "Cadastre serviços para orçamento e orientação automática no WhatsApp.";
+      : "Cadastre servicos para orcamento e orientacao automatica no WhatsApp.";
   const namePlaceholder =
-    segment === "restaurante" ? "Ex.: Reserva jantar" : "Ex.: Troca de óleo";
-  const durationLabel = segment === "restaurante" ? "Duração média" : "Duração";
+    segment === "restaurante" ? "Ex.: Reserva jantar" : "Ex.: Troca de oleo";
+  const durationLabel = segment === "restaurante" ? "Duracao media" : "Duracao";
 
   const { services } = await listServices();
 
@@ -40,9 +40,9 @@ export default async function ServicosPage() {
       <div className="grid items-start gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <section className="rounded-2xl border border-[var(--brand-muted)]/25 bg-[var(--brand-surface)] p-5 shadow-sm xl:sticky xl:top-6">
           <div className="mb-4">
-            <h2 className="text-base font-semibold text-[var(--brand-deep)]">Novo serviço</h2>
+            <h2 className="text-base font-semibold text-[var(--brand-deep)]">Novo servico</h2>
             <p className="text-xs text-[var(--brand-muted)]">
-              Formulário compacto para manter o cadastro rápido.
+              Formulario compacto para manter o cadastro rapido.
             </p>
           </div>
 
@@ -53,38 +53,55 @@ export default async function ServicosPage() {
             }}
             className="space-y-3.5"
           >
-            <input
-              name="name"
-              required
-              placeholder={namePlaceholder}
-              className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-            />
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                Nome do servico
+              </span>
+              <input
+                name="name"
+                required
+                placeholder={namePlaceholder}
+                className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+              />
+            </label>
 
             <div className="grid grid-cols-2 gap-3">
-              <input
-                name="price"
-                required
-                placeholder="Preço (ex: 120,00)"
-                className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-              />
-              <input
-                name="durationMinutes"
-                type="number"
-                min={1}
-                defaultValue={60}
-                placeholder="Min"
-                className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-              />
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Preco</span>
+                <input
+                  name="price"
+                  required
+                  placeholder="Ex.: 120,00"
+                  className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Duracao (min)</span>
+                <input
+                  name="durationMinutes"
+                  type="number"
+                  min={1}
+                  defaultValue={60}
+                  placeholder="Ex.: 60"
+                  className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                />
+              </label>
             </div>
 
-            <textarea
-              name="description"
-              rows={3}
-              placeholder="Descrição (opcional)"
-              className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-            />
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Descricao</span>
+              <textarea
+                name="description"
+                rows={3}
+                placeholder="Descricao (opcional)"
+                className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+              />
+            </label>
 
             <div className="space-y-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white p-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-[var(--brand-muted)]">
+                Configuracoes
+              </p>
               <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
                 <input type="checkbox" name="isActive" defaultChecked />
                 Ativo
@@ -99,7 +116,7 @@ export default async function ServicosPage() {
               type="submit"
               className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-95"
             >
-              Salvar serviço
+              Salvar servico
             </button>
           </form>
         </section>
@@ -107,7 +124,7 @@ export default async function ServicosPage() {
         <section className="space-y-4">
           <div className="flex items-center justify-between rounded-2xl border border-[var(--brand-muted)]/20 bg-[var(--brand-surface)] px-4 py-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
-              Serviços cadastrados
+              Servicos cadastrados
             </h2>
             <span className="rounded-full bg-[var(--brand-primary)]/10 px-2.5 py-1 text-xs font-semibold text-[var(--brand-primary)]">
               {services.length} item(ns)
@@ -116,7 +133,7 @@ export default async function ServicosPage() {
 
           {services.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-[var(--brand-muted)]/30 bg-white px-4 py-10 text-center text-sm text-[var(--brand-muted)]">
-              Nenhum serviço cadastrado ainda.
+              Nenhum servico cadastrado ainda.
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
@@ -133,7 +150,7 @@ export default async function ServicosPage() {
                           {item.description}
                         </p>
                       ) : (
-                        <p className="mt-1 text-sm text-[var(--brand-muted)]">Sem descrição.</p>
+                        <p className="mt-1 text-sm text-[var(--brand-muted)]">Sem descricao.</p>
                       )}
                     </div>
                     <span
@@ -161,13 +178,13 @@ export default async function ServicosPage() {
                           : "bg-emerald-50 text-emerald-700"
                       }`}
                     >
-                      Atendimento humano: {item.requiresHuman ? "Sim" : "Não"}
+                      Atendimento humano: {item.requiresHuman ? "Sim" : "Nao"}
                     </span>
                   </div>
 
                   <details className="group mt-4">
                     <summary className="list-none cursor-pointer rounded-lg border border-[var(--brand-muted)]/25 px-3 py-2 text-sm text-[var(--brand-deep)] transition hover:bg-[var(--brand-soft)]">
-                      <span className="font-medium">Editar informações</span>
+                      <span className="font-medium">Editar informacoes</span>
                       <span className="ml-2 text-xs text-[var(--brand-muted)]">toque para abrir</span>
                     </summary>
 
@@ -180,38 +197,57 @@ export default async function ServicosPage() {
                     >
                       <input type="hidden" name="id" value={item.id} />
 
-                      <input
-                        name="name"
-                        required
-                        defaultValue={item.name}
-                        className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                      />
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                          Nome do servico
+                        </span>
+                        <input
+                          name="name"
+                          required
+                          defaultValue={item.name}
+                          className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                        />
+                      </label>
 
                       <div className="grid grid-cols-2 gap-3">
-                        <input
-                          name="price"
-                          required
-                          defaultValue={formatCurrencyInput(item.priceCents)}
-                          className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                        />
-                        <input
-                          name="durationMinutes"
-                          type="number"
-                          min={1}
-                          defaultValue={item.durationMinutes}
-                          className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                        />
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Preco</span>
+                          <input
+                            name="price"
+                            required
+                            defaultValue={formatCurrencyInput(item.priceCents)}
+                            placeholder="Ex.: 120,00"
+                            className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Duracao (min)</span>
+                          <input
+                            name="durationMinutes"
+                            type="number"
+                            min={1}
+                            defaultValue={item.durationMinutes}
+                            placeholder="Ex.: 60"
+                            className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                          />
+                        </label>
                       </div>
 
-                      <textarea
-                        name="description"
-                        rows={3}
-                        defaultValue={item.description ?? ""}
-                        placeholder="Descrição (opcional)"
-                        className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                      />
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Descricao</span>
+                        <textarea
+                          name="description"
+                          rows={3}
+                          defaultValue={item.description ?? ""}
+                          placeholder="Descricao (opcional)"
+                          className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                        />
+                      </label>
 
-                      <div className="grid gap-2 sm:grid-cols-2">
+                      <div className="space-y-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white p-3">
+                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--brand-muted)]">
+                          Configuracoes
+                        </p>
                         <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
                           <input type="checkbox" name="isActive" defaultChecked={item.isActive} />
                           Ativo
@@ -230,7 +266,7 @@ export default async function ServicosPage() {
                         type="submit"
                         className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-95"
                       >
-                        Salvar alterações
+                        Salvar alteracoes
                       </button>
                     </form>
                   </details>
