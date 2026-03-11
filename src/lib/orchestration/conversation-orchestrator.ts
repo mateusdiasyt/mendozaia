@@ -6233,11 +6233,55 @@ export async function processInboundMessage(
     ctx.reservationsEnabled &&
     ctx.usesVehicleSlots &&
     looksLikeGreeting(intentProbeText) &&
-    !ctx.pendingReservation &&
-    !looksLikeReservationIntent(intentProbeText)
+    !ctx.pendingReservation
   ) {
+    const mergedVehicleAfterGreeting = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(ctx.vehicleSlots ?? {}, vehicleSlotsFromCurrentMessage),
+      contactName
+    );
+    const vehicleChangedOnGreeting =
+      JSON.stringify(mergedVehicleAfterGreeting) !==
+      JSON.stringify(ctx.vehicleSlots ?? {});
+    if (vehicleChangedOnGreeting) {
+      conversationMetadata = {
+        ...conversationMetadata,
+        vehicleSlots: mergedVehicleAfterGreeting,
+        vehicleSlotsUpdatedAt: new Date().toISOString(),
+      };
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: conversationMetadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      if (mergedVehicleAfterGreeting.modelo) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_model",
+          mergedVehicleAfterGreeting.modelo
+        );
+      }
+      if (mergedVehicleAfterGreeting.ano) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_year",
+          String(mergedVehicleAfterGreeting.ano)
+        );
+      }
+      if (mergedVehicleAfterGreeting.km) {
+        await saveContactMemory(
+          ctx.contactId,
+          "vehicle_km",
+          String(mergedVehicleAfterGreeting.km)
+        );
+      }
+    }
+
     const hasKnownName = !!contactName?.trim();
-    const missingVehicleAfterGreeting = getMissingSlots(ctx.vehicleSlots ?? {});
+    const missingVehicleAfterGreeting = getMissingSlots(
+      mergedVehicleAfterGreeting
+    );
     const missingRequiredAfterGreeting = missingVehicleAfterGreeting.filter(
       (slot) => slot !== "km"
     );
