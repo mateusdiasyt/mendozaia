@@ -4,7 +4,6 @@ import { whatsappSessions } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import Image from "next/image";
 import { WhatsAppConnect } from "@/components/whatsapp/connect";
-import { SessionConnect } from "@/components/whatsapp/session-connect";
 import { SessionConnectionActions } from "@/components/whatsapp/session-connection-actions";
 import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
 import {
@@ -195,7 +194,7 @@ export default async function WhatsAppPage() {
             {whatsappOnlySessions.map((session) => {
               const isConnected = session.status === "connected";
               return (
-                <div key={session.id} className="w-full max-w-[360px] space-y-4">
+                <div key={session.id} className="w-full max-w-[360px]">
                   <article className="relative overflow-hidden rounded-3xl border border-[var(--brand-primary)]/25 bg-[var(--brand-deep)] p-5 text-white shadow-[0_16px_40px_-20px_rgba(19,16,71,0.9)]">
                     <div className="pointer-events-none absolute inset-0 opacity-40">
                       <div className="absolute left-1/2 top-1/2 h-40 w-40 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/15" />
@@ -241,8 +240,6 @@ export default async function WhatsAppPage() {
                       />
                     </div>
                   </article>
-
-                  {!isConnected ? <SessionConnect sessionId={session.sessionId} /> : null}
                 </div>
               );
             })}

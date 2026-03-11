@@ -63,13 +63,15 @@ export async function POST(
     const state = connectionInfo.state;
     const status =
       state === "open" || state === "connected" ? "connected" : "disconnected";
+    const isConnected = status === "connected";
 
     await db
       .update(whatsappSessions)
       .set({
         status,
-        phoneNumber: connectionInfo.phoneNumber ?? wsSession.phoneNumber ?? null,
-        lastConnectedAt: status === "connected" ? new Date() : undefined,
+        phoneNumber: isConnected ? (connectionInfo.phoneNumber ?? null) : null,
+        qrCode: isConnected ? wsSession.qrCode : null,
+        lastConnectedAt: isConnected ? new Date() : null,
         updatedAt: new Date(),
       })
       .where(eq(whatsappSessions.id, wsSession.id));

@@ -44,6 +44,9 @@ export async function POST(
       .update(whatsappSessions)
       .set({
         status: "disconnected",
+        phoneNumber: null,
+        qrCode: null,
+        lastConnectedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(whatsappSessions.id, wsSession.id));
@@ -54,4 +57,3 @@ export async function POST(
     return NextResponse.json({ error: "Erro ao desconectar sessao" }, { status: 500 });
   }
 }
-
