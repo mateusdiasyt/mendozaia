@@ -5,7 +5,17 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/auth-utils";
 import { getCurrentMembership } from "@/lib/auth-utils";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { organizations, memberships, conversations, contacts } from "@/lib/db/schema";
+import {
+  organizations,
+  memberships,
+  conversations,
+  contacts,
+  messages,
+  orchestrationLogs,
+  contactMemories,
+  contactTags,
+  reservations,
+} from "@/lib/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
@@ -789,39 +799,73 @@ export async function deleteOrganizationData(scope: DeleteDataScope) {
     return { error: "Escopo invalido" };
   }
 
-  const [conversationCountResult] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(conversations)
-    .where(eq(conversations.organizationId, org.id));
+  try {
+    const [conversationCountResult] = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(conversations)
+      .where(eq(conversations.organizationId, org.id));
 
-  const [contactCountResult] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(contacts)
-    .where(eq(contacts.organizationId, org.id));
+    const [contactCountResult] = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(contacts)
+      .where(eq(contacts.organizationId, org.id));
 
-  const deletedConversations = Number(conversationCountResult?.count ?? 0);
-  const deletedContacts =
-    scope === "conversations_and_contacts" ? Number(contactCountResult?.count ?? 0) : 0;
+    const deletedConversations = Number.parseInt(conversationCountResult?.count ?? "0", 10) || 0;
+    const deletedContacts =
+      scope === "conversations_and_contacts"
+        ? Number.parseInt(contactCountResult?.count ?? "0", 10) || 0
+        : 0;
 
-  await db.transaction(async (tx) => {
-    if (scope === "conversations_and_contacts") {
-      await tx.delete(contacts).where(eq(contacts.organizationId, org.id));
-      return;
-    }
+    await db.transaction(async (tx) => {
+      // Remove dependencias de conversa explicitamente (compatibilidade com bancos antigos).
+      await tx.execute(
+        sql`delete from ${messages} where conversation_id in (
+          select id from ${conversations} where organization_id = ${org.id}
+        )`
+      );
+      await tx.execute(
+        sql`delete from ${orchestrationLogs} where conversation_id in (
+          select id from ${conversations} where organization_id = ${org.id}
+        )`
+      );
+      await tx.delete(conversations).where(eq(conversations.organizationId, org.id));
 
-    await tx.delete(conversations).where(eq(conversations.organizationId, org.id));
-  });
+      if (scope === "conversations_and_contacts") {
+        // Mantem reservas, mas desvincula contato quando existir.
+        await tx
+          .update(reservations)
+          .set({ contactId: null, updatedAt: new Date() })
+          .where(eq(reservations.organizationId, org.id));
 
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/conversas");
-  revalidatePath("/dashboard/contatos");
-  revalidatePath("/dashboard/reservas");
-  revalidatePath("/dashboard/configuracoes");
+        // Remove dependencias de contato explicitamente.
+        await tx.execute(
+          sql`delete from ${contactMemories} where contact_id in (
+            select id from ${contacts} where organization_id = ${org.id}
+          )`
+        );
+        await tx.execute(
+          sql`delete from ${contactTags} where contact_id in (
+            select id from ${contacts} where organization_id = ${org.id}
+          )`
+        );
+        await tx.delete(contacts).where(eq(contacts.organizationId, org.id));
+      }
+    });
 
-  return {
-    success: true,
-    deletedConversations,
-    deletedContacts,
-    scope,
-  };
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/conversas");
+    revalidatePath("/dashboard/contatos");
+    revalidatePath("/dashboard/reservas");
+    revalidatePath("/dashboard/configuracoes");
+
+    return {
+      success: true,
+      deletedConversations,
+      deletedContacts,
+      scope,
+    };
+  } catch (error) {
+    console.error("[deleteOrganizationData] failed:", error);
+    return { error: "Nao foi possivel deletar os dados agora. Tente novamente." };
+  }
 }
