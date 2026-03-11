@@ -818,44 +818,41 @@ export async function deleteOrganizationData(scope: DeleteDataScope) {
     const deletedConversations = conversationIds.length;
     const deletedContacts = scope === "conversations_and_contacts" ? contactIds.length : 0;
 
-    await db.transaction(async (tx) => {
-      if (conversationIds.length > 0) {
-        // Remove dependencias de conversa explicitamente (compatibilidade com bancos antigos).
-        await tx
-          .delete(messages)
-          .where(inArray(messages.conversationId, conversationIds));
-        await tx
-          .delete(orchestrationLogs)
-          .where(inArray(orchestrationLogs.conversationId, conversationIds));
-        await tx
-          .delete(conversations)
-          .where(inArray(conversations.id, conversationIds));
-      }
+    // NOTE: neon-http nao suporta db.transaction(...).
+    // Mantemos a ordem de exclusao explicitamente para evitar violacao de FK.
+    if (conversationIds.length > 0) {
+      await db
+        .delete(messages)
+        .where(inArray(messages.conversationId, conversationIds));
+      await db
+        .delete(orchestrationLogs)
+        .where(inArray(orchestrationLogs.conversationId, conversationIds));
+      await db
+        .delete(conversations)
+        .where(inArray(conversations.id, conversationIds));
+    }
 
-      if (scope === "conversations_and_contacts" && contactIds.length > 0) {
-        // Mantem reservas, mas desvincula contato quando existir.
-        await tx
-          .update(reservations)
-          .set({ contactId: null, updatedAt: new Date() })
-          .where(
-            and(
-              eq(reservations.organizationId, org.id),
-              inArray(reservations.contactId, contactIds)
-            )
-          );
+    if (scope === "conversations_and_contacts" && contactIds.length > 0) {
+      await db
+        .update(reservations)
+        .set({ contactId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(reservations.organizationId, org.id),
+            inArray(reservations.contactId, contactIds)
+          )
+        );
 
-        // Remove dependencias de contato explicitamente.
-        await tx
-          .delete(contactMemories)
-          .where(inArray(contactMemories.contactId, contactIds));
-        await tx
-          .delete(contactTags)
-          .where(inArray(contactTags.contactId, contactIds));
-        await tx
-          .delete(contacts)
-          .where(inArray(contacts.id, contactIds));
-      }
-    });
+      await db
+        .delete(contactMemories)
+        .where(inArray(contactMemories.contactId, contactIds));
+      await db
+        .delete(contactTags)
+        .where(inArray(contactTags.contactId, contactIds));
+      await db
+        .delete(contacts)
+        .where(inArray(contacts.id, contactIds));
+    }
 
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/conversas");
