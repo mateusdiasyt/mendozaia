@@ -5,6 +5,7 @@ import {
   listProducts,
   toggleProductActive,
   updateProductCategory,
+  updateProductDetails,
   updateProductCategoryDefinition,
   updateProductStockStatus,
 } from "@/app/actions/products";
@@ -15,6 +16,10 @@ function formatCurrencyFromCents(cents: number): string {
     style: "currency",
     currency: "BRL",
   });
+}
+
+function formatPriceInputFromCents(cents: number): string {
+  return (cents / 100).toFixed(2).replace(".", ",");
 }
 
 function getCategoryCoverSeed(name: string, categoryKey: string | null): string {
@@ -120,6 +125,7 @@ export default async function ProdutosPage() {
               "use server";
               await createProduct(formData);
             }}
+            encType="multipart/form-data"
             className="grid gap-4 md:grid-cols-12"
           >
             <label className="space-y-1.5 md:col-span-12">
@@ -184,6 +190,16 @@ export default async function ProdutosPage() {
                 name="description"
                 placeholder="Opcional: detalhe, aplicacao, observacao"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
+              />
+            </label>
+
+            <label className="space-y-1.5 md:col-span-12">
+              <span className="text-xs font-semibold text-slate-600">Foto do produto (opcional)</span>
+              <input
+                name="imageFile"
+                type="file"
+                accept="image/*"
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
               />
             </label>
 
@@ -305,9 +321,12 @@ export default async function ProdutosPage() {
                   key={item.id}
                   className="group overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
-                  <div className="relative h-44 overflow-hidden">
+                  <div className="relative aspect-square w-full overflow-hidden">
                     <img
-                      src={`https://picsum.photos/seed/${getCategoryCoverSeed(item.name, item.category)}/640/360`}
+                      src={
+                        item.imageUrl ??
+                        `https://picsum.photos/seed/${getCategoryCoverSeed(item.name, item.category)}/640/640`
+                      }
                       alt={`Imagem do produto ${item.name}`}
                       className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                     />
@@ -359,6 +378,118 @@ export default async function ProdutosPage() {
                     ) : (
                       <p className="text-xs text-slate-400">Sem descricao cadastrada.</p>
                     )}
+
+                    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-slate-700">
+                        Editar informacoes
+                      </summary>
+                      <form
+                        action={async (formData) => {
+                          "use server";
+                          await updateProductDetails(formData);
+                        }}
+                        encType="multipart/form-data"
+                        className="mt-3 grid gap-2 sm:grid-cols-2"
+                      >
+                        <input type="hidden" name="id" value={item.id} />
+
+                        <label className="space-y-1 sm:col-span-2">
+                          <span className="text-[11px] font-medium text-slate-600">Nome</span>
+                          <input
+                            name="name"
+                            required
+                            defaultValue={item.name}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          />
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-medium text-slate-600">Modelo/Marca</span>
+                          <input
+                            name="model"
+                            defaultValue={item.model ?? ""}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          />
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-medium text-slate-600">Preco</span>
+                          <input
+                            name="price"
+                            required
+                            defaultValue={formatPriceInputFromCents(item.priceCents)}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          />
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-medium text-slate-600">Categoria</span>
+                          <select
+                            name="category"
+                            defaultValue={item.category || "outros"}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          >
+                            {categories.map((category) => (
+                              <option key={category.id} value={category.key}>
+                                {category.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <label className="space-y-1">
+                          <span className="text-[11px] font-medium text-slate-600">Disponibilidade</span>
+                          <select
+                            name="isInStock"
+                            defaultValue={item.isInStock ? "yes" : "no"}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          >
+                            <option value="yes">Disponivel</option>
+                            <option value="no">Indisponivel</option>
+                          </select>
+                        </label>
+
+                        <label className="space-y-1 sm:col-span-2">
+                          <span className="text-[11px] font-medium text-slate-600">Descricao</span>
+                          <input
+                            name="description"
+                            defaultValue={item.description ?? ""}
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
+                          />
+                        </label>
+
+                        <label className="space-y-1 sm:col-span-2">
+                          <span className="text-[11px] font-medium text-slate-600">Trocar foto</span>
+                          <input
+                            name="imageFile"
+                            type="file"
+                            accept="image/*"
+                            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 file:mr-2 file:rounded-md file:border-0 file:bg-slate-100 file:px-2 file:py-1 file:text-[11px] file:font-medium file:text-slate-700"
+                          />
+                        </label>
+
+                        <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                          <input type="checkbox" name="isActive" defaultChecked={item.isActive} />
+                          Ativo
+                        </label>
+
+                        {item.imageUrl ? (
+                          <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                            <input type="checkbox" name="removeImage" />
+                            Remover foto atual
+                          </label>
+                        ) : null}
+
+                        <div className="sm:col-span-2">
+                          <button
+                            type="submit"
+                            className="w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                          >
+                            Salvar alteracoes
+                          </button>
+                        </div>
+                      </form>
+                    </details>
 
                     <div className="grid gap-2 sm:grid-cols-2">
                       <form

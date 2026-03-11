@@ -6,6 +6,7 @@ import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { productCategories, products } from "@/lib/db/schema";
 type Segment = "mecanica" | "restaurante" | "geral";
+const MAX_IMAGE_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 function parseCurrencyToCents(raw: string): number {
   const normalized = raw.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
@@ -28,6 +29,31 @@ function normalizeProductCategory(raw: string): string | null {
 
 function parseInStock(raw: FormDataEntryValue | null): boolean {
   return String(raw ?? "yes") === "yes";
+}
+
+async function parseOptionalImageDataUrl(
+  raw: FormDataEntryValue | null
+): Promise<{ hasFile: boolean; dataUrl: string | null; error: string | null }> {
+  if (!(raw instanceof File) || raw.size <= 0) {
+    return { hasFile: false, dataUrl: null, error: null };
+  }
+
+  if (raw.size > MAX_IMAGE_FILE_SIZE_BYTES) {
+    return { hasFile: true, dataUrl: null, error: "Imagem muito grande. Use ate 5MB." };
+  }
+
+  const mimeType = raw.type || "application/octet-stream";
+  if (!mimeType.startsWith("image/")) {
+    return { hasFile: true, dataUrl: null, error: "Formato invalido. Envie apenas imagem." };
+  }
+
+  const bytes = Buffer.from(await raw.arrayBuffer());
+  const base64 = bytes.toString("base64");
+  return {
+    hasFile: true,
+    dataUrl: `data:${mimeType};base64,${base64}`,
+    error: null,
+  };
 }
 
 async function ensureDefaultProductCategories(
@@ -129,9 +155,12 @@ export async function createProduct(formData: FormData) {
   const priceCents = parseCurrencyToCents((formData.get("price") as string) || "0");
   const isInStock = parseInStock(formData.get("isInStock"));
   const isActive = formData.get("isActive") === "on";
+  const imageResult = await parseOptionalImageDataUrl(formData.get("imageFile"));
 
   if (!name) return { error: "Nome do produto é obrigatório" };
   if (priceCents <= 0) return { error: "Preço inválido" };
+
+  if (imageResult.error) return { error: imageResult.error };
 
   await db.insert(products).values({
     organizationId: org.id,
@@ -139,6 +168,7 @@ export async function createProduct(formData: FormData) {
     category,
     model: model || null,
     description: description || null,
+    imageUrl: imageResult.dataUrl,
     priceCents,
     isInStock,
     stockQuantity: isInStock ? 1 : 0,
@@ -146,6 +176,62 @@ export async function createProduct(formData: FormData) {
   });
 
   revalidatePath("/dashboard/produtos");
+  return { success: true };
+}
+
+export async function updateProductDetails(formData: FormData) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Nao autorizado" };
+
+  const id = String(formData.get("id") ?? "").trim();
+  const name = String(formData.get("name") ?? "").trim();
+  const model = String(formData.get("model") ?? "").trim();
+  const description = String(formData.get("description") ?? "").trim();
+  const category = normalizeProductCategory(String(formData.get("category") ?? "")) ?? "outros";
+  const priceCents = parseCurrencyToCents(String(formData.get("price") ?? "0"));
+  const isInStock = parseInStock(formData.get("isInStock"));
+  const isActive = formData.get("isActive") === "on";
+  const removeImage = formData.get("removeImage") === "on";
+  const imageResult = await parseOptionalImageDataUrl(formData.get("imageFile"));
+
+  if (!id) return { error: "Produto invalido" };
+  if (!name) return { error: "Nome do produto obrigatorio" };
+  if (priceCents <= 0) return { error: "Preco invalido" };
+  if (imageResult.error) return { error: imageResult.error };
+
+  const [existingCategory] = await db
+    .select({ id: productCategories.id })
+    .from(productCategories)
+    .where(
+      and(eq(productCategories.organizationId, org.id), eq(productCategories.key, category))
+    )
+    .limit(1);
+  if (!existingCategory) return { error: "Categoria nao encontrada" };
+
+  const nextImageValue = removeImage
+    ? null
+    : imageResult.hasFile
+      ? imageResult.dataUrl
+      : undefined;
+
+  await db
+    .update(products)
+    .set({
+      name,
+      model: model || null,
+      description: description || null,
+      category,
+      priceCents,
+      isInStock,
+      stockQuantity: isInStock ? 1 : 0,
+      isActive,
+      ...(nextImageValue !== undefined ? { imageUrl: nextImageValue } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+
+  revalidatePath("/dashboard/produtos");
+  revalidatePath("/dashboard/conversas");
   return { success: true };
 }
 

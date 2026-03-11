@@ -29,6 +29,13 @@
       "when": 1772806400000,
       "tag": "0003_dedupe_contacts_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1773223200000,
+      "tag": "0004_add_product_image_url",
+      "breakpoints": true
     }
   ]
 }

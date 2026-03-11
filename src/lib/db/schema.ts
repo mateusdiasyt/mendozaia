@@ -280,6 +280,7 @@ export const products = pgTable("products", {
   category: text("category"),
   model: text("model"),
   description: text("description"),
+  imageUrl: text("image_url"),
   priceCents: integer("price_cents").notNull(),
   isInStock: boolean("is_in_stock").default(true).notNull(),
   stockQuantity: integer("stock_quantity").default(0).notNull(),
