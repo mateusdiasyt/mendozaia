@@ -3053,10 +3053,16 @@ async function clearConversationFlowState(
 }
 
 function looksLikeReservationConfirmation(text: string): boolean {
-  const t = text.toLowerCase();
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return (
-    /\b(sim|confirmo|confirmar|pode confirmar|fechar|fechado|ok|pode ser|quero)\b/.test(t) &&
-    !/\b(não|nao|cancelar|desmarcar)\b/.test(t)
+    /\b(sim|confirmo|confirma|confirmar|confirmado|pode confirmar|fechar|fechado|ok|pode ser|quero|pode marcar|marcar)\b/.test(t) &&
+    !/\b(nao|cancelar|desmarcar)\b/.test(t)
   );
 }
 
@@ -7591,6 +7597,10 @@ export async function processInboundMessage(
           : null
       );
       if (availability.available) {
+        await persistReservationFlowMetadata(ctx.conversationId, conversationMetadata, {
+          collectionStage: "confirm_reservation",
+          slotConfidence: buildSlotConfidenceMap(contactName, ctx.vehicleSlots ?? {}),
+        });
         await persistReservationPeriodSelection(
           ctx.conversationId,
           conversationMetadata,
