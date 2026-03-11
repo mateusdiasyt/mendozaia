@@ -5010,11 +5010,12 @@ export async function processInboundMessage(
     looksLikeDirectHumanMechanicalIssue(intentProbeText) ||
     isRevisionServiceIntent(intentProbeText) ||
     shouldAskOilQualification(intentProbeText);
+  const vehiclePolicyCandidateRawSlots = mergeVehicleSlots(
+    ctx.vehicleSlots ?? {},
+    vehicleSlotsFromCurrentMessage
+  );
   const vehiclePolicyCandidateSlots = sanitizeVehicleSlotsByContactName(
-    mergeVehicleSlots(
-      ctx.vehicleSlots ?? {},
-      vehicleSlotsFromCurrentMessage
-    ),
+    vehiclePolicyCandidateRawSlots,
     contactName
   );
   const shouldEvaluateVehiclePolicy =
@@ -5040,6 +5041,12 @@ export async function processInboundMessage(
       durationMs: Date.now() - startedAt,
       metadata: {
         model: vehiclePolicyCandidateSlots.modelo ?? null,
+        modelRawFromMessage: vehicleSlotsFromCurrentMessage.modelo ?? null,
+        modelRawMerged: vehiclePolicyCandidateRawSlots.modelo ?? null,
+        modelSanitized: vehiclePolicyCandidateSlots.modelo ?? null,
+        modelWasSanitized:
+          (vehiclePolicyCandidateRawSlots.modelo ?? null) !==
+          (vehiclePolicyCandidateSlots.modelo ?? null),
         year: vehiclePolicyCandidateSlots.ano ?? null,
         minAllowedYear: ctx.vehicleServicePolicy?.minAllowedYear ?? null,
       },
