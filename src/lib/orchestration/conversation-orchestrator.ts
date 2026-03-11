@@ -2612,10 +2612,9 @@ function extractCustomerName(
     if ((options?.blockedValues ?? []).map(normalizePlainText).includes(normalized)) {
       return null;
     }
-    return (
-      sanitizeNameCandidate(trimmed, options?.blockedValues) ??
-      trimmed.replace(/\s+/g, " ").trim()
-    );
+    // Evita capturar frases de saudacao como nome completo (ex.: "e ai alan").
+    // Se a sanitizacao nao achar um candidato confiavel, nao assume nome.
+    return sanitizeNameCandidate(trimmed, options?.blockedValues);
   }
 
   return null;
