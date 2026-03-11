@@ -1924,7 +1924,15 @@ async function buildCatalogReply(
   const tokens = extractSearchTokens(messageContent);
   const [allProducts, allServices, allCategories] = await Promise.all([
     db
-      .select()
+      .select({
+        name: products.name,
+        category: products.category,
+        model: products.model,
+        description: products.description,
+        priceCents: products.priceCents,
+        isInStock: products.isInStock,
+        isActive: products.isActive,
+      })
       .from(products)
       .where(eq(products.organizationId, organizationId)),
     db
@@ -2029,7 +2037,17 @@ async function buildOilAvailabilityReply(
   fallbackSearchText?: string
 ): Promise<OilAvailabilityResult> {
   const [allProducts] = await Promise.all([
-    db.select().from(products).where(eq(products.organizationId, organizationId)),
+    db
+      .select({
+        name: products.name,
+        model: products.model,
+        description: products.description,
+        priceCents: products.priceCents,
+        isInStock: products.isInStock,
+        isActive: products.isActive,
+      })
+      .from(products)
+      .where(eq(products.organizationId, organizationId)),
   ]);
   const oilNorm = oilSpec ? normalizeForSearch(oilSpec) : "";
   const engineNorm = engineCode ? normalizeForSearch(engineCode) : "";
