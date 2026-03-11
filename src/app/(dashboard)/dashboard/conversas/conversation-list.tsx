@@ -44,8 +44,15 @@ export function ConversationList({
   const [query, setQuery] = useState("");
   const [animatingIds, setAnimatingIds] = useState<Set<string>>(new Set());
   const previousIndexByIdRef = useRef<Map<string, number>>(new Map());
+  const desiredLimitRef = useRef<number>(Math.max(PAGE_SIZE, list.length));
+  const isLoadingMoreRef = useRef<boolean>(false);
 
   useEffect(() => {
+    isLoadingMoreRef.current = isLoadingMore;
+  }, [isLoadingMore]);
+
+  useEffect(() => {
+    desiredLimitRef.current = Math.max(PAGE_SIZE, list.length);
     setItems(list);
     setCurrentLimit(Math.max(PAGE_SIZE, list.length));
     setHasMore(initialHasMore);
@@ -60,6 +67,8 @@ export function ConversationList({
       });
       if (!res.ok) return;
       const data = (await res.json()) as { list?: Conv[]; hasMore?: boolean };
+      // Evita que respostas antigas (limite menor) sobrescrevam o estado expandido.
+      if (limit < desiredLimitRef.current) return;
       if (Array.isArray(data.list)) {
         setItems(data.list);
         setHasMore(Boolean(data.hasMore));
@@ -72,10 +81,11 @@ export function ConversationList({
   const handleLoadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore) return;
     const nextLimit = currentLimit + PAGE_SIZE;
+    desiredLimitRef.current = nextLimit;
+    setCurrentLimit(nextLimit);
     setIsLoadingMore(true);
     try {
       await fetchConversationList(nextLimit);
-      setCurrentLimit(nextLimit);
     } finally {
       setIsLoadingMore(false);
     }
@@ -132,6 +142,7 @@ export function ConversationList({
     const schedulePoll = () => {
       const ms = document.hidden ? POLL_WHEN_HIDDEN_MS : POLL_INTERVAL_MS;
       intervalId = setInterval(() => {
+        if (isLoadingMoreRef.current) return;
         fetchConversationList(currentLimit);
       }, ms);
     };
