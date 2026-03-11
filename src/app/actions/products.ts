@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { productCategories, products } from "@/lib/db/schema";
@@ -54,6 +54,78 @@ async function parseOptionalImageDataUrl(
     dataUrl: `data:${mimeType};base64,${base64}`,
     error: null,
   };
+}
+
+function isMissingImageUrlColumnError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes("image_url") && message.includes("does not exist");
+}
+
+function toBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const normalized = String(value ?? "").toLowerCase();
+  return normalized === "true" || normalized === "t" || normalized === "1";
+}
+
+function toInt(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  const parsed = Number.parseInt(String(value ?? "0"), 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toDate(value: unknown): Date {
+  if (value instanceof Date) return value;
+  const parsed = new Date(String(value ?? Date.now()));
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+}
+
+function mapLegacyProductRow(raw: Record<string, unknown>): typeof products.$inferSelect {
+  return {
+    id: String(raw.id ?? ""),
+    organizationId: String(raw.organization_id ?? raw.organizationId ?? ""),
+    name: String(raw.name ?? ""),
+    category:
+      raw.category === null || raw.category === undefined ? null : String(raw.category),
+    model: raw.model === null || raw.model === undefined ? null : String(raw.model),
+    description:
+      raw.description === null || raw.description === undefined ? null : String(raw.description),
+    imageUrl:
+      raw.image_url === null || raw.image_url === undefined
+        ? null
+        : String(raw.image_url),
+    priceCents: toInt(raw.price_cents ?? raw.priceCents),
+    isInStock: toBool(raw.is_in_stock ?? raw.isInStock),
+    stockQuantity: toInt(raw.stock_quantity ?? raw.stockQuantity),
+    isActive: toBool(raw.is_active ?? raw.isActive),
+    createdAt: toDate(raw.created_at ?? raw.createdAt),
+    updatedAt: toDate(raw.updated_at ?? raw.updatedAt),
+  };
+}
+
+async function listProductsLegacyWithoutImageColumn(
+  organizationId: string
+): Promise<Array<typeof products.$inferSelect>> {
+  const result = await db.execute(sql`
+    select
+      id,
+      organization_id,
+      name,
+      category,
+      model,
+      description,
+      price_cents,
+      is_in_stock,
+      stock_quantity,
+      is_active,
+      created_at,
+      updated_at
+    from products
+    where organization_id = ${organizationId}
+  `);
+
+  const resultAny = result as unknown as { rows?: Record<string, unknown>[] };
+  const rows = Array.isArray(resultAny.rows) ? resultAny.rows : [];
+  return rows.map((row) => mapLegacyProductRow(row));
 }
 
 async function ensureDefaultProductCategories(
@@ -120,11 +192,17 @@ export async function listProducts() {
   const segment = getOrganizationSegment(org.settings);
   await ensureDefaultProductCategories(org.id, segment);
 
-  const rows = await db
-    .select()
-    .from(products)
-    .where(eq(products.organizationId, org.id));
-  return { products: rows };
+  try {
+    const rows = await db
+      .select()
+      .from(products)
+      .where(eq(products.organizationId, org.id));
+    return { products: rows };
+  } catch (error) {
+    if (!isMissingImageUrlColumnError(error)) throw error;
+    const legacyRows = await listProductsLegacyWithoutImageColumn(org.id);
+    return { products: legacyRows };
+  }
 }
 
 export async function listProductCategories() {
@@ -162,18 +240,33 @@ export async function createProduct(formData: FormData) {
 
   if (imageResult.error) return { error: imageResult.error };
 
-  await db.insert(products).values({
-    organizationId: org.id,
-    name,
-    category,
-    model: model || null,
-    description: description || null,
-    imageUrl: imageResult.dataUrl,
-    priceCents,
-    isInStock,
-    stockQuantity: isInStock ? 1 : 0,
-    isActive,
-  });
+  try {
+    await db.insert(products).values({
+      organizationId: org.id,
+      name,
+      category,
+      model: model || null,
+      description: description || null,
+      imageUrl: imageResult.dataUrl,
+      priceCents,
+      isInStock,
+      stockQuantity: isInStock ? 1 : 0,
+      isActive,
+    });
+  } catch (error) {
+    if (!isMissingImageUrlColumnError(error)) throw error;
+    await db.insert(products).values({
+      organizationId: org.id,
+      name,
+      category,
+      model: model || null,
+      description: description || null,
+      priceCents,
+      isInStock,
+      stockQuantity: isInStock ? 1 : 0,
+      isActive,
+    });
+  }
 
   revalidatePath("/dashboard/produtos");
   return { success: true };
@@ -214,21 +307,33 @@ export async function updateProductDetails(formData: FormData) {
       ? imageResult.dataUrl
       : undefined;
 
-  await db
-    .update(products)
-    .set({
-      name,
-      model: model || null,
-      description: description || null,
-      category,
-      priceCents,
-      isInStock,
-      stockQuantity: isInStock ? 1 : 0,
-      isActive,
-      ...(nextImageValue !== undefined ? { imageUrl: nextImageValue } : {}),
-      updatedAt: new Date(),
-    })
-    .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+  const baseSet = {
+    name,
+    model: model || null,
+    description: description || null,
+    category,
+    priceCents,
+    isInStock,
+    stockQuantity: isInStock ? 1 : 0,
+    isActive,
+    updatedAt: new Date(),
+  };
+
+  try {
+    await db
+      .update(products)
+      .set({
+        ...baseSet,
+        ...(nextImageValue !== undefined ? { imageUrl: nextImageValue } : {}),
+      })
+      .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+  } catch (error) {
+    if (!isMissingImageUrlColumnError(error)) throw error;
+    await db
+      .update(products)
+      .set(baseSet)
+      .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+  }
 
   revalidatePath("/dashboard/produtos");
   revalidatePath("/dashboard/conversas");
