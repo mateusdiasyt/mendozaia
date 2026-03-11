@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CheckSquare, Loader2, MessageSquare, Search, Square, Trash2, X } from "lucide-react";
 import { ContactAvatar } from "@/components/conversations/contact-avatar";
+import { playMessageNotificationSound } from "@/lib/ui/notification-sound";
 
 interface Conv {
   id: string;
@@ -47,10 +48,15 @@ export function ConversationList({
   const desiredLimitRef = useRef<number>(Math.max(PAGE_SIZE, list.length));
   const isLoadingMoreRef = useRef<boolean>(false);
   const hasInitializedFromPropsRef = useRef<boolean>(false);
+  const latestItemsRef = useRef<Conv[]>(list);
 
   useEffect(() => {
     isLoadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
+
+  useEffect(() => {
+    latestItemsRef.current = items;
+  }, [items]);
 
   useEffect(() => {
     // Inicializa apenas uma vez a partir das props do servidor.
@@ -77,13 +83,27 @@ export function ConversationList({
       // Evita que respostas antigas (limite menor) sobrescrevam o estado expandido.
       if (limit < desiredLimitRef.current) return;
       if (Array.isArray(data.list)) {
+        const prevItems = latestItemsRef.current;
+        const prevUnreadById = new Map(prevItems.map((conv) => [conv.id, conv.unreadCount]));
+        const activeConversationId = pathname.startsWith("/dashboard/conversas/")
+          ? pathname.replace("/dashboard/conversas/", "")
+          : null;
+        const hasUnreadIncrease = prevItems.length > 0 && data.list.some((conv) => {
+          if (activeConversationId && conv.id === activeConversationId) return false;
+          const prevUnread = prevUnreadById.get(conv.id) ?? 0;
+          return conv.unreadCount > prevUnread;
+        });
+
+        if (hasUnreadIncrease) {
+          playMessageNotificationSound();
+        }
         setItems(data.list);
         setHasMore(Boolean(data.hasMore));
       }
     } catch {
       // ignore transient polling failures
     }
-  }, []);
+  }, [pathname]);
 
   const handleLoadMore = useCallback(async () => {
     if (isLoadingMore || !hasMore) return;

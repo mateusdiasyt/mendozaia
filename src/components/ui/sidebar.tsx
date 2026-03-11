@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -37,6 +38,7 @@ export function Sidebar({
   segment = "mecanica",
   organizations = [],
   activeOrganizationId = null,
+  initialUnreadMessagesCount = 0,
 }: {
   reservationsEnabled?: boolean;
   isAdmin?: boolean;
@@ -45,6 +47,7 @@ export function Sidebar({
   segment?: "mecanica" | "restaurante" | "geral";
   organizations?: { id: string; name: string }[];
   activeOrganizationId?: string | null;
+  initialUnreadMessagesCount?: number;
 }) {
   const servicesLabel =
     segment === "restaurante" ? "Reservas de mesa" : "Serviços";
@@ -91,6 +94,56 @@ export function Sidebar({
         ]),
   ];
   const pathname = usePathname();
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(
+    Math.max(0, initialUnreadMessagesCount)
+  );
+
+  useEffect(() => {
+    setUnreadMessagesCount(Math.max(0, initialUnreadMessagesCount));
+  }, [initialUnreadMessagesCount]);
+
+  useEffect(() => {
+    if (isPlatformAdmin) return;
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval>;
+
+    const fetchUnreadCount = async () => {
+      try {
+        const res = await fetch("/api/conversations/list?limit=1&offset=0", {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { totalUnread?: number };
+        const totalUnread = Number(data.totalUnread ?? 0);
+        if (!cancelled) {
+          setUnreadMessagesCount(Number.isFinite(totalUnread) ? Math.max(0, totalUnread) : 0);
+        }
+      } catch {
+        // ignora falhas temporarias de polling
+      }
+    };
+
+    const schedulePoll = () => {
+      const ms = document.hidden ? 10_000 : 4_000;
+      intervalId = setInterval(fetchUnreadCount, ms);
+    };
+
+    void fetchUnreadCount();
+    schedulePoll();
+
+    const onVisibilityChange = () => {
+      clearInterval(intervalId);
+      void fetchUnreadCount();
+      schedulePoll();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isPlatformAdmin]);
 
   return (
     <aside className="flex h-screen w-20 flex-col border-r border-[var(--brand-muted)]/20 bg-[var(--brand-soft)]/60 shadow-sm">
@@ -119,6 +172,8 @@ export function Sidebar({
         )}
         {navItems.map((item) => {
           const Icon = item.icon;
+          const isConversationsItem = item.href === "/dashboard/conversas";
+          const hasUnreadMessages = isConversationsItem && unreadMessagesCount > 0;
           const isActive =
             pathname === item.href ||
             (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
@@ -133,7 +188,22 @@ export function Sidebar({
                   : "text-[var(--brand-muted)] hover:bg-white hover:text-[var(--brand-deep)]"
               }`}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <span className="relative inline-flex">
+                <Icon
+                  className={`h-5 w-5 shrink-0 ${hasUnreadMessages ? "animate-pulse" : ""}`}
+                />
+                {hasUnreadMessages ? (
+                  <span className="absolute -right-1 -top-1 inline-flex h-2.5 w-2.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#FF8A65] opacity-75" />
+                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-[#FF8A65]" />
+                  </span>
+                ) : null}
+              </span>
+              {hasUnreadMessages ? (
+                <span className="pointer-events-none absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#FF8A65] px-1 text-[10px] font-semibold text-white shadow-sm">
+                  {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                </span>
+              ) : null}
               <span className="pointer-events-none absolute left-full top-1/2 z-20 ml-3 -translate-y-1/2 whitespace-nowrap rounded-md bg-[var(--brand-deep)] px-2 py-1 text-xs font-medium text-white opacity-0 shadow-md transition-opacity group-hover:opacity-100">
                 {item.label}
               </span>

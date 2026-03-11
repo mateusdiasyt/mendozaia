@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
 import { conversations, contacts, whatsappSessions } from "@/lib/db/schema";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 
 function parseNonNegativeInt(value: string | null, fallback: number): number {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -60,6 +60,18 @@ export async function GET(request: Request) {
     .limit(limit + 1)
     .offset(offset);
 
+  const [unreadSummary] = await db
+    .select({
+      totalUnread: sql<number>`coalesce(sum(${conversations.unreadCount}), 0)`,
+    })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.organizationId, org.id),
+        eq(conversations.isArchived, false)
+      )
+    );
+
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
@@ -80,5 +92,9 @@ export async function GET(request: Request) {
     };
   });
 
-  return NextResponse.json({ list: listWithStatus, hasMore });
+  return NextResponse.json({
+    list: listWithStatus,
+    hasMore,
+    totalUnread: Number(unreadSummary?.totalUnread ?? 0),
+  });
 }

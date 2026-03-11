@@ -2,6 +2,9 @@ import { auth } from "@/auth";
 import { getCurrentMembership } from "@/lib/auth-utils";
 import { getUserOrganizations } from "@/lib/auth-utils";
 import { Sidebar } from "@/components/ui/sidebar";
+import { db } from "@/lib/db";
+import { conversations } from "@/lib/db/schema";
+import { and, eq, sql } from "drizzle-orm";
 
 export default async function DashboardLayout({
   children,
@@ -29,6 +32,19 @@ export default async function DashboardLayout({
   const segment =
     (botConfig.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     "mecanica";
+  const [unreadSummary] = org
+    ? await db
+        .select({
+          totalUnread: sql<number>`coalesce(sum(${conversations.unreadCount}), 0)`,
+        })
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.organizationId, org.id),
+            eq(conversations.isArchived, false)
+          )
+        )
+    : [{ totalUnread: 0 }];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -40,6 +56,7 @@ export default async function DashboardLayout({
         segment={segment}
         organizations={organizationOptions}
         activeOrganizationId={org?.id ?? null}
+        initialUnreadMessagesCount={Number(unreadSummary?.totalUnread ?? 0)}
       />
       <main className="flex min-h-0 flex-1 flex-col overflow-auto bg-slate-50/80">
         {children}

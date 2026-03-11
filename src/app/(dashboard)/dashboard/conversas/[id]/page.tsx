@@ -157,10 +157,15 @@ export default async function ConversaPage({
     waitingHuman ||
     conv.isPriority === true;
 
-  void db
+  await db
     .update(conversations)
     .set({ unreadCount: 0, updatedAt: new Date() })
-    .where(eq(conversations.id, id));
+    .where(
+      and(
+        eq(conversations.id, id),
+        eq(conversations.organizationId, org.id)
+      )
+    );
 
   const displayName = conv.contactName || conv.contactPhone;
   const displayPhone = formatPhoneNumber(conv.contactPhone);

@@ -2,15 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 import { db } from "@/lib/db";
-import {
-  conversations,
-  messages,
-} from "@/lib/db/schema";
+import { conversations, messages } from "@/lib/db/schema";
 import { eq, and, asc, gt, desc } from "drizzle-orm";
 
 /**
  * GET /api/conversations/[conversationId]/messages
- * Retorna mensagens da conversa (para polling/atualização em tempo real).
+ * Retorna mensagens da conversa (polling em tempo real).
  */
 export async function GET(
   request: NextRequest,
@@ -18,12 +15,12 @@ export async function GET(
 ) {
   const session = await auth();
   if (!session?.user?.id) {
-    return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
+    return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
 
   const org = await getCurrentOrganization();
   if (!org) {
-    return NextResponse.json({ error: "Organização não encontrada" }, { status: 403 });
+    return NextResponse.json({ error: "Organizacao nao encontrada" }, { status: 403 });
   }
 
   const { conversationId } = await params;
@@ -46,7 +43,15 @@ export async function GET(
     .limit(1);
 
   if (!conv) {
-    return NextResponse.json({ error: "Conversa não encontrada" }, { status: 404 });
+    return NextResponse.json({ error: "Conversa nao encontrada" }, { status: 404 });
+  }
+
+  // Conversa aberta: limpar nao lidas para manter o badge sincronizado.
+  if ((conv.unreadCount ?? 0) > 0) {
+    await db
+      .update(conversations)
+      .set({ unreadCount: 0, updatedAt: new Date() })
+      .where(eq(conversations.id, conversationId));
   }
 
   const msgList = await db

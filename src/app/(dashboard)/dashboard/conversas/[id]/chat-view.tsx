@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { sendMessage } from "@/app/actions/messages";
 import { Send } from "lucide-react";
+import { playMessageNotificationSound } from "@/lib/ui/notification-sound";
 
 interface Message {
   id: string;
@@ -67,6 +68,10 @@ export function ChatView({
       setTyping(!!data.typing);
 
       if (fetched.length > 0) {
+        const hasNewInbound = fetched.some((msg) => msg.direction === "inbound");
+        if (hasNewInbound) {
+          playMessageNotificationSound();
+        }
         setMessages((prev) => {
           const next = [...prev];
           for (const msg of fetched) {
