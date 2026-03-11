@@ -10,6 +10,7 @@ import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-ser
 import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
 import { ReservationGroupNotificationsForm } from "@/components/configuracoes/reservation-group-notifications-form";
 import { DataDeletionForm } from "@/components/configuracoes/data-deletion-form";
+import { AccountSecurityForm } from "@/components/configuracoes/account-security-form";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { parseReservationGroupNotifications } from "@/lib/whatsapp-group-notifications";
@@ -168,6 +169,7 @@ export default async function ConfiguracoesPage({
                   <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
                 </div>
               </dl>
+              <AccountSecurityForm currentEmail={session?.user?.email ?? ""} />
             </SectionCard>
 
             <SectionCard>

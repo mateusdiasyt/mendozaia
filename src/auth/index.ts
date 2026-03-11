@@ -37,11 +37,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (!credentials?.email || !credentials?.password) {
           return null;
         }
+        const normalizedEmail = String(credentials.email).trim().toLowerCase();
 
         const [user] = await db
           .select()
           .from(users)
-          .where(eq(users.email, credentials.email as string));
+          .where(eq(users.email, normalizedEmail));
 
         if (!user || !user.passwordHash) {
           return null;
