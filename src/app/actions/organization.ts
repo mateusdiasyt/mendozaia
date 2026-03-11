@@ -5,8 +5,8 @@ import { ACTIVE_ORG_COOKIE } from "@/lib/auth-utils";
 import { getCurrentMembership } from "@/lib/auth-utils";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { organizations, memberships } from "@/lib/db/schema";
-import { eq, and } from "drizzle-orm";
+import { organizations, memberships, conversations, contacts } from "@/lib/db/schema";
+import { eq, and, sql } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import {
@@ -63,6 +63,8 @@ export interface ReservationGroupNotificationsConfigInput {
   groupId?: string | null;
   detectedGroupIds?: string[];
 }
+
+export type DeleteDataScope = "conversations_only" | "conversations_and_contacts";
 
 const BILLING_PIX_KEY = "113.673.289-69";
 const BILLING_PROOF_CONTACT = "45999287669";
@@ -777,4 +779,49 @@ export async function adminSetOrganizationPlan(
   revalidatePath("/dashboard/admin/usuarios");
   revalidatePath("/dashboard");
   return { success: true };
+}
+
+export async function deleteOrganizationData(scope: DeleteDataScope) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Nao autorizado" };
+
+  if (scope !== "conversations_only" && scope !== "conversations_and_contacts") {
+    return { error: "Escopo invalido" };
+  }
+
+  const [conversationCountResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(conversations)
+    .where(eq(conversations.organizationId, org.id));
+
+  const [contactCountResult] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(contacts)
+    .where(eq(contacts.organizationId, org.id));
+
+  const deletedConversations = Number(conversationCountResult?.count ?? 0);
+  const deletedContacts =
+    scope === "conversations_and_contacts" ? Number(contactCountResult?.count ?? 0) : 0;
+
+  await db.transaction(async (tx) => {
+    if (scope === "conversations_and_contacts") {
+      await tx.delete(contacts).where(eq(contacts.organizationId, org.id));
+      return;
+    }
+
+    await tx.delete(conversations).where(eq(conversations.organizationId, org.id));
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/conversas");
+  revalidatePath("/dashboard/contatos");
+  revalidatePath("/dashboard/reservas");
+  revalidatePath("/dashboard/configuracoes");
+
+  return {
+    success: true,
+    deletedConversations,
+    deletedContacts,
+    scope,
+  };
 }

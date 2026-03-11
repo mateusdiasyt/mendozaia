@@ -9,6 +9,7 @@ import { BotPersonalizationForm } from "@/components/configuracoes/bot-personali
 import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
 import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
 import { ReservationGroupNotificationsForm } from "@/components/configuracoes/reservation-group-notifications-form";
+import { DataDeletionForm } from "@/components/configuracoes/data-deletion-form";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { parseReservationGroupNotifications } from "@/lib/whatsapp-group-notifications";
@@ -181,6 +182,10 @@ export default async function ConfiguracoesPage({
                   <dd className="font-medium text-slate-900">{planLabel}</dd>
                 </div>
               </dl>
+            </SectionCard>
+
+            <SectionCard className="md:col-span-2">
+              <DataDeletionForm />
             </SectionCard>
           </div>
         )}
