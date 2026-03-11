@@ -9,6 +9,7 @@ import {
   updateProductCategoryDefinition,
   updateProductStockStatus,
 } from "@/app/actions/products";
+import { ProductsCreatePopups } from "@/components/products/products-create-popups";
 import { getCurrentOrganization } from "@/lib/auth-utils";
 
 function formatCurrencyFromCents(cents: number): string {
@@ -111,188 +112,78 @@ export default async function ProdutosPage() {
         </div>
       </header>
 
-      <section className="grid items-start gap-5 xl:grid-cols-12">
-        <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 xl:col-span-7">
-          <div className="mb-5 space-y-1">
-            <h2 className="text-lg font-semibold text-slate-900">Novo produto</h2>
-            <p className="text-xs text-slate-500">
-              Cadastro rapido com categoria, preco, disponibilidade e descricao.
-            </p>
-          </div>
+      <ProductsCreatePopups
+        categories={categories.map((category) => ({
+          id: category.id,
+          key: category.key,
+          name: category.name,
+        }))}
+        productPlaceholder={productPlaceholder}
+        modelPlaceholder={modelPlaceholder}
+        categoryPlaceholder={categoryPlaceholder}
+        aliasesPlaceholder={aliasesPlaceholder}
+        onCreateProduct={async (formData) => {
+          "use server";
+          await createProduct(formData);
+        }}
+        onCreateCategory={async (formData) => {
+          "use server";
+          await createProductCategory(formData);
+        }}
+      />
 
-          <form
-            action={async (formData) => {
-              "use server";
-              await createProduct(formData);
-            }}
-            encType="multipart/form-data"
-            className="grid gap-4 md:grid-cols-12"
-          >
-            <label className="space-y-1.5 md:col-span-12">
-              <span className="text-xs font-semibold text-slate-600">Nome do item</span>
-              <input
-                name="name"
-                required
-                placeholder={productPlaceholder}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
-              />
-            </label>
-
-            <label className="space-y-1.5 md:col-span-7">
-              <span className="text-xs font-semibold text-slate-600">Modelo/Marca</span>
-              <input
-                name="model"
-                placeholder={modelPlaceholder}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
-              />
-            </label>
-
-            <label className="space-y-1.5 md:col-span-5">
-              <span className="text-xs font-semibold text-slate-600">Preco</span>
-              <input
-                name="price"
-                required
-                placeholder="Ex: 79,90"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
-              />
-            </label>
-
-            <label className="space-y-1.5 md:col-span-6">
-              <span className="text-xs font-semibold text-slate-600">Categoria</span>
-              <select
-                name="category"
-                defaultValue={categories.find((c) => c.key === "outros")?.key ?? ""}
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
-              >
-                {categories.map((category) => (
-                  <option key={category.id} value={category.key}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-1.5 md:col-span-6">
-              <span className="text-xs font-semibold text-slate-600">Disponibilidade</span>
-              <select
-                name="isInStock"
-                defaultValue="yes"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900"
-              >
-                <option value="yes">Disponivel</option>
-                <option value="no">Indisponivel</option>
-              </select>
-            </label>
-
-            <label className="space-y-1.5 md:col-span-12">
-              <span className="text-xs font-semibold text-slate-600">Descricao</span>
-              <input
-                name="description"
-                placeholder="Opcional: detalhe, aplicacao, observacao"
-                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400"
-              />
-            </label>
-
-            <label className="space-y-1.5 md:col-span-12">
-              <span className="text-xs font-semibold text-slate-600">Foto do produto (opcional)</span>
-              <input
-                name="imageFile"
-                type="file"
-                accept="image/*"
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-medium file:text-slate-700"
-              />
-            </label>
-
-            <label className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 md:col-span-4 lg:col-span-3">
-              <input type="checkbox" name="isActive" defaultChecked />
-              Ativo
-            </label>
-
-            <div className="md:col-span-12 md:flex md:justify-end">
-              <button
-                type="submit"
-                className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-[var(--brand-primary)] px-7 text-sm font-semibold text-white shadow-sm transition hover:brightness-95 md:w-auto"
-              >
-                Salvar produto
-              </button>
-            </div>
-          </form>
-        </article>
-
-        <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 xl:col-span-5">
-          <div className="mb-4 space-y-1">
-            <h2 className="text-lg font-semibold text-slate-900">Categorias</h2>
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold text-slate-900">Categorias cadastradas</h2>
             <p className="text-xs text-slate-500">
               Ajuste nome, palavras-chave e status das categorias sem perder configuracoes atuais.
             </p>
           </div>
+          <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+            {categories.length} categoria(s)
+          </span>
+        </div>
 
-          <form
-            action={async (formData) => {
-              "use server";
-              await createProductCategory(formData);
-            }}
-            className="grid gap-2.5 sm:grid-cols-12"
-          >
-            <input
-              name="name"
-              required
-              placeholder={categoryPlaceholder}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm sm:col-span-4"
-            />
-            <input
-              name="aliases"
-              placeholder={aliasesPlaceholder}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm sm:col-span-5"
-            />
-            <button
-              type="submit"
-              className="rounded-xl border border-slate-300 bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 sm:col-span-3"
+        <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+          {categories.map((category) => (
+            <form
+              key={category.id}
+              action={async (formData) => {
+                "use server";
+                await updateProductCategoryDefinition(formData);
+              }}
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5"
             >
-              Adicionar categoria
-            </button>
-          </form>
-
-          <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
-            {categories.map((category) => (
-              <form
-                key={category.id}
-                action={async (formData) => {
-                  "use server";
-                  await updateProductCategoryDefinition(formData);
-                }}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5"
-              >
-                <input type="hidden" name="id" value={category.id} />
-                <div className="grid gap-2 sm:grid-cols-12">
-                  <input
-                    name="name"
-                    defaultValue={category.name}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-4"
-                  />
-                  <input
-                    name="aliases"
-                    defaultValue={category.aliases ?? ""}
-                    placeholder="Palavras-chave separadas por virgula"
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-6"
-                  />
-                  <div className="flex items-center justify-between gap-2 sm:col-span-2 sm:flex-col sm:items-stretch">
-                    <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                      <input type="checkbox" name="isActive" defaultChecked={category.isActive} />
-                      Ativa
-                    </label>
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      Salvar
-                    </button>
-                  </div>
+              <input type="hidden" name="id" value={category.id} />
+              <div className="grid gap-2 sm:grid-cols-12">
+                <input
+                  name="name"
+                  defaultValue={category.name}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-4"
+                />
+                <input
+                  name="aliases"
+                  defaultValue={category.aliases ?? ""}
+                  placeholder="Palavras-chave separadas por virgula"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-6"
+                />
+                <div className="flex items-center justify-between gap-2 sm:col-span-2 sm:flex-col sm:items-stretch">
+                  <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                    <input type="checkbox" name="isActive" defaultChecked={category.isActive} />
+                    Ativa
+                  </label>
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                  >
+                    Salvar
+                  </button>
                 </div>
-              </form>
-            ))}
-          </div>
-        </article>
+              </div>
+            </form>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
