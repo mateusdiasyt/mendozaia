@@ -16,6 +16,8 @@ import { eq, and, desc } from "drizzle-orm";
 import { saveContactMemory } from "@/lib/contact-memories";
 import { learnFromHumanMessage } from "@/lib/ai-training";
 import { normalizeContactName } from "@/lib/contact-name";
+import { parseMetaChannelsSettings } from "@/lib/meta-channel-settings";
+import { sendMetaTextMessage } from "@/lib/meta-api";
 
 type OrchestrationLogMetadata = Record<string, unknown> | null;
 
@@ -487,38 +489,128 @@ export async function sendMessage(
       return { ok: false, error: "Dados da conversa invalidos." };
     }
 
-    const apiUrl = process.env.WHATSAPP_API_URL;
-    if (!apiUrl) {
-      return { ok: false, error: "API do WhatsApp nao configurada." };
-    }
+    const sessionId = wsSession.sessionId;
+    const isMetaSession =
+      sessionId.startsWith("meta-page-") || sessionId.startsWith("meta-ig-");
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (process.env.EVOLUTION_API_KEY) {
-      headers["apikey"] = process.env.EVOLUTION_API_KEY;
-    }
+    if (isMetaSession) {
+      const conversationMetadata =
+        (conv.conversationStateMetadata as Record<string, unknown> | undefined) ?? {};
+      const metaRouting =
+        (conversationMetadata.metaRouting as Record<string, unknown> | undefined) ?? {};
 
-    const number = contact.phone.replace(/\D/g, "");
-    const instanceName = wsSession.sessionId;
-
-    const res = await fetch(
-      `${apiUrl.replace(/\/$/, "")}/message/sendText/${instanceName}`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ number, text }),
+      let channel =
+        (metaRouting.channel as "messenger" | "instagram" | undefined) ??
+        (sessionId.startsWith("meta-ig-") ? "instagram" : "messenger");
+      if (channel !== "messenger" && channel !== "instagram") {
+        channel = sessionId.startsWith("meta-ig-") ? "instagram" : "messenger";
       }
-    );
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      const apiMessage =
-        (err as { response?: { message?: string[] }; error?: string })?.response
-          ?.message?.[0] ??
-        (err as { error?: string })?.error ??
-        `Erro ao enviar mensagem (${res.status})`;
-      return { ok: false, error: String(apiMessage) };
+      let recipientId =
+        typeof metaRouting.userId === "string" ? metaRouting.userId.trim() : "";
+      if (!recipientId) {
+        const match = contact.phone.match(/^meta:(messenger|instagram):(.+)$/i);
+        recipientId = match?.[2]?.trim() ?? "";
+      }
+      if (!recipientId) {
+        return { ok: false, error: "Nao foi possivel identificar o destinatario Meta." };
+      }
+
+      const organizationSettings =
+        (org.settings as Record<string, unknown> | undefined) ?? {};
+      const metaSettings = parseMetaChannelsSettings(organizationSettings.metaChannels);
+
+      let pageConnection =
+        channel === "messenger"
+          ? metaSettings.channels.find(
+              (item) =>
+                item.pageId ===
+                (typeof metaRouting.pageId === "string"
+                  ? metaRouting.pageId.trim()
+                  : sessionId.replace("meta-page-", ""))
+            )
+          : metaSettings.channels.find(
+              (item) =>
+                item.instagramBusinessAccountId ===
+                (typeof metaRouting.businessId === "string"
+                  ? metaRouting.businessId.trim()
+                  : sessionId.replace("meta-ig-", ""))
+            );
+
+      if (!pageConnection && metaSettings.activePageId) {
+        pageConnection =
+          metaSettings.channels.find((item) => item.pageId === metaSettings.activePageId);
+      }
+      if (!pageConnection) {
+        return {
+          ok: false,
+          error: "Canal Meta nao conectado. Reconecte Instagram/Messenger em Canais.",
+        };
+      }
+
+      const businessId =
+        typeof metaRouting.businessId === "string" && metaRouting.businessId.trim()
+          ? metaRouting.businessId.trim()
+          : channel === "instagram"
+            ? pageConnection.instagramBusinessAccountId ?? ""
+            : pageConnection.pageId;
+
+      if (!businessId) {
+        return {
+          ok: false,
+          error: "Canal Meta sem ID de envio. Verifique a conexao.",
+        };
+      }
+
+      try {
+        await sendMetaTextMessage({
+          channel,
+          businessId,
+          recipientId,
+          text,
+          pageAccessToken: pageConnection.pageAccessToken,
+        });
+      } catch (err) {
+        return {
+          ok: false,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Falha ao enviar mensagem para Meta.",
+        };
+      }
+    } else {
+      const apiUrl = process.env.WHATSAPP_API_URL;
+      if (!apiUrl) {
+        return { ok: false, error: "API do WhatsApp nao configurada." };
+      }
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (process.env.EVOLUTION_API_KEY) {
+        headers["apikey"] = process.env.EVOLUTION_API_KEY;
+      }
+
+      const number = contact.phone.replace(/\D/g, "");
+      const res = await fetch(
+        `${apiUrl.replace(/\/$/, "")}/message/sendText/${sessionId}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ number, text }),
+        }
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        const apiMessage =
+          (err as { response?: { message?: string[] }; error?: string })?.response
+            ?.message?.[0] ??
+          (err as { error?: string })?.error ??
+          `Erro ao enviar mensagem (${res.status})`;
+        return { ok: false, error: String(apiMessage) };
+      }
     }
 
     await db.insert(messages).values({
@@ -527,6 +619,11 @@ export async function sendMessage(
       contentType: "text",
       content: text,
       status: "sent",
+      metadata: isMetaSession
+        ? {
+            channel: sessionId.startsWith("meta-ig-") ? "instagram" : "messenger",
+          }
+        : undefined,
     });
 
     // Nao bloqueia resposta de sucesso se aprendizado/metadados falharem.
