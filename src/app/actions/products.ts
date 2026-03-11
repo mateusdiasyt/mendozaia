@@ -56,11 +56,6 @@ async function parseOptionalImageDataUrl(
   };
 }
 
-function isMissingImageUrlColumnError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
-  return message.includes("image_url") && message.includes("does not exist");
-}
-
 function toBool(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   const normalized = String(value ?? "").toLowerCase();
@@ -198,10 +193,13 @@ export async function listProducts() {
       .from(products)
       .where(eq(products.organizationId, org.id));
     return { products: rows };
-  } catch (error) {
-    if (!isMissingImageUrlColumnError(error)) throw error;
-    const legacyRows = await listProductsLegacyWithoutImageColumn(org.id);
-    return { products: legacyRows };
+  } catch (primaryError) {
+    try {
+      const legacyRows = await listProductsLegacyWithoutImageColumn(org.id);
+      return { products: legacyRows };
+    } catch {
+      throw primaryError;
+    }
   }
 }
 
@@ -253,19 +251,22 @@ export async function createProduct(formData: FormData) {
       stockQuantity: isInStock ? 1 : 0,
       isActive,
     });
-  } catch (error) {
-    if (!isMissingImageUrlColumnError(error)) throw error;
-    await db.insert(products).values({
-      organizationId: org.id,
-      name,
-      category,
-      model: model || null,
-      description: description || null,
-      priceCents,
-      isInStock,
-      stockQuantity: isInStock ? 1 : 0,
-      isActive,
-    });
+  } catch (primaryError) {
+    try {
+      await db.insert(products).values({
+        organizationId: org.id,
+        name,
+        category,
+        model: model || null,
+        description: description || null,
+        priceCents,
+        isInStock,
+        stockQuantity: isInStock ? 1 : 0,
+        isActive,
+      });
+    } catch {
+      throw primaryError;
+    }
   }
 
   revalidatePath("/dashboard/produtos");
@@ -327,12 +328,15 @@ export async function updateProductDetails(formData: FormData) {
         ...(nextImageValue !== undefined ? { imageUrl: nextImageValue } : {}),
       })
       .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
-  } catch (error) {
-    if (!isMissingImageUrlColumnError(error)) throw error;
-    await db
-      .update(products)
-      .set(baseSet)
-      .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+  } catch (primaryError) {
+    try {
+      await db
+        .update(products)
+        .set(baseSet)
+        .where(and(eq(products.id, id), eq(products.organizationId, org.id)));
+    } catch {
+      throw primaryError;
+    }
   }
 
   revalidatePath("/dashboard/produtos");
