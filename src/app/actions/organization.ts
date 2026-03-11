@@ -16,7 +16,7 @@ import {
   contactTags,
   reservations,
 } from "@/lib/db/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, inArray } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import {
@@ -800,55 +800,60 @@ export async function deleteOrganizationData(scope: DeleteDataScope) {
   }
 
   try {
-    const [conversationCountResult] = await db
-      .select({ count: sql<string>`count(*)` })
+    const conversationRows = await db
+      .select({ id: conversations.id })
       .from(conversations)
       .where(eq(conversations.organizationId, org.id));
+    const conversationIds = conversationRows.map((row) => row.id);
 
-    const [contactCountResult] = await db
-      .select({ count: sql<string>`count(*)` })
-      .from(contacts)
-      .where(eq(contacts.organizationId, org.id));
-
-    const deletedConversations = Number.parseInt(conversationCountResult?.count ?? "0", 10) || 0;
-    const deletedContacts =
+    const contactRows =
       scope === "conversations_and_contacts"
-        ? Number.parseInt(contactCountResult?.count ?? "0", 10) || 0
-        : 0;
+        ? await db
+            .select({ id: contacts.id })
+            .from(contacts)
+            .where(eq(contacts.organizationId, org.id))
+        : [];
+    const contactIds = contactRows.map((row) => row.id);
+
+    const deletedConversations = conversationIds.length;
+    const deletedContacts = scope === "conversations_and_contacts" ? contactIds.length : 0;
 
     await db.transaction(async (tx) => {
-      // Remove dependencias de conversa explicitamente (compatibilidade com bancos antigos).
-      await tx.execute(
-        sql`delete from ${messages} where conversation_id in (
-          select id from ${conversations} where organization_id = ${org.id}
-        )`
-      );
-      await tx.execute(
-        sql`delete from ${orchestrationLogs} where conversation_id in (
-          select id from ${conversations} where organization_id = ${org.id}
-        )`
-      );
-      await tx.delete(conversations).where(eq(conversations.organizationId, org.id));
+      if (conversationIds.length > 0) {
+        // Remove dependencias de conversa explicitamente (compatibilidade com bancos antigos).
+        await tx
+          .delete(messages)
+          .where(inArray(messages.conversationId, conversationIds));
+        await tx
+          .delete(orchestrationLogs)
+          .where(inArray(orchestrationLogs.conversationId, conversationIds));
+        await tx
+          .delete(conversations)
+          .where(inArray(conversations.id, conversationIds));
+      }
 
-      if (scope === "conversations_and_contacts") {
+      if (scope === "conversations_and_contacts" && contactIds.length > 0) {
         // Mantem reservas, mas desvincula contato quando existir.
         await tx
           .update(reservations)
           .set({ contactId: null, updatedAt: new Date() })
-          .where(eq(reservations.organizationId, org.id));
+          .where(
+            and(
+              eq(reservations.organizationId, org.id),
+              inArray(reservations.contactId, contactIds)
+            )
+          );
 
         // Remove dependencias de contato explicitamente.
-        await tx.execute(
-          sql`delete from ${contactMemories} where contact_id in (
-            select id from ${contacts} where organization_id = ${org.id}
-          )`
-        );
-        await tx.execute(
-          sql`delete from ${contactTags} where contact_id in (
-            select id from ${contacts} where organization_id = ${org.id}
-          )`
-        );
-        await tx.delete(contacts).where(eq(contacts.organizationId, org.id));
+        await tx
+          .delete(contactMemories)
+          .where(inArray(contactMemories.contactId, contactIds));
+        await tx
+          .delete(contactTags)
+          .where(inArray(contactTags.contactId, contactIds));
+        await tx
+          .delete(contacts)
+          .where(inArray(contacts.id, contactIds));
       }
     });
 
@@ -865,7 +870,19 @@ export async function deleteOrganizationData(scope: DeleteDataScope) {
       scope,
     };
   } catch (error) {
-    console.error("[deleteOrganizationData] failed:", error);
-    return { error: "Nao foi possivel deletar os dados agora. Tente novamente." };
+    const errorMessage =
+      error instanceof Error ? error.message : "erro_desconhecido";
+    console.error("[deleteOrganizationData] failed:", {
+      organizationId: org.id,
+      scope,
+      errorMessage,
+      error,
+    });
+    return {
+      error:
+        process.env.NODE_ENV === "production"
+          ? "Nao foi possivel deletar os dados agora. Tente novamente."
+          : `Falha ao deletar dados: ${errorMessage}`,
+    };
   }
 }
