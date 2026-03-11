@@ -132,20 +132,19 @@ export default async function ProdutosPage() {
         }}
       />
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold text-slate-900">Categorias cadastradas</h2>
-            <p className="text-xs text-slate-500">
-              Ajuste nome, palavras-chave e status das categorias sem perder configuracoes atuais.
-            </p>
+      <section className="grid items-start gap-6 xl:grid-cols-10">
+        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 xl:order-2 xl:col-span-3 xl:sticky xl:top-24">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div className="space-y-0.5">
+            <h2 className="text-base font-semibold text-slate-900">Categorias</h2>
+            <p className="text-[11px] text-slate-500">Painel de ajustes rapidos</p>
           </div>
-          <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
-            {categories.length} categoria(s)
+          <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+            {categories.length}
           </span>
         </div>
 
-        <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+        <div className="max-h-[640px] space-y-2 overflow-y-auto pr-1">
           {categories.map((category) => (
             <form
               key={category.id}
@@ -153,29 +152,29 @@ export default async function ProdutosPage() {
                 "use server";
                 await updateProductCategoryDefinition(formData);
               }}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-2.5"
+              className="rounded-xl border border-slate-200 bg-slate-50 p-2.5"
             >
               <input type="hidden" name="id" value={category.id} />
-              <div className="grid gap-2 sm:grid-cols-12">
+              <div className="space-y-2">
                 <input
                   name="name"
                   defaultValue={category.name}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-4"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                 />
                 <input
                   name="aliases"
                   defaultValue={category.aliases ?? ""}
                   placeholder="Palavras-chave separadas por virgula"
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm sm:col-span-6"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs"
                 />
-                <div className="flex items-center justify-between gap-2 sm:col-span-2 sm:flex-col sm:items-stretch">
+                <div className="flex items-center justify-between gap-2">
                   <label className="inline-flex items-center gap-2 text-xs text-slate-700">
                     <input type="checkbox" name="isActive" defaultChecked={category.isActive} />
                     Ativa
                   </label>
                   <button
                     type="submit"
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
                   >
                     Salvar
                   </button>
@@ -186,7 +185,7 @@ export default async function ProdutosPage() {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 xl:order-1 xl:col-span-7">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Catalogo visual</h2>
@@ -204,7 +203,7 @@ export default async function ProdutosPage() {
             Nenhum produto cadastrado ainda.
           </div>
         ) : (
-          <div className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-5 grid gap-5 sm:grid-cols-2 2xl:grid-cols-3">
             {products.map((item) => {
               const categoryLabel = getCategoryLabel(item.category, categoriesByKey);
               return (
@@ -475,6 +474,7 @@ export default async function ProdutosPage() {
             })}
           </div>
         )}
+        </section>
       </section>
     </div>
   );
