@@ -46,15 +46,22 @@ export function ConversationList({
   const previousIndexByIdRef = useRef<Map<string, number>>(new Map());
   const desiredLimitRef = useRef<number>(Math.max(PAGE_SIZE, list.length));
   const isLoadingMoreRef = useRef<boolean>(false);
+  const hasInitializedFromPropsRef = useRef<boolean>(false);
 
   useEffect(() => {
     isLoadingMoreRef.current = isLoadingMore;
   }, [isLoadingMore]);
 
   useEffect(() => {
-    desiredLimitRef.current = Math.max(PAGE_SIZE, list.length);
+    // Inicializa apenas uma vez a partir das props do servidor.
+    // Depois disso, o estado da lista e do limite e gerenciado localmente
+    // (polling + load more), evitando colapsar para PAGE_SIZE.
+    if (hasInitializedFromPropsRef.current) return;
+    hasInitializedFromPropsRef.current = true;
+    const initialLimit = Math.max(PAGE_SIZE, list.length);
+    desiredLimitRef.current = initialLimit;
     setItems(list);
-    setCurrentLimit(Math.max(PAGE_SIZE, list.length));
+    setCurrentLimit(initialLimit);
     setHasMore(initialHasMore);
     setSelectedIds(new Set());
     setIsSelectionMode(false);
