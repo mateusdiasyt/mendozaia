@@ -12,6 +12,17 @@ import {
   sendReservationGroupListForOrg,
 } from "@/lib/reservations";
 
+function formatDateTimeForClient(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+  // Deliberadamente sem timezone para preservar o horario "de agenda" no front.
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+}
+
 export async function createReservation(input: {
   startAt: Date;
   durationMinutes?: number;
@@ -118,6 +129,7 @@ export async function listReservations(filters?: {
 
     return {
       ...r,
+      startAt: formatDateTimeForClient(r.startAt),
       customerName: customerNameFromNotes ?? r.contactName ?? null,
       vehicleModel,
       vehicleYear,

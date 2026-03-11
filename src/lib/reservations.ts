@@ -336,53 +336,60 @@ type ReservationNotesPayload = {
   productName?: string | null;
 };
 
-function formatDateKeyInTimezone(date: Date, timeZone: string): string {
+function formatDateKeyLocal(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatDateLabelPtBrLocal(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+function formatTimeLabelPtBrLocal(date: Date): string {
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
+}
+
+function getNowClockInTimezone(timeZone: string): Date {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
       timeZone,
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
-    }).formatToParts(date);
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date());
     const get = (type: Intl.DateTimeFormatPartTypes) =>
       parts.find((part) => part.type === type)?.value ?? "";
-    return `${get("year")}-${get("month")}-${get("day")}`;
+    const year = Number(get("year"));
+    const month = Number(get("month"));
+    const day = Number(get("day"));
+    const hour = Number(get("hour"));
+    const minute = Number(get("minute"));
+    const second = Number(get("second"));
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      Number.isFinite(day) &&
+      Number.isFinite(hour) &&
+      Number.isFinite(minute) &&
+      Number.isFinite(second)
+    ) {
+      return new Date(year, month - 1, day, hour, minute, second, 0);
+    }
   } catch {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, "0");
-    const day = String(date.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+    // fallback abaixo
   }
-}
-
-function formatDateLabelPtBr(date: Date, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat("pt-BR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      timeZone,
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat("pt-BR").format(date);
-  }
-}
-
-function formatTimeLabelPtBr(date: Date, timeZone: string): string {
-  try {
-    return new Intl.DateTimeFormat("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-      timeZone,
-    }).format(date);
-  } catch {
-    return new Intl.DateTimeFormat("pt-BR", {
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(date);
-  }
+  return new Date();
 }
 
 function parseReservationNotes(notes: string | null): ReservationNotesPayload {
@@ -432,16 +439,16 @@ function buildDailyReservationsMessage(params: {
 
   const grouped = new Map<string, typeof visible>();
   for (const item of visible) {
-    const key = formatDateKeyInTimezone(item.startAt, params.timeZone);
+    const key = formatDateKeyLocal(item.startAt);
     const existing = grouped.get(key) ?? [];
     existing.push(item);
     grouped.set(key, existing);
   }
 
-  const now = new Date();
+  const now = getNowClockInTimezone(params.timeZone);
   const lines: string[] = [
     "📅 *Agendamentos por data*",
-    `⏱️ Atualizado: ${formatTimeLabelPtBr(now, params.timeZone)}`,
+    `⏱️ Atualizado: ${formatTimeLabelPtBrLocal(now)}`,
     "",
   ];
 
@@ -453,7 +460,7 @@ function buildDailyReservationsMessage(params: {
     const [year, month, day] = dateKey.split("-").map(Number);
     const asDate = new Date(year, (month || 1) - 1, day || 1);
     lines.push(`━━━━━━━━━━━━`);
-    lines.push(`📆 *${formatDateLabelPtBr(asDate, params.timeZone)}*`);
+    lines.push(`📆 *${formatDateLabelPtBrLocal(asDate)}*`);
 
     for (const reservation of items) {
       const parsedNotes = parseReservationNotes(reservation.notes);
@@ -478,7 +485,7 @@ function buildDailyReservationsMessage(params: {
         parsedNotes.customerPhone ?? reservation.contactPhone
       );
 
-      lines.push(`🕒 Horario: ${formatTimeLabelPtBr(reservation.startAt, params.timeZone)}`);
+      lines.push(`🕒 Horario: ${formatTimeLabelPtBrLocal(reservation.startAt)}`);
       lines.push(`🔧 Sobre: ${service}`);
       lines.push(`🚗 Carro: ${vehicleModel}`);
       lines.push(`📏 KM: ${formatKm(parsedNotes.vehicle?.km)}`);
@@ -522,7 +529,7 @@ export async function sendReservationGroupListForOrg(
     reservationSchedule.timezone.trim().length > 0
       ? reservationSchedule.timezone.trim()
       : "America/Sao_Paulo";
-  const now = new Date();
+  const now = getNowClockInTimezone(timeZone);
 
   const rows = await db
     .select({
