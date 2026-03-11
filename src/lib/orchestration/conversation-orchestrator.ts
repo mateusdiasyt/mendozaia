@@ -2386,35 +2386,78 @@ function normalizePlainText(value: string): string {
     .trim();
 }
 
+const VEHICLE_MODEL_NOISE_PREFIX = new Set([
+  "ok",
+  "okay",
+  "blz",
+  "beleza",
+  "certo",
+  "perfeito",
+  "show",
+  "entendi",
+  "entao",
+  "então",
+  "sim",
+  "nao",
+  "não",
+  "bom",
+  "boa",
+  "dia",
+  "tarde",
+  "noite",
+  "prazer",
+]);
+
 function stripContactNamePrefixFromVehicleModel(
   model: string | undefined | null,
   contactName: string | undefined | null
 ): string | undefined {
   if (!model?.trim()) return undefined;
-  if (!contactName?.trim()) return model.trim();
-
   const rawModelTokens = model.trim().split(/\s+/).filter(Boolean);
-  if (rawModelTokens.length < 2) return model.trim();
+  if (rawModelTokens.length === 0) return model.trim();
 
-  const modelTokens = normalizePlainText(model).split(/\s+/).filter(Boolean);
-  const nameTokens = normalizePlainText(contactName).split(/\s+/).filter(Boolean);
-  if (modelTokens.length < 2 || nameTokens.length === 0) return model.trim();
+  const normalizedModelTokens = rawModelTokens
+    .map((token) => normalizePlainText(token))
+    .filter(Boolean);
+  if (normalizedModelTokens.length === 0) return model.trim();
 
-  let removeCount = 0;
-  if (
-    nameTokens.length <= modelTokens.length &&
-    nameTokens.every((token, index) => modelTokens[index] === token)
+  let startIndex = 0;
+  while (
+    startIndex < normalizedModelTokens.length &&
+    VEHICLE_MODEL_NOISE_PREFIX.has(normalizedModelTokens[startIndex] ?? "")
   ) {
-    removeCount = nameTokens.length;
-  } else if (modelTokens[0] === nameTokens[0]) {
-    removeCount = 1;
+    startIndex += 1;
   }
 
-  if (removeCount <= 0 || rawModelTokens.length <= removeCount) {
+  if (contactName?.trim()) {
+    const nameTokens = normalizePlainText(contactName).split(/\s+/).filter(Boolean);
+    if (nameTokens.length > 0) {
+      let nameMatches = true;
+      for (let i = 0; i < nameTokens.length; i++) {
+        if (normalizedModelTokens[startIndex + i] !== nameTokens[i]) {
+          nameMatches = false;
+          break;
+        }
+      }
+      if (nameMatches) {
+        startIndex += nameTokens.length;
+      } else if (normalizedModelTokens[startIndex] === nameTokens[0]) {
+        startIndex += 1;
+      }
+    }
+  }
+
+  while (
+    startIndex < normalizedModelTokens.length &&
+    VEHICLE_MODEL_NOISE_PREFIX.has(normalizedModelTokens[startIndex] ?? "")
+  ) {
+    startIndex += 1;
+  }
+
+  if (startIndex <= 0 || rawModelTokens.length <= startIndex) {
     return model.trim();
   }
-
-  const stripped = rawModelTokens.slice(removeCount).join(" ").trim();
+  const stripped = rawModelTokens.slice(startIndex).join(" ").trim();
   return stripped || model.trim();
 }
 
