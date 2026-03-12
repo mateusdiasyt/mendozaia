@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import Image from "next/image";
 import { WhatsAppConnect } from "@/components/whatsapp/connect";
 import { SessionConnectionActions } from "@/components/whatsapp/session-connection-actions";
+import { SessionNameEditor } from "@/components/whatsapp/session-name-editor";
 import { SyncWebhooksOnLoad } from "@/components/whatsapp/sync-webhooks";
 import {
   MessageCircle,
@@ -221,9 +222,10 @@ export default async function WhatsAppPage() {
                         </div>
                       </div>
 
-                      <h3 className="text-lg font-semibold leading-tight text-white">
-                        {session.name || session.sessionId}
-                      </h3>
+                      <SessionNameEditor
+                        sessionId={session.sessionId}
+                        initialName={session.name || session.sessionId}
+                      />
                       <p className="mt-1 text-sm text-white/70">
                         {session.phoneNumber || "Sem numero vinculado"}
                       </p>

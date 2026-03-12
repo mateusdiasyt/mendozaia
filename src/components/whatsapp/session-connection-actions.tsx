@@ -120,7 +120,7 @@ export function SessionConnectionActions({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <SessionConnect sessionId={sessionId} />
+            <SessionConnect sessionId={sessionId} autoFetch />
           </div>
         </div>
       ) : null}

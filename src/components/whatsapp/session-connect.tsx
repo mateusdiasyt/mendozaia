@@ -1,19 +1,21 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { RefreshCw, Loader2, CheckCircle } from "lucide-react";
 
 interface SessionConnectProps {
   sessionId: string;
+  autoFetch?: boolean;
 }
 
-export function SessionConnect({ sessionId }: SessionConnectProps) {
+export function SessionConnect({ sessionId, autoFetch = false }: SessionConnectProps) {
   const router = useRouter();
   const [qr, setQr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasAutoFetchedRef = useRef(false);
 
   async function syncStatus() {
     setSyncLoading(true);
@@ -50,6 +52,13 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!autoFetch || hasAutoFetchedRef.current) return;
+    hasAutoFetchedRef.current = true;
+    fetchQR();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFetch]);
 
   return (
     <div className="rounded-2xl border border-[var(--brand-muted)]/25 bg-[var(--brand-surface)] p-6">
@@ -88,21 +97,12 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
             disabled={loading}
             className="flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:opacity-90 disabled:opacity-50"
           >
-            {qr ? (
-              <>
-                <RefreshCw className="h-4 w-4" />
-                Atualizar QR Code
-              </>
+            {loading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <>
-                {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-                Gerar QR Code
-              </>
+              <RefreshCw className="h-4 w-4" />
             )}
+            Atualizar
           </button>
           <button
             onClick={syncStatus}
@@ -114,11 +114,11 @@ export function SessionConnect({ sessionId }: SessionConnectProps) {
             ) : (
               <CheckCircle className="h-4 w-4" />
             )}
-            Verificar status
+            Verificar
           </button>
         </div>
         <p className="text-center text-xs text-[var(--brand-muted)]">
-          Ja conectou no celular? Clique em &quot;Verificar status&quot; para atualizar.
+          Ja conectou no celular? Clique em &quot;Verificar&quot; para atualizar.
         </p>
       </div>
     </div>
