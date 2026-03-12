@@ -3288,6 +3288,16 @@ export async function loadConversationContext(
     saturdayEnd:
       (reservationScheduleSettings.saturdayEnd as string | undefined) ||
       "12:00",
+    dateOverrides: Array.isArray(reservationScheduleSettings.dateOverrides)
+      ? (reservationScheduleSettings.dateOverrides as Array<{
+          date: string;
+          start: string;
+          end: string;
+          lunchBreakStart?: string | null;
+          lunchBreakEnd?: string | null;
+          closed?: boolean;
+        }>)
+      : [],
   };
   const usesVehicleSlots =
     configuredSegment
@@ -4002,6 +4012,7 @@ export async function processInboundMessage(
           lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
           lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
           saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+          dateOverrides: Array.isArray(ctx.reservationSchedule?.dateOverrides) ? ctx.reservationSchedule?.dateOverrides : [],
         },
         {
           dateStr: parsedDateTimeHint.dateStr,
@@ -7178,6 +7189,7 @@ export async function processInboundMessage(
       lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
       lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
       saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+          dateOverrides: Array.isArray(ctx.reservationSchedule?.dateOverrides) ? ctx.reservationSchedule?.dateOverrides : [],
     };
     const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const rf = getRestaurantReservationFlow(conversationMetadata);
@@ -7491,6 +7503,7 @@ export async function processInboundMessage(
       lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
       lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
       saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+          dateOverrides: Array.isArray(ctx.reservationSchedule?.dateOverrides) ? ctx.reservationSchedule?.dateOverrides : [],
     };
     const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
@@ -7821,6 +7834,7 @@ export async function processInboundMessage(
       lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
       lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
       saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+          dateOverrides: Array.isArray(ctx.reservationSchedule?.dateOverrides) ? ctx.reservationSchedule?.dateOverrides : [],
     };
     const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const missingVehicle = ctx.usesVehicleSlots
@@ -8731,6 +8745,7 @@ if (
       lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
       lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
       saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+          dateOverrides: Array.isArray(ctx.reservationSchedule?.dateOverrides) ? ctx.reservationSchedule?.dateOverrides : [],
     };
     const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
 
@@ -9112,4 +9127,6 @@ if (
     silence: false,
   };
 }
+
+
 

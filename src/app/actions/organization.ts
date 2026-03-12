@@ -44,6 +44,14 @@ export interface ReservationScheduleConfig {
   lunchBreakStart?: string;
   lunchBreakEnd?: string;
   saturdayEnd?: string;
+  dateOverrides?: Array<{
+    date: string;
+    start: string;
+    end: string;
+    lunchBreakStart?: string | null;
+    lunchBreakEnd?: string | null;
+    closed?: boolean;
+  }>;
 }
 
 export interface BusinessProfileConfig {
@@ -328,6 +336,64 @@ export async function updateReservationScheduleConfig(
         .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
     : [];
 
+  const rawOverrides = Array.isArray(config.dateOverrides)
+    ? config.dateOverrides
+    : [];
+  const overrideMap = new Map<
+    string,
+    {
+      date: string;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+      closed?: boolean;
+    }
+  >();
+  for (const item of rawOverrides) {
+    const date = typeof item?.date === "string" ? item.date.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const itemStart = typeof item?.start === "string" ? item.start.trim() : "";
+    const itemEnd = typeof item?.end === "string" ? item.end.trim() : "";
+    const closed = Boolean(item?.closed);
+    if (!closed) {
+      if (!timePattern.test(itemStart) || !timePattern.test(itemEnd)) continue;
+      if (toMinutes(itemEnd) <= toMinutes(itemStart)) continue;
+    }
+    let lunchBreakStartOverride: string | null = null;
+    let lunchBreakEndOverride: string | null = null;
+    if (
+      typeof item?.lunchBreakStart === "string" &&
+      item.lunchBreakStart.trim().length > 0 &&
+      typeof item?.lunchBreakEnd === "string" &&
+      item.lunchBreakEnd.trim().length > 0 &&
+      timePattern.test(item.lunchBreakStart.trim()) &&
+      timePattern.test(item.lunchBreakEnd.trim())
+    ) {
+      const lunchStart = toMinutes(item.lunchBreakStart.trim());
+      const lunchEnd = toMinutes(item.lunchBreakEnd.trim());
+      if (
+        lunchEnd > lunchStart &&
+        lunchStart >= toMinutes(itemStart || start) &&
+        lunchEnd <= toMinutes(itemEnd || end)
+      ) {
+        lunchBreakStartOverride = item.lunchBreakStart.trim();
+        lunchBreakEndOverride = item.lunchBreakEnd.trim();
+      }
+    }
+    overrideMap.set(date, {
+      date,
+      start: itemStart || start,
+      end: itemEnd || end,
+      lunchBreakStart: lunchBreakStartOverride,
+      lunchBreakEnd: lunchBreakEndOverride,
+      closed,
+    });
+  }
+  const safeDateOverrides = Array.from(overrideMap.values()).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
   const reservationSchedule: ReservationScheduleConfig = {
     start,
     end,
@@ -337,6 +403,7 @@ export async function updateReservationScheduleConfig(
     lunchBreakStart,
     lunchBreakEnd,
     saturdayEnd,
+    dateOverrides: safeDateOverrides,
   };
 
   await db

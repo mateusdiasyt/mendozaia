@@ -3,6 +3,15 @@
 import { useState } from "react";
 import { updateReservationScheduleConfig } from "@/app/actions/organization";
 
+type DateOverride = {
+  date: string;
+  start: string;
+  end: string;
+  lunchBreakStart?: string | null;
+  lunchBreakEnd?: string | null;
+  closed?: boolean;
+};
+
 interface ReservationScheduleFormProps {
   initialConfig: {
     start: string;
@@ -10,9 +19,7 @@ interface ReservationScheduleFormProps {
     timezone: string;
     workingDays: number[];
     blockedDates: string[];
-    lunchBreakStart: string;
-    lunchBreakEnd: string;
-    saturdayEnd: string;
+    dateOverrides?: DateOverride[];
   };
 }
 
@@ -31,16 +38,21 @@ export function ReservationScheduleForm({
 }: ReservationScheduleFormProps) {
   const [start, setStart] = useState(initialConfig.start);
   const [end, setEnd] = useState(initialConfig.end);
-  const [lunchBreakStart, setLunchBreakStart] = useState(
-    initialConfig.lunchBreakStart
-  );
-  const [lunchBreakEnd, setLunchBreakEnd] = useState(initialConfig.lunchBreakEnd);
-  const [saturdayEnd, setSaturdayEnd] = useState(initialConfig.saturdayEnd);
   const [timezone, setTimezone] = useState(initialConfig.timezone);
   const [workingDays, setWorkingDays] = useState<number[]>(initialConfig.workingDays);
   const [blockedDates, setBlockedDates] = useState<string[]>(
     [...new Set(initialConfig.blockedDates)].sort()
   );
+  const [dateOverrides, setDateOverrides] = useState<DateOverride[]>(
+    [...(initialConfig.dateOverrides ?? [])]
+      .filter((item) => item?.date)
+      .sort((a, b) => a.date.localeCompare(b.date))
+  );
+  const [pendingOverrideDate, setPendingOverrideDate] = useState("");
+  const [pendingOverrideStart, setPendingOverrideStart] = useState("09:00");
+  const [pendingOverrideEnd, setPendingOverrideEnd] = useState("18:00");
+  const [pendingOverrideLunchStart, setPendingOverrideLunchStart] = useState("12:00");
+  const [pendingOverrideLunchEnd, setPendingOverrideLunchEnd] = useState("13:00");
   const [pendingBlockedDate, setPendingBlockedDate] = useState("");
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
@@ -62,10 +74,6 @@ export function ReservationScheduleForm({
     if (!pendingBlockedDate) return;
     setBlockedDates((prev) => [...new Set([...prev, pendingBlockedDate])].sort());
     setPendingBlockedDate("");
-  }
-
-  function removeBlockedDate(date: string) {
-    setBlockedDates((prev) => prev.filter((d) => d !== date));
   }
 
   function formatDateLabel(date: string): string {
@@ -105,6 +113,48 @@ export function ReservationScheduleForm({
     );
   }
 
+  function addDateOverride() {
+    if (!pendingOverrideDate) return;
+    if (pendingOverrideStart >= pendingOverrideEnd) {
+      setMessage({
+        type: "error",
+        text: "No ajuste por data, o horario final deve ser maior que o inicial.",
+      });
+      return;
+    }
+
+    let lunchBreakStart: string | null = null;
+    let lunchBreakEnd: string | null = null;
+    if (pendingOverrideLunchStart && pendingOverrideLunchEnd) {
+      if (pendingOverrideLunchStart < pendingOverrideLunchEnd) {
+        lunchBreakStart = pendingOverrideLunchStart;
+        lunchBreakEnd = pendingOverrideLunchEnd;
+      }
+    }
+
+    const next: DateOverride = {
+      date: pendingOverrideDate,
+      start: pendingOverrideStart,
+      end: pendingOverrideEnd,
+      lunchBreakStart,
+      lunchBreakEnd,
+      closed: false,
+    };
+
+    setDateOverrides((prev) => {
+      const map = new Map(prev.map((item) => [item.date, item]));
+      map.set(next.date, next);
+      return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    });
+
+    setPendingOverrideDate("");
+    setMessage(null);
+  }
+
+  function removeDateOverride(date: string) {
+    setDateOverrides((prev) => prev.filter((item) => item.date !== date));
+  }
+
   const blockedDateSet = new Set(blockedDates);
   const monthCells = buildMonthCells(monthCursor);
   const monthTitle = monthCursor.toLocaleDateString("pt-BR", {
@@ -126,33 +176,13 @@ export function ReservationScheduleForm({
       return;
     }
 
-    if (lunchBreakStart >= lunchBreakEnd) {
-      setSaving(false);
-      setMessage({
-        type: "error",
-        text: "O fim do intervalo deve ser maior que o inicio do intervalo.",
-      });
-      return;
-    }
-
-    if (saturdayEnd < start || saturdayEnd > end) {
-      setSaving(false);
-      setMessage({
-        type: "error",
-        text: "O termino de sabado deve ficar dentro do horario geral.",
-      });
-      return;
-    }
-
     const result = await updateReservationScheduleConfig({
       start,
       end,
       timezone: timezone.trim() || "America/Sao_Paulo",
       workingDays,
       blockedDates,
-      lunchBreakStart,
-      lunchBreakEnd,
-      saturdayEnd,
+      dateOverrides,
     });
 
     setSaving(false);
@@ -174,7 +204,7 @@ export function ReservationScheduleForm({
       <div>
         <h3 className="font-medium text-slate-900">Agenda de atendimento</h3>
         <p className="mt-1 text-sm text-slate-500">
-          O bot usa esta configuracao para sugerir e validar horarios de reserva.
+          Configure horario base e excecoes por data para o bot sugerir os horarios certos.
         </p>
       </div>
 
@@ -213,39 +243,6 @@ export function ReservationScheduleForm({
         </label>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <label className="text-sm font-medium text-slate-700">
-          Intervalo inicio
-          <input
-            type="time"
-            value={lunchBreakStart}
-            onChange={(e) => setLunchBreakStart(e.target.value)}
-            className={inputClass}
-            required
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          Intervalo fim
-          <input
-            type="time"
-            value={lunchBreakEnd}
-            onChange={(e) => setLunchBreakEnd(e.target.value)}
-            className={inputClass}
-            required
-          />
-        </label>
-        <label className="text-sm font-medium text-slate-700">
-          Fim de sabado
-          <input
-            type="time"
-            value={saturdayEnd}
-            onChange={(e) => setSaturdayEnd(e.target.value)}
-            className={inputClass}
-            required
-          />
-        </label>
-      </div>
-
       <label className="block text-sm font-medium text-slate-700">
         Timezone
         <input
@@ -277,6 +274,99 @@ export function ReservationScheduleForm({
               </button>
             );
           })}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm font-semibold text-slate-900">Configuracao por data</p>
+        <p className="mt-1 text-xs text-slate-500">
+          Use para excecoes especificas (ex: feriado, meio expediente, horario especial).
+        </p>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-5">
+          <label className="text-sm font-medium text-slate-700 md:col-span-2">
+            Data
+            <input
+              type="date"
+              value={pendingOverrideDate}
+              onChange={(e) => setPendingOverrideDate(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Inicio
+            <input
+              type="time"
+              value={pendingOverrideStart}
+              onChange={(e) => setPendingOverrideStart(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Fim
+            <input
+              type="time"
+              value={pendingOverrideEnd}
+              onChange={(e) => setPendingOverrideEnd(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <div className="md:col-span-5 grid gap-3 sm:grid-cols-3">
+            <label className="text-sm font-medium text-slate-700">
+              Intervalo inicio
+              <input
+                type="time"
+                value={pendingOverrideLunchStart}
+                onChange={(e) => setPendingOverrideLunchStart(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              Intervalo fim
+              <input
+                type="time"
+                value={pendingOverrideLunchEnd}
+                onChange={(e) => setPendingOverrideLunchEnd(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={addDateOverride}
+                className="h-11 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+              >
+                Salvar data
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {dateOverrides.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
+              Nenhuma excecao por data cadastrada.
+            </div>
+          ) : (
+            dateOverrides.map((item) => (
+              <div key={item.date} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                <div className="text-slate-700">
+                  <span className="font-semibold">{formatDateLabel(item.date)}</span>
+                  <span className="ml-2">{item.start} as {item.end}</span>
+                  {item.lunchBreakStart && item.lunchBreakEnd && (
+                    <span className="ml-2 text-slate-500">(intervalo {item.lunchBreakStart}-{item.lunchBreakEnd})</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeDateOverride(item.date)}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Remover
+                </button>
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -379,39 +469,13 @@ export function ReservationScheduleForm({
               );
             })}
           </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Clique no dia para bloquear ou desbloquear rapidamente.
-          </p>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-            Resumo das datas bloqueadas ({blockedDates.length})
-          </p>
-          {blockedDates.length === 0 ? (
-            <p className="mt-2 text-sm text-slate-500">Nenhuma data bloqueada.</p>
-          ) : (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {blockedDates.map((date) => (
-                <button
-                  key={date}
-                  type="button"
-                  onClick={() => removeBlockedDate(date)}
-                  className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100"
-                  title="Remover bloqueio"
-                >
-                  {formatDateLabel(date)} x
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
       <button
         type="submit"
         disabled={saving}
-        className="rounded-xl bg-indigo-600 px-4 py-2.5 font-medium text-white shadow-sm transition-colors hover:bg-indigo-500 disabled:opacity-60"
+        className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
       >
         {saving ? "Salvando..." : "Salvar agenda"}
       </button>

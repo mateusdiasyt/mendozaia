@@ -36,6 +36,16 @@ export interface ReservationScheduleConfigNormalized {
   lunchBreakStart: string;
   lunchBreakEnd: string;
   saturdayEnd: string;
+  dateOverrides: ReservationDateOverride[];
+}
+
+export interface ReservationDateOverride {
+  date: string;
+  start: string;
+  end: string;
+  lunchBreakStart?: string | null;
+  lunchBreakEnd?: string | null;
+  closed?: boolean;
 }
 
 type ReservationScheduleWindow = {
@@ -52,6 +62,7 @@ const DEFAULT_RESERVATION_SCHEDULE: ReservationScheduleConfigNormalized = {
   lunchBreakStart: "12:00",
   lunchBreakEnd: "13:00",
   saturdayEnd: "12:00",
+  dateOverrides: [],
 };
 
 function isValidTimeValue(value: string): boolean {
@@ -114,6 +125,7 @@ export function normalizeReservationScheduleConfig(
     ),
     lunchBreakEnd: normalizeTimeValue(config?.lunchBreakEnd, base.lunchBreakEnd),
     saturdayEnd: normalizeTimeValue(config?.saturdayEnd, base.saturdayEnd),
+    dateOverrides: [],
   };
 
   const openingMinutes = toMinutes(normalized.start);
@@ -151,7 +163,78 @@ export function normalizeReservationScheduleConfig(
     normalized.lunchBreakEnd = base.lunchBreakEnd;
   }
 
+  const rawOverrides = Array.isArray(config?.dateOverrides)
+    ? config?.dateOverrides
+    : [];
+  const byDate = new Map<string, ReservationDateOverride>();
+  for (const item of rawOverrides) {
+    if (!item || typeof item !== "object") continue;
+    const rawDate =
+      typeof (item as { date?: unknown }).date === "string"
+        ? (item as { date: string }).date.trim()
+        : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) continue;
+
+    const closed = Boolean((item as { closed?: unknown }).closed);
+    const itemStart = normalizeTimeValue(
+      (item as { start?: unknown }).start,
+      normalized.start
+    );
+    const itemEnd = normalizeTimeValue(
+      (item as { end?: unknown }).end,
+      normalized.end
+    );
+    const itemStartMinutes = toMinutes(itemStart);
+    const itemEndMinutes = toMinutes(itemEnd);
+    if (!closed && (itemStartMinutes < 0 || itemEndMinutes <= itemStartMinutes)) {
+      continue;
+    }
+
+    const rawLunchStart = (item as { lunchBreakStart?: unknown }).lunchBreakStart;
+    const rawLunchEnd = (item as { lunchBreakEnd?: unknown }).lunchBreakEnd;
+    const hasLunchRaw =
+      typeof rawLunchStart === "string" &&
+      rawLunchStart.trim().length > 0 &&
+      typeof rawLunchEnd === "string" &&
+      rawLunchEnd.trim().length > 0;
+    let lunchBreakStart: string | null = null;
+    let lunchBreakEnd: string | null = null;
+    if (hasLunchRaw) {
+      const normalizedLunchStart = normalizeTimeValue(rawLunchStart, itemStart);
+      const normalizedLunchEnd = normalizeTimeValue(rawLunchEnd, itemEnd);
+      const lunchStart = toMinutes(normalizedLunchStart);
+      const lunchEnd = toMinutes(normalizedLunchEnd);
+      if (
+        lunchEnd > lunchStart &&
+        lunchStart >= itemStartMinutes &&
+        lunchEnd <= itemEndMinutes
+      ) {
+        lunchBreakStart = normalizedLunchStart;
+        lunchBreakEnd = normalizedLunchEnd;
+      }
+    }
+
+    byDate.set(rawDate, {
+      date: rawDate,
+      start: itemStart,
+      end: itemEnd,
+      lunchBreakStart,
+      lunchBreakEnd,
+      closed,
+    });
+  }
+  normalized.dateOverrides = Array.from(byDate.values()).sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+
   return normalized;
+}
+
+function getDateOverride(
+  dateStr: string,
+  schedule: ReservationScheduleConfigNormalized
+): ReservationDateOverride | null {
+  return schedule.dateOverrides.find((item) => item.date === dateStr) ?? null;
 }
 
 function getDayClosingMinutes(
@@ -171,6 +254,8 @@ export function isDateAllowedForSchedule(
 ): boolean {
   const normalized = normalizeReservationScheduleConfig(schedule);
   if (normalized.blockedDates.includes(dateStr)) return false;
+  const override = getDateOverride(dateStr, normalized);
+  if (override) return !override.closed;
   const date = parseDateLocal(dateStr);
   if (!date) return false;
   return normalized.workingDays.includes(date.getDay());
@@ -182,9 +267,12 @@ export function getReservationWindowsForDate(
 ): ReservationScheduleWindow[] {
   const normalized = normalizeReservationScheduleConfig(schedule);
   if (!isDateAllowedForSchedule(dateStr, normalized)) return [];
+  const override = getDateOverride(dateStr, normalized);
+  if (override?.closed) return [];
 
-  const openingMinutes = toMinutes(normalized.start);
-  const dayClosingMinutes = getDayClosingMinutes(dateStr, normalized);
+  const effectiveStart = override?.start ?? normalized.start;
+  const openingMinutes = toMinutes(effectiveStart);
+  const dayClosingMinutes = override ? toMinutes(override.end) : getDayClosingMinutes(dateStr, normalized);
   if (
     openingMinutes < 0 ||
     dayClosingMinutes < 0 ||
@@ -193,8 +281,17 @@ export function getReservationWindowsForDate(
     return [];
   }
 
-  const lunchStartMinutes = toMinutes(normalized.lunchBreakStart);
-  const lunchEndMinutes = toMinutes(normalized.lunchBreakEnd);
+  const effectiveLunchStart =
+    override?.lunchBreakStart && override.lunchBreakEnd
+      ? override.lunchBreakStart
+      : normalized.lunchBreakStart;
+  const effectiveLunchEnd =
+    override?.lunchBreakStart && override.lunchBreakEnd
+      ? override.lunchBreakEnd
+      : normalized.lunchBreakEnd;
+
+  const lunchStartMinutes = toMinutes(effectiveLunchStart);
+  const lunchEndMinutes = toMinutes(effectiveLunchEnd);
   const hasLunchBreak =
     lunchStartMinutes >= openingMinutes &&
     lunchEndMinutes <= dayClosingMinutes &&
@@ -394,6 +491,9 @@ export async function checkAvailabilityForOrg(
     lunchBreakStart: schedule.lunchBreakStart as string | undefined,
     lunchBreakEnd: schedule.lunchBreakEnd as string | undefined,
     saturdayEnd: schedule.saturdayEnd as string | undefined,
+    dateOverrides: Array.isArray(schedule.dateOverrides)
+      ? (schedule.dateOverrides as ReservationDateOverride[])
+      : [],
   });
 
   const date = parseDateLocal(dateStr);
@@ -562,6 +662,9 @@ export async function listAvailableSlotsForOrg(
     lunchBreakStart: schedule.lunchBreakStart as string | undefined,
     lunchBreakEnd: schedule.lunchBreakEnd as string | undefined,
     saturdayEnd: schedule.saturdayEnd as string | undefined,
+    dateOverrides: Array.isArray(schedule.dateOverrides)
+      ? (schedule.dateOverrides as ReservationDateOverride[])
+      : [],
   });
 
   const date = parseDateLocal(dateStr);

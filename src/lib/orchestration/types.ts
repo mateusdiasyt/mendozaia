@@ -62,6 +62,14 @@ export interface OrchestrationContext {
     lunchBreakStart?: string;
     lunchBreakEnd?: string;
     saturdayEnd?: string;
+    dateOverrides?: Array<{
+      date: string;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+      closed?: boolean;
+    }>;
   };
   businessProfile?: {
     botName?: string | null;

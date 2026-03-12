@@ -101,17 +101,21 @@ export default async function ConfiguracoesPage({
     (reservationSchedule.timezone as string | undefined) ||
     (businessHours.timezone as string | undefined) ||
     "America/Sao_Paulo";
-  const scheduleLunchBreakStart =
-    (reservationSchedule.lunchBreakStart as string | undefined) || "12:00";
-  const scheduleLunchBreakEnd =
-    (reservationSchedule.lunchBreakEnd as string | undefined) || "13:00";
-  const scheduleSaturdayEnd =
-    (reservationSchedule.saturdayEnd as string | undefined) || "12:00";
   const scheduleWorkingDays = Array.isArray(reservationSchedule.workingDays)
     ? (reservationSchedule.workingDays as number[])
     : [1, 2, 3, 4, 5];
   const scheduleBlockedDates = Array.isArray(reservationSchedule.blockedDates)
     ? (reservationSchedule.blockedDates as string[])
+    : [];
+  const scheduleDateOverrides = Array.isArray(reservationSchedule.dateOverrides)
+    ? (reservationSchedule.dateOverrides as Array<{
+        date: string;
+        start: string;
+        end: string;
+        lunchBreakStart?: string | null;
+        lunchBreakEnd?: string | null;
+        closed?: boolean;
+      }>)
     : [];
   const isPlanActive = org.plan !== "free" && org.plan !== "none";
   const planLabel =
@@ -301,9 +305,7 @@ export default async function ConfiguracoesPage({
                 timezone: scheduleTimezone,
                 workingDays: scheduleWorkingDays,
                 blockedDates: scheduleBlockedDates,
-                lunchBreakStart: scheduleLunchBreakStart,
-                lunchBreakEnd: scheduleLunchBreakEnd,
-                saturdayEnd: scheduleSaturdayEnd,
+                dateOverrides: scheduleDateOverrides,
               }}
             />
             {!isPlanActive && <LockedOverlay />}
