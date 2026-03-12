@@ -21,6 +21,38 @@ import { sendMetaTextMessage } from "@/lib/meta-api";
 
 type OrchestrationLogMetadata = Record<string, unknown> | null;
 
+function normalizeVehicleModelToken(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function alignModelToSupportedList(
+  rawModel: string,
+  supportedModels: string[]
+): string | null {
+  const rawNormalized = normalizeVehicleModelToken(rawModel);
+  if (!rawNormalized) return null;
+
+  const candidates = supportedModels
+    .map((model) => ({ original: model.trim(), normalized: normalizeVehicleModelToken(model) }))
+    .filter((entry) => entry.original.length > 0 && entry.normalized.length > 0);
+
+  const exact = candidates.find((entry) => entry.normalized === rawNormalized);
+  if (exact) return exact.original;
+
+  const words = rawNormalized.split(" ").filter(Boolean);
+  const contains = candidates.find((entry) => {
+    if (entry.normalized.length < 3) return false;
+    if (rawNormalized.includes(entry.normalized)) return true;
+    return words.some((word) => word.length >= 3 && entry.normalized.includes(word));
+  });
+  return contains?.original ?? null;
+}
+
 export async function setConversationAIDisabled(
   conversationId: string,
   hours: number
@@ -222,6 +254,121 @@ export async function setConversationVehicleOil(
 
   revalidatePath(`/dashboard/conversas/${conversationId}`);
   return { success: true, oilSpec: value || null };
+}
+
+export async function updateConversationVehicleData(
+  conversationId: string,
+  data: {
+    model?: string | null;
+    year?: string | null;
+    km?: string | null;
+  }
+) {
+  const session = await auth();
+  if (!session?.user?.id) throw new Error("Não autorizado");
+
+  const org = await getCurrentOrganization();
+  if (!org) throw new Error("Organização não encontrada");
+
+  const [conv] = await db
+    .select({ id: conversations.id, contactId: conversations.contactId })
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        eq(conversations.organizationId, org.id)
+      )
+    )
+    .limit(1);
+
+  if (!conv) throw new Error("Conversa não encontrada");
+
+  const cleanModelRaw = (data.model ?? "").trim();
+  const cleanYearRaw = (data.year ?? "").trim();
+  const cleanKmRaw = (data.km ?? "").trim();
+  const orgSettings = (org.settings as Record<string, unknown> | undefined) ?? {};
+  const vehiclePolicySettings =
+    (orgSettings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
+  const supportedModels = Array.isArray(vehiclePolicySettings.supportedModels)
+    ? (vehiclePolicySettings.supportedModels as string[]).filter(
+        (model) => typeof model === "string" && model.trim().length > 0
+      )
+    : [];
+  const cleanModel =
+    cleanModelRaw.length === 0
+      ? null
+      : (() => {
+          const alignedModel = alignModelToSupportedList(cleanModelRaw, supportedModels);
+          if (supportedModels.length > 0 && !alignedModel) {
+            throw new Error("Modelo não encontrado na tabela de veículos atendidos");
+          }
+          return alignedModel ?? cleanModelRaw;
+        })();
+
+  const cleanYear =
+    cleanYearRaw.length === 0
+      ? null
+      : (() => {
+          const parsed = Number.parseInt(cleanYearRaw.replace(/\D+/g, ""), 10);
+          if (!Number.isFinite(parsed) || parsed < 1900 || parsed > 2035) {
+            throw new Error("Ano inválido");
+          }
+          return String(parsed);
+        })();
+
+  const cleanKm =
+    cleanKmRaw.length === 0
+      ? null
+      : (() => {
+          const parsed = Number.parseInt(cleanKmRaw.replace(/\D+/g, ""), 10);
+          if (!Number.isFinite(parsed) || parsed < 0) {
+            throw new Error("KM inválido");
+          }
+          return String(parsed);
+        })();
+
+  if (!cleanModel) {
+    await db
+      .delete(contactMemories)
+      .where(
+        and(
+          eq(contactMemories.contactId, conv.contactId),
+          eq(contactMemories.key, "vehicle_model")
+        )
+      );
+  } else {
+    await saveContactMemory(conv.contactId, "vehicle_model", cleanModel);
+  }
+
+  if (!cleanYear) {
+    await db
+      .delete(contactMemories)
+      .where(
+        and(
+          eq(contactMemories.contactId, conv.contactId),
+          eq(contactMemories.key, "vehicle_year")
+        )
+      );
+  } else {
+    await saveContactMemory(conv.contactId, "vehicle_year", cleanYear);
+  }
+
+  if (!cleanKm) {
+    await db
+      .delete(contactMemories)
+      .where(
+        and(
+          eq(contactMemories.contactId, conv.contactId),
+          eq(contactMemories.key, "vehicle_km")
+        )
+      );
+  } else {
+    await saveContactMemory(conv.contactId, "vehicle_km", cleanKm);
+  }
+
+  revalidatePath(`/dashboard/conversas/${conversationId}`);
+  revalidatePath("/dashboard/conversas");
+  return { success: true };
 }
 
 export async function updateConversationContactData(

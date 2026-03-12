@@ -8,6 +8,7 @@ import {
   setConversationCarInShop,
   setConversationHumanWaiting,
   setConversationVehicleOil,
+  updateConversationVehicleData,
   updateConversationReservationDraft,
 } from "@/app/actions/messages";
 import { useRouter } from "next/navigation";
@@ -64,6 +65,13 @@ export function AIControlSidebar({
   const [isWaitingHuman, setIsWaitingHuman] = useState(waitingHuman);
   const [oilSpec, setOilSpec] = useState(vehicleOilSpec ?? "");
   const [updatingOil, setUpdatingOil] = useState(false);
+  const [updatingVehicle, setUpdatingVehicle] = useState(false);
+  const [editingVehicleField, setEditingVehicleField] = useState<
+    "model" | "year" | "km" | null
+  >(null);
+  const [editingVehicleModel, setEditingVehicleModel] = useState(vehicleModel ?? "");
+  const [editingVehicleYear, setEditingVehicleYear] = useState(vehicleYear ?? "");
+  const [editingVehicleKm, setEditingVehicleKm] = useState(vehicleKm ?? "");
   const [editingReservationDate, setEditingReservationDate] = useState(
     reservationDateStr ?? ""
   );
@@ -91,6 +99,18 @@ export function AIControlSidebar({
   useEffect(() => {
     setOilSpec(vehicleOilSpec ?? "");
   }, [vehicleOilSpec]);
+
+  useEffect(() => {
+    setEditingVehicleModel(vehicleModel ?? "");
+  }, [vehicleModel]);
+
+  useEffect(() => {
+    setEditingVehicleYear(vehicleYear ?? "");
+  }, [vehicleYear]);
+
+  useEffect(() => {
+    setEditingVehicleKm(vehicleKm ?? "");
+  }, [vehicleKm]);
 
   useEffect(() => {
     setEditingReservationDate(reservationDateStr ?? "");
@@ -246,6 +266,23 @@ export function AIControlSidebar({
     }
   }
 
+  async function handleSaveVehicleFields() {
+    setUpdatingVehicle(true);
+    try {
+      await updateConversationVehicleData(conversationId, {
+        model: editingVehicleModel || null,
+        year: editingVehicleYear || null,
+        km: editingVehicleKm || null,
+      });
+      setEditingVehicleField(null);
+      router.refresh();
+    } catch {
+      // noop
+    } finally {
+      setUpdatingVehicle(false);
+    }
+  }
+
   const selectClass =
     "w-full rounded-lg border border-[var(--brand-muted)]/30 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] transition focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15 disabled:cursor-not-allowed disabled:opacity-60";
 
@@ -330,15 +367,96 @@ export function AIControlSidebar({
               <div className="grid grid-cols-3 gap-2 text-xs text-[var(--brand-deep)]">
                 <div>
                   <p className="text-[11px] text-[var(--brand-muted)]">Modelo</p>
-                  <p className="font-medium">{vehicleModel || "-"}</p>
+                  {editingVehicleField === "model" ? (
+                    <input
+                      autoFocus
+                      value={editingVehicleModel}
+                      disabled={updatingVehicle}
+                      onChange={(event) => setEditingVehicleModel(event.target.value)}
+                      onBlur={() => void handleSaveVehicleFields()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSaveVehicleFields();
+                        }
+                        if (event.key === "Escape") {
+                          setEditingVehicleModel(vehicleModel ?? "");
+                          setEditingVehicleField(null);
+                        }
+                      }}
+                      className="mt-0.5 h-7 w-full rounded border border-[var(--brand-muted)]/30 bg-white px-2 text-xs"
+                    />
+                  ) : (
+                    <p
+                      className="cursor-text font-medium"
+                      onDoubleClick={() => setEditingVehicleField("model")}
+                      title="Duplo clique para editar"
+                    >
+                      {vehicleModel || "-"}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-[11px] text-[var(--brand-muted)]">Ano</p>
-                  <p className="font-medium">{vehicleYear || "-"}</p>
+                  {editingVehicleField === "year" ? (
+                    <input
+                      autoFocus
+                      value={editingVehicleYear}
+                      disabled={updatingVehicle}
+                      onChange={(event) => setEditingVehicleYear(event.target.value)}
+                      onBlur={() => void handleSaveVehicleFields()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSaveVehicleFields();
+                        }
+                        if (event.key === "Escape") {
+                          setEditingVehicleYear(vehicleYear ?? "");
+                          setEditingVehicleField(null);
+                        }
+                      }}
+                      className="mt-0.5 h-7 w-full rounded border border-[var(--brand-muted)]/30 bg-white px-2 text-xs"
+                    />
+                  ) : (
+                    <p
+                      className="cursor-text font-medium"
+                      onDoubleClick={() => setEditingVehicleField("year")}
+                      title="Duplo clique para editar"
+                    >
+                      {vehicleYear || "-"}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="text-[11px] text-[var(--brand-muted)]">KM</p>
-                  <p className="font-medium">{vehicleKm || "-"}</p>
+                  {editingVehicleField === "km" ? (
+                    <input
+                      autoFocus
+                      value={editingVehicleKm}
+                      disabled={updatingVehicle}
+                      onChange={(event) => setEditingVehicleKm(event.target.value)}
+                      onBlur={() => void handleSaveVehicleFields()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleSaveVehicleFields();
+                        }
+                        if (event.key === "Escape") {
+                          setEditingVehicleKm(vehicleKm ?? "");
+                          setEditingVehicleField(null);
+                        }
+                      }}
+                      className="mt-0.5 h-7 w-full rounded border border-[var(--brand-muted)]/30 bg-white px-2 text-xs"
+                    />
+                  ) : (
+                    <p
+                      className="cursor-text font-medium"
+                      onDoubleClick={() => setEditingVehicleField("km")}
+                      title="Duplo clique para editar"
+                    >
+                      {vehicleKm || "-"}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="mt-2">

@@ -2485,16 +2485,55 @@ function stripContactNamePrefixFromVehicleModel(
   return stripped || model.trim();
 }
 
+function alignModelToSupportedCatalog(
+  model: string | undefined | null,
+  supportedModels: string[] | undefined
+): string | undefined {
+  const raw = (model ?? "").trim();
+  if (!raw) return undefined;
+  if (!Array.isArray(supportedModels) || supportedModels.length === 0) return raw;
+
+  const normalizedRaw = normalizeVehicleModelKey(raw);
+  if (!normalizedRaw) return undefined;
+
+  const candidates = supportedModels
+    .map((item) => ({
+      original: item.trim(),
+      normalized: normalizeVehicleModelKey(item),
+    }))
+    .filter((item) => item.original.length > 0 && item.normalized.length > 0);
+
+  if (candidates.length === 0) return raw;
+
+  const exact = candidates.find((item) => item.normalized === normalizedRaw);
+  if (exact) return exact.original;
+
+  const containsMatches = candidates
+    .filter((item) => new RegExp(`\\b${item.normalized.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(normalizedRaw))
+    .sort((a, b) => b.normalized.length - a.normalized.length);
+  if (containsMatches.length > 0) {
+    return containsMatches[0]!.original;
+  }
+
+  return undefined;
+}
+
 function sanitizeVehicleSlotsByContactName(
   slots: VehicleSlots,
-  contactName: string | undefined | null
+  contactName: string | undefined | null,
+  supportedModels?: string[]
 ): VehicleSlots {
   if (!slots.modelo) return slots;
-  const sanitizedModel = stripContactNamePrefixFromVehicleModel(
+  const strippedModel = stripContactNamePrefixFromVehicleModel(
     slots.modelo,
     contactName
   );
-  if (!sanitizedModel || sanitizedModel === slots.modelo) return slots;
+  const sanitizedModel = alignModelToSupportedCatalog(strippedModel, supportedModels);
+  if (!sanitizedModel) {
+    const { modelo: _ignored, ...rest } = slots;
+    return rest;
+  }
+  if (sanitizedModel === slots.modelo) return slots;
   return { ...slots, modelo: sanitizedModel };
 }
 
@@ -3244,6 +3283,9 @@ export async function loadConversationContext(
     (settings.botConfig as Record<string, unknown> | undefined) ?? {};
   const vehicleServicePolicySettings =
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
+  const supportedVehicleModels = Array.isArray(vehicleServicePolicySettings.supportedModels)
+    ? (vehicleServicePolicySettings.supportedModels as string[])
+    : [];
   const offeredServicesSettings =
     (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
   const serviceHumanPolicySettings =
@@ -3328,7 +3370,8 @@ export async function loadConversationContext(
   const existingSlotsRaw = mergeVehicleSlots(memoryVehicleSlots, metadataSlots ?? {});
   const existingSlots = sanitizeVehicleSlotsByContactName(
     existingSlotsRaw,
-    contact?.name ?? null
+    contact?.name ?? null,
+    supportedVehicleModels
   );
   const pendingReservation = metadata.pendingReservation as
     | { dateStr?: string; timeStr?: string; durationMinutes?: number }
@@ -3347,7 +3390,8 @@ export async function loadConversationContext(
     const extracted = extractSlotsFromMessages(recentRows);
     vehicleSlots = sanitizeVehicleSlotsByContactName(
       mergeVehicleSlots(existingSlots, extracted),
-      contact?.name ?? null
+      contact?.name ?? null,
+      supportedVehicleModels
     );
 
     if (JSON.stringify(vehicleSlots) !== JSON.stringify(existingSlotsRaw)) {
@@ -3428,9 +3472,7 @@ export async function loadConversationContext(
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
           ? vehicleServicePolicySettings.minAllowedYear
           : null,
-      supportedModels: Array.isArray(vehicleServicePolicySettings.supportedModels)
-        ? (vehicleServicePolicySettings.supportedModels as string[])
-        : [],
+      supportedModels: supportedVehicleModels,
       blockedModels: Array.isArray(vehicleServicePolicySettings.blockedModels)
         ? (vehicleServicePolicySettings.blockedModels as string[])
         : [],
@@ -3764,7 +3806,8 @@ export async function processInboundMessage(
         ctx.vehicleSlots ?? {},
         extractedFromMessage
       ),
-      contactName
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
     );
     const mandatoryMissing = getMandatoryVehicleMissing(mergedVehicle);
 
@@ -4155,7 +4198,8 @@ export async function processInboundMessage(
           ctx.vehicleSlots ?? {},
           extractVehicleSlotsFromText(ctx.messageContent)
         ),
-        contactName
+        contactName,
+        ctx.vehicleServicePolicy?.supportedModels
       );
       const missingAfterMerge = getMissingSlots(mergedVehicle);
       const hasModelAndYearNow = !!(mergedVehicle.modelo && mergedVehicle.ano);
@@ -4254,7 +4298,8 @@ export async function processInboundMessage(
       const stillMissing = getMissingSlots(
         sanitizeVehicleSlotsByContactName(
           mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)),
-          contactName
+          contactName,
+          ctx.vehicleServicePolicy?.supportedModels
         )
       );
       if (stillMissing.length > 0) {
@@ -4574,7 +4619,8 @@ export async function processInboundMessage(
         ctx.vehicleSlots ?? {},
         extractedIssueVehicle
       ),
-      contactName
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
     );
     const missingIssueVehicle = getMissingSlots(mergedIssueVehicle);
     if (
@@ -4686,7 +4732,8 @@ export async function processInboundMessage(
     if (hasNewVehicleInfo) {
       const merged = sanitizeVehicleSlotsByContactName(
         mergeVehicleSlots(knownVehicle, extractedNew),
-        contactName
+        contactName,
+        ctx.vehicleServicePolicy?.supportedModels
       );
       const missing = getMissingSlots(merged);
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
@@ -4913,8 +4960,25 @@ export async function processInboundMessage(
       extractedQuestionSlots.modelo ??
       extractBrandMention(intentProbeText) ??
       extractLooseVehicleModelFromReply(intentProbeText);
-    const askedModel = askedModelRaw ? normalizeVehicleModelKey(askedModelRaw) : "";
+    const alignedAskedModel = askedModelRaw
+      ? alignModelToSupportedCatalog(askedModelRaw, ctx.vehicleServicePolicy?.supportedModels)
+      : undefined;
+    const askedModel = alignedAskedModel ? normalizeVehicleModelKey(alignedAskedModel) : "";
     const policy = ctx.vehicleServicePolicy ?? {};
+    const hasSupportedCatalog = (ctx.vehicleServicePolicy?.supportedModels?.length ?? 0) > 0;
+
+    if (askedModelRaw && !askedModel && hasSupportedCatalog) {
+      await sendMessage(
+        ctx.conversationId,
+        "Não consegui identificar esse modelo na nossa lista. Pode me informar apenas o modelo do veículo (ex.: Onix) para eu confirmar certinho?"
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Pergunta de cobertura com modelo fora do catálogo configurado",
+        silence: false,
+      };
+    }
 
     if (askedModel && !askedYear) {
       await sendMessage(
@@ -5095,7 +5159,8 @@ export async function processInboundMessage(
   );
   const vehiclePolicyCandidateSlots = sanitizeVehicleSlotsByContactName(
     vehiclePolicyCandidateRawSlots,
-    contactName
+    contactName,
+    ctx.vehicleServicePolicy?.supportedModels
   );
   const shouldEvaluateVehiclePolicy =
     !!ctx.usesVehicleSlots && (hasVehicleInfoInCurrentMessage || hasAutomotiveIntentNow);
@@ -5418,7 +5483,8 @@ export async function processInboundMessage(
         ctx.vehicleSlots ?? {},
         vehicleSlotsFromVehicleStage
       ),
-      contactName
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
     );
     if (
       JSON.stringify(mergedVehicleSlotsForVehicleStage) !==
@@ -5688,7 +5754,8 @@ export async function processInboundMessage(
           ctx.vehicleSlots ?? {},
           correctedFromMessage
         ),
-        contactName
+        contactName,
+        ctx.vehicleServicePolicy?.supportedModels
       );
       const hasModelAndYearAfterCorrection = !!(
         mergedCorrectedSlots.modelo && mergedCorrectedSlots.ano
@@ -6317,7 +6384,8 @@ export async function processInboundMessage(
   ) {
     const mergedVehicleAfterGreeting = sanitizeVehicleSlotsByContactName(
       mergeVehicleSlots(ctx.vehicleSlots ?? {}, vehicleSlotsFromCurrentMessage),
-      contactName
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
     );
     const vehicleChangedOnGreeting =
       JSON.stringify(mergedVehicleAfterGreeting) !==
