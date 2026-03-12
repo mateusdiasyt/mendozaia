@@ -199,10 +199,10 @@ export function ReservationScheduleForm({
   }
 
   const inputClass =
-    "mt-2 block w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
+    "mt-1.5 block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 placeholder-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <h3 className="font-medium text-slate-900">Agenda de atendimento</h3>
         <p className="mt-1 text-sm text-slate-500">
@@ -222,8 +222,8 @@ export function ReservationScheduleForm({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <label className="text-sm font-medium text-slate-700">
+      <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
+        <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           Inicio base
           <input
             type="time"
@@ -233,7 +233,7 @@ export function ReservationScheduleForm({
             required
           />
         </label>
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           Fim base
           <input
             type="time"
@@ -243,7 +243,7 @@ export function ReservationScheduleForm({
             required
           />
         </label>
-        <label className="text-sm font-medium text-slate-700">
+        <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           Timezone
           <input
             type="text"
@@ -255,18 +255,18 @@ export function ReservationScheduleForm({
         </label>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="mb-3 grid grid-cols-[90px,1fr,1fr,90px] gap-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="mb-2 grid grid-cols-[52px,1fr,1fr,66px] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <span>Dia</span>
           <span>Abertura</span>
           <span>Fechamento</span>
           <span className="text-center">Ativo</span>
         </div>
-        <div className="space-y-2">
+        <div className="divide-y divide-slate-100 rounded-lg border border-slate-100">
           {weekdaySchedule.map((day) => {
             const label = WEEKDAYS.find((item) => item.value === day.day)?.label ?? String(day.day);
             return (
-              <div key={day.day} className="grid items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2 sm:grid-cols-[90px,1fr,1fr,90px]">
+              <div key={day.day} className="grid grid-cols-[52px,1fr,1fr,66px] items-center gap-2 px-2 py-2">
                 <label className="text-sm font-medium text-slate-700">
                   {label}
                 </label>
@@ -275,16 +275,16 @@ export function ReservationScheduleForm({
                   value={day.start}
                   onChange={(e) => updateWeekday(day.day, { start: e.target.value })}
                   disabled={!day.enabled}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
                 />
                 <input
                   type="time"
                   value={day.end}
                   onChange={(e) => updateWeekday(day.day, { end: e.target.value })}
                   disabled={!day.enabled}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
                 />
-                <label className="inline-flex items-center justify-center gap-2 text-xs font-medium text-slate-700">
+                <label className="inline-flex items-center justify-center">
                   <input
                     type="checkbox"
                     checked={day.enabled}
@@ -303,36 +303,57 @@ export function ReservationScheduleForm({
         <p className="mt-1 text-xs text-slate-500">
           Selecione no calendario e clique em adicionar para bloquear.
         </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="text-sm font-medium text-slate-700">
-            Selecionar data
-            <input
-              type="date"
-              value={pendingBlockedDate}
-              onChange={(e) => setPendingBlockedDate(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={addBlockedDate}
-            disabled={!pendingBlockedDate}
-            className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
-          >
-            Adicionar data
-          </button>
-          {blockedDates.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setBlockedDates([])}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-            >
-              Limpar todas
-            </button>
-          )}
-        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-[280px,1fr]">
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Selecionar data
+              <input
+                type="date"
+                value={pendingBlockedDate}
+                onChange={(e) => setPendingBlockedDate(e.target.value)}
+                className={inputClass}
+              />
+            </label>
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                onClick={addBlockedDate}
+                disabled={!pendingBlockedDate}
+                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+              >
+                Adicionar
+              </button>
+              {blockedDates.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setBlockedDates([])}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
 
-        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+              <p className="font-medium text-slate-700">Bloqueadas ({blockedDates.length})</p>
+              {blockedDates.length > 0 ? (
+                <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-auto pr-1">
+                  {blockedDates.map((date) => (
+                    <span
+                      key={date}
+                      className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
+                    >
+                      {formatDateLabel(date)}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-slate-500">Nenhuma data bloqueada.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
           <div className="mb-3 flex items-center justify-between">
             <button
               type="button"
@@ -397,29 +418,14 @@ export function ReservationScheduleForm({
               );
             })}
           </div>
-        </div>
-
-        {blockedDates.length > 0 && (
-          <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
-            <p className="font-medium text-slate-700">Resumo das datas bloqueadas ({blockedDates.length})</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {blockedDates.map((date) => (
-                <span
-                  key={date}
-                  className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700"
-                >
-                  {formatDateLabel(date)}
-                </span>
-              ))}
-            </div>
           </div>
-        )}
+        </div>
       </div>
 
       <button
         type="submit"
         disabled={saving}
-        className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+        className="rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
       >
         {saving ? "Salvando..." : "Salvar agenda"}
       </button>
