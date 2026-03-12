@@ -3298,6 +3298,16 @@ export async function loadConversationContext(
           closed?: boolean;
         }>)
       : [],
+    weekdaySchedule: Array.isArray(reservationScheduleSettings.weekdaySchedule)
+      ? (reservationScheduleSettings.weekdaySchedule as Array<{
+          day: number;
+          enabled: boolean;
+          start: string;
+          end: string;
+          lunchBreakStart?: string | null;
+          lunchBreakEnd?: string | null;
+        }>)
+      : [],
   };
   const usesVehicleSlots =
     configuredSegment

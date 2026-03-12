@@ -3,13 +3,11 @@
 import { useState } from "react";
 import { updateReservationScheduleConfig } from "@/app/actions/organization";
 
-type DateOverride = {
-  date: string;
+type WeekdayConfig = {
+  day: number;
+  enabled: boolean;
   start: string;
   end: string;
-  lunchBreakStart?: string | null;
-  lunchBreakEnd?: string | null;
-  closed?: boolean;
 };
 
 interface ReservationScheduleFormProps {
@@ -19,7 +17,22 @@ interface ReservationScheduleFormProps {
     timezone: string;
     workingDays: number[];
     blockedDates: string[];
-    dateOverrides?: DateOverride[];
+    dateOverrides?: Array<{
+      date: string;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+      closed?: boolean;
+    }>;
+    weekdaySchedule?: Array<{
+      day: number;
+      enabled: boolean;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+    }>;
   };
 }
 
@@ -33,26 +46,44 @@ const WEEKDAYS = [
   { value: 6, label: "Sab" },
 ];
 
+function buildInitialWeekdaySchedule(config: ReservationScheduleFormProps["initialConfig"]): WeekdayConfig[] {
+  const map = new Map<number, WeekdayConfig>();
+  for (const day of WEEKDAYS) {
+    map.set(day.value, {
+      day: day.value,
+      enabled: config.workingDays.includes(day.value),
+      start: config.start,
+      end: config.end,
+    });
+  }
+
+  if (Array.isArray(config.weekdaySchedule)) {
+    for (const item of config.weekdaySchedule) {
+      if (!map.has(item.day)) continue;
+      map.set(item.day, {
+        day: item.day,
+        enabled: Boolean(item.enabled),
+        start: item.start || config.start,
+        end: item.end || config.end,
+      });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => a.day - b.day);
+}
+
 export function ReservationScheduleForm({
   initialConfig,
 }: ReservationScheduleFormProps) {
   const [start, setStart] = useState(initialConfig.start);
   const [end, setEnd] = useState(initialConfig.end);
   const [timezone, setTimezone] = useState(initialConfig.timezone);
-  const [workingDays, setWorkingDays] = useState<number[]>(initialConfig.workingDays);
+  const [weekdaySchedule, setWeekdaySchedule] = useState<WeekdayConfig[]>(
+    buildInitialWeekdaySchedule(initialConfig)
+  );
   const [blockedDates, setBlockedDates] = useState<string[]>(
     [...new Set(initialConfig.blockedDates)].sort()
   );
-  const [dateOverrides, setDateOverrides] = useState<DateOverride[]>(
-    [...(initialConfig.dateOverrides ?? [])]
-      .filter((item) => item?.date)
-      .sort((a, b) => a.date.localeCompare(b.date))
-  );
-  const [pendingOverrideDate, setPendingOverrideDate] = useState("");
-  const [pendingOverrideStart, setPendingOverrideStart] = useState("09:00");
-  const [pendingOverrideEnd, setPendingOverrideEnd] = useState("18:00");
-  const [pendingOverrideLunchStart, setPendingOverrideLunchStart] = useState("12:00");
-  const [pendingOverrideLunchEnd, setPendingOverrideLunchEnd] = useState("13:00");
   const [pendingBlockedDate, setPendingBlockedDate] = useState("");
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
@@ -64,9 +95,9 @@ export function ReservationScheduleForm({
     text: string;
   } | null>(null);
 
-  function toggleWorkingDay(day: number) {
-    setWorkingDays((prev) =>
-      prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort()
+  function updateWeekday(day: number, patch: Partial<WeekdayConfig>) {
+    setWeekdaySchedule((prev) =>
+      prev.map((item) => (item.day === day ? { ...item, ...patch } : item))
     );
   }
 
@@ -113,48 +144,6 @@ export function ReservationScheduleForm({
     );
   }
 
-  function addDateOverride() {
-    if (!pendingOverrideDate) return;
-    if (pendingOverrideStart >= pendingOverrideEnd) {
-      setMessage({
-        type: "error",
-        text: "No ajuste por data, o horario final deve ser maior que o inicial.",
-      });
-      return;
-    }
-
-    let lunchBreakStart: string | null = null;
-    let lunchBreakEnd: string | null = null;
-    if (pendingOverrideLunchStart && pendingOverrideLunchEnd) {
-      if (pendingOverrideLunchStart < pendingOverrideLunchEnd) {
-        lunchBreakStart = pendingOverrideLunchStart;
-        lunchBreakEnd = pendingOverrideLunchEnd;
-      }
-    }
-
-    const next: DateOverride = {
-      date: pendingOverrideDate,
-      start: pendingOverrideStart,
-      end: pendingOverrideEnd,
-      lunchBreakStart,
-      lunchBreakEnd,
-      closed: false,
-    };
-
-    setDateOverrides((prev) => {
-      const map = new Map(prev.map((item) => [item.date, item]));
-      map.set(next.date, next);
-      return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-    });
-
-    setPendingOverrideDate("");
-    setMessage(null);
-  }
-
-  function removeDateOverride(date: string) {
-    setDateOverrides((prev) => prev.filter((item) => item.date !== date));
-  }
-
   const blockedDateSet = new Set(blockedDates);
   const monthCells = buildMonthCells(monthCursor);
   const monthTitle = monthCursor.toLocaleDateString("pt-BR", {
@@ -171,18 +160,31 @@ export function ReservationScheduleForm({
       setSaving(false);
       setMessage({
         type: "error",
-        text: "O horario final deve ser maior que o horario inicial.",
+        text: "O horario final base deve ser maior que o inicial.",
       });
       return;
+    }
+
+    for (const day of weekdaySchedule) {
+      if (!day.enabled) continue;
+      if (!day.start || !day.end || day.start >= day.end) {
+        setSaving(false);
+        setMessage({
+          type: "error",
+          text: `Horario invalido em ${WEEKDAYS.find((w) => w.value === day.day)?.label}.`,
+        });
+        return;
+      }
     }
 
     const result = await updateReservationScheduleConfig({
       start,
       end,
       timezone: timezone.trim() || "America/Sao_Paulo",
-      workingDays,
+      workingDays: weekdaySchedule.filter((d) => d.enabled).map((d) => d.day),
       blockedDates,
-      dateOverrides,
+      weekdaySchedule,
+      dateOverrides: [],
     });
 
     setSaving(false);
@@ -204,7 +206,7 @@ export function ReservationScheduleForm({
       <div>
         <h3 className="font-medium text-slate-900">Agenda de atendimento</h3>
         <p className="mt-1 text-sm text-slate-500">
-          Configure horario base e excecoes por data para o bot sugerir os horarios certos.
+          Configure o horario de abertura e fechamento para cada dia da semana.
         </p>
       </div>
 
@@ -220,9 +222,9 @@ export function ReservationScheduleForm({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-3">
         <label className="text-sm font-medium text-slate-700">
-          Inicio
+          Inicio base
           <input
             type="time"
             value={start}
@@ -232,7 +234,7 @@ export function ReservationScheduleForm({
           />
         </label>
         <label className="text-sm font-medium text-slate-700">
-          Fim
+          Fim base
           <input
             type="time"
             value={end}
@@ -241,132 +243,58 @@ export function ReservationScheduleForm({
             required
           />
         </label>
+        <label className="text-sm font-medium text-slate-700">
+          Timezone
+          <input
+            type="text"
+            value={timezone}
+            onChange={(e) => setTimezone(e.target.value)}
+            className={inputClass}
+            placeholder="America/Sao_Paulo"
+          />
+        </label>
       </div>
 
-      <label className="block text-sm font-medium text-slate-700">
-        Timezone
-        <input
-          type="text"
-          value={timezone}
-          onChange={(e) => setTimezone(e.target.value)}
-          className={inputClass}
-          placeholder="America/Sao_Paulo"
-        />
-      </label>
-
-      <div>
-        <p className="text-sm font-medium text-slate-700">Dias de atendimento</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {WEEKDAYS.map((day) => {
-            const selected = workingDays.includes(day.value);
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 grid grid-cols-[90px,1fr,1fr,90px] gap-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <span>Dia</span>
+          <span>Abertura</span>
+          <span>Fechamento</span>
+          <span className="text-center">Ativo</span>
+        </div>
+        <div className="space-y-2">
+          {weekdaySchedule.map((day) => {
+            const label = WEEKDAYS.find((item) => item.value === day.day)?.label ?? String(day.day);
             return (
-              <button
-                key={day.value}
-                type="button"
-                onClick={() => toggleWorkingDay(day.value)}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                  selected
-                    ? "border-indigo-600 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {day.label}
-              </button>
+              <div key={day.day} className="grid items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 p-2 sm:grid-cols-[90px,1fr,1fr,90px]">
+                <label className="text-sm font-medium text-slate-700">
+                  {label}
+                </label>
+                <input
+                  type="time"
+                  value={day.start}
+                  onChange={(e) => updateWeekday(day.day, { start: e.target.value })}
+                  disabled={!day.enabled}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                <input
+                  type="time"
+                  value={day.end}
+                  onChange={(e) => updateWeekday(day.day, { end: e.target.value })}
+                  disabled={!day.enabled}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                />
+                <label className="inline-flex items-center justify-center gap-2 text-xs font-medium text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={day.enabled}
+                    onChange={(e) => updateWeekday(day.day, { enabled: e.target.checked })}
+                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
+                  />
+                </label>
+              </div>
             );
           })}
-        </div>
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-semibold text-slate-900">Configuracao por data</p>
-        <p className="mt-1 text-xs text-slate-500">
-          Use para excecoes especificas (ex: feriado, meio expediente, horario especial).
-        </p>
-
-        <div className="mt-3 grid gap-3 md:grid-cols-5">
-          <label className="text-sm font-medium text-slate-700 md:col-span-2">
-            Data
-            <input
-              type="date"
-              value={pendingOverrideDate}
-              onChange={(e) => setPendingOverrideDate(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Inicio
-            <input
-              type="time"
-              value={pendingOverrideStart}
-              onChange={(e) => setPendingOverrideStart(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <label className="text-sm font-medium text-slate-700">
-            Fim
-            <input
-              type="time"
-              value={pendingOverrideEnd}
-              onChange={(e) => setPendingOverrideEnd(e.target.value)}
-              className={inputClass}
-            />
-          </label>
-          <div className="md:col-span-5 grid gap-3 sm:grid-cols-3">
-            <label className="text-sm font-medium text-slate-700">
-              Intervalo inicio
-              <input
-                type="time"
-                value={pendingOverrideLunchStart}
-                onChange={(e) => setPendingOverrideLunchStart(e.target.value)}
-                className={inputClass}
-              />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Intervalo fim
-              <input
-                type="time"
-                value={pendingOverrideLunchEnd}
-                onChange={(e) => setPendingOverrideLunchEnd(e.target.value)}
-                className={inputClass}
-              />
-            </label>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={addDateOverride}
-                className="h-11 w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
-              >
-                Salvar data
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 space-y-2">
-          {dateOverrides.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white p-3 text-sm text-slate-500">
-              Nenhuma excecao por data cadastrada.
-            </div>
-          ) : (
-            dateOverrides.map((item) => (
-              <div key={item.date} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
-                <div className="text-slate-700">
-                  <span className="font-semibold">{formatDateLabel(item.date)}</span>
-                  <span className="ml-2">{item.start} as {item.end}</span>
-                  {item.lunchBreakStart && item.lunchBreakEnd && (
-                    <span className="ml-2 text-slate-500">(intervalo {item.lunchBreakStart}-{item.lunchBreakEnd})</span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeDateOverride(item.date)}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                >
-                  Remover
-                </button>
-              </div>
-            ))
-          )}
         </div>
       </div>
 
@@ -470,6 +398,22 @@ export function ReservationScheduleForm({
             })}
           </div>
         </div>
+
+        {blockedDates.length > 0 && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">
+            <p className="font-medium text-slate-700">Resumo das datas bloqueadas ({blockedDates.length})</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {blockedDates.map((date) => (
+                <span
+                  key={date}
+                  className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700"
+                >
+                  {formatDateLabel(date)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <button

@@ -70,6 +70,14 @@ export interface OrchestrationContext {
       lunchBreakEnd?: string | null;
       closed?: boolean;
     }>;
+    weekdaySchedule?: Array<{
+      day: number;
+      enabled: boolean;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+    }>;
   };
   businessProfile?: {
     botName?: string | null;

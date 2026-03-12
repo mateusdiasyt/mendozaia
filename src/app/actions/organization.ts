@@ -52,6 +52,14 @@ export interface ReservationScheduleConfig {
     lunchBreakEnd?: string | null;
     closed?: boolean;
   }>;
+  weekdaySchedule?: Array<{
+    day: number;
+    enabled: boolean;
+    start: string;
+    end: string;
+    lunchBreakStart?: string | null;
+    lunchBreakEnd?: string | null;
+  }>;
 }
 
 export interface BusinessProfileConfig {
@@ -363,6 +371,78 @@ export async function updateReservationScheduleConfig(
         .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
     : [];
 
+  const rawWeekdaySchedule = Array.isArray(config.weekdaySchedule)
+    ? config.weekdaySchedule
+    : [];
+  const weekdayMap = new Map<
+    number,
+    {
+      day: number;
+      enabled: boolean;
+      start: string;
+      end: string;
+      lunchBreakStart?: string | null;
+      lunchBreakEnd?: string | null;
+    }
+  >();
+  for (let day = 0; day <= 6; day++) {
+    weekdayMap.set(day, {
+      day,
+      enabled: [1, 2, 3, 4, 5].includes(day),
+      start,
+      end: day === 6 ? saturdayEnd : end,
+      lunchBreakStart: null,
+      lunchBreakEnd: null,
+    });
+  }
+  for (const item of rawWeekdaySchedule) {
+    if (!item || typeof item !== "object") continue;
+    if (
+      typeof item.day !== "number" ||
+      !Number.isInteger(item.day) ||
+      item.day < 0 ||
+      item.day > 6
+    ) {
+      continue;
+    }
+    const itemStart = typeof item.start === "string" ? item.start.trim() : "";
+    const itemEnd = typeof item.end === "string" ? item.end.trim() : "";
+    if (!timePattern.test(itemStart) || !timePattern.test(itemEnd)) continue;
+    if (toMinutes(itemEnd) <= toMinutes(itemStart)) continue;
+    let lunchBreakStartOverride: string | null = null;
+    let lunchBreakEndOverride: string | null = null;
+    if (
+      typeof item.lunchBreakStart === "string" &&
+      item.lunchBreakStart.trim().length > 0 &&
+      typeof item.lunchBreakEnd === "string" &&
+      item.lunchBreakEnd.trim().length > 0 &&
+      timePattern.test(item.lunchBreakStart.trim()) &&
+      timePattern.test(item.lunchBreakEnd.trim())
+    ) {
+      const lunchStartOverride = toMinutes(item.lunchBreakStart.trim());
+      const lunchEndOverride = toMinutes(item.lunchBreakEnd.trim());
+      if (
+        lunchEndOverride > lunchStartOverride &&
+        lunchStartOverride >= toMinutes(itemStart) &&
+        lunchEndOverride <= toMinutes(itemEnd)
+      ) {
+        lunchBreakStartOverride = item.lunchBreakStart.trim();
+        lunchBreakEndOverride = item.lunchBreakEnd.trim();
+      }
+    }
+    weekdayMap.set(item.day, {
+      day: item.day,
+      enabled: Boolean(item.enabled),
+      start: itemStart,
+      end: itemEnd,
+      lunchBreakStart: lunchBreakStartOverride,
+      lunchBreakEnd: lunchBreakEndOverride,
+    });
+  }
+  const safeWeekdaySchedule = Array.from(weekdayMap.values()).sort(
+    (a, b) => a.day - b.day
+  );
+
   const rawOverrides = Array.isArray(config.dateOverrides)
     ? config.dateOverrides
     : [];
@@ -431,7 +511,12 @@ export async function updateReservationScheduleConfig(
     lunchBreakEnd,
     saturdayEnd,
     dateOverrides: safeDateOverrides,
+    weekdaySchedule: safeWeekdaySchedule,
   };
+
+  reservationSchedule.workingDays = reservationSchedule.weekdaySchedule
+    ?.filter((item) => item.enabled)
+    .map((item) => item.day);
 
   await db
     .update(organizations)

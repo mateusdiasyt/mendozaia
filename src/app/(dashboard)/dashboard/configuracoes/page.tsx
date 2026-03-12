@@ -119,6 +119,16 @@ export default async function ConfiguracoesPage({
         closed?: boolean;
       }>)
     : [];
+  const scheduleWeekdaySchedule = Array.isArray(reservationSchedule.weekdaySchedule)
+    ? (reservationSchedule.weekdaySchedule as Array<{
+        day: number;
+        enabled: boolean;
+        start: string;
+        end: string;
+        lunchBreakStart?: string | null;
+        lunchBreakEnd?: string | null;
+      }>)
+    : [];
   const isPlanActive = org.plan !== "free" && org.plan !== "none";
   const planLabel =
     org.plan === "free" || org.plan === "none"
@@ -310,6 +320,7 @@ export default async function ConfiguracoesPage({
                 workingDays: scheduleWorkingDays,
                 blockedDates: scheduleBlockedDates,
                 dateOverrides: scheduleDateOverrides,
+                weekdaySchedule: scheduleWeekdaySchedule,
               }}
             />
             {!isPlanActive && <LockedOverlay />}

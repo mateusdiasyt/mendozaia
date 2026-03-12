@@ -37,6 +37,7 @@ export interface ReservationScheduleConfigNormalized {
   lunchBreakEnd: string;
   saturdayEnd: string;
   dateOverrides: ReservationDateOverride[];
+  weekdaySchedule: ReservationWeekdayScheduleEntry[];
 }
 
 export interface ReservationDateOverride {
@@ -46,6 +47,15 @@ export interface ReservationDateOverride {
   lunchBreakStart?: string | null;
   lunchBreakEnd?: string | null;
   closed?: boolean;
+}
+
+export interface ReservationWeekdayScheduleEntry {
+  day: number;
+  enabled: boolean;
+  start: string;
+  end: string;
+  lunchBreakStart?: string | null;
+  lunchBreakEnd?: string | null;
 }
 
 type ReservationScheduleWindow = {
@@ -63,6 +73,15 @@ const DEFAULT_RESERVATION_SCHEDULE: ReservationScheduleConfigNormalized = {
   lunchBreakEnd: "13:00",
   saturdayEnd: "12:00",
   dateOverrides: [],
+  weekdaySchedule: [
+    { day: 0, enabled: false, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 1, enabled: true, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 2, enabled: true, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 3, enabled: true, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 4, enabled: true, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 5, enabled: true, start: "09:00", end: "17:00", lunchBreakStart: null, lunchBreakEnd: null },
+    { day: 6, enabled: false, start: "09:00", end: "12:00", lunchBreakStart: null, lunchBreakEnd: null },
+  ],
 };
 
 function isValidTimeValue(value: string): boolean {
@@ -126,6 +145,7 @@ export function normalizeReservationScheduleConfig(
     lunchBreakEnd: normalizeTimeValue(config?.lunchBreakEnd, base.lunchBreakEnd),
     saturdayEnd: normalizeTimeValue(config?.saturdayEnd, base.saturdayEnd),
     dateOverrides: [],
+    weekdaySchedule: [],
   };
 
   const openingMinutes = toMinutes(normalized.start);
@@ -227,6 +247,94 @@ export function normalizeReservationScheduleConfig(
     a.date.localeCompare(b.date)
   );
 
+  const rawWeekdaySchedule = Array.isArray(config?.weekdaySchedule)
+    ? config.weekdaySchedule
+    : null;
+  const weekdayMap = new Map<number, ReservationWeekdayScheduleEntry>();
+
+  for (const defaultItem of base.weekdaySchedule) {
+    weekdayMap.set(defaultItem.day, { ...defaultItem });
+  }
+
+  if (rawWeekdaySchedule) {
+    for (const item of rawWeekdaySchedule) {
+      if (!item || typeof item !== "object") continue;
+      const day = (item as { day?: unknown }).day;
+      if (typeof day !== "number" || !Number.isInteger(day) || day < 0 || day > 6) continue;
+
+      const enabled = Boolean((item as { enabled?: unknown }).enabled);
+      const rawStart = normalizeTimeValue(
+        (item as { start?: unknown }).start,
+        normalized.start
+      );
+      const rawEnd = normalizeTimeValue(
+        (item as { end?: unknown }).end,
+        day === 6 ? normalized.saturdayEnd : normalized.end
+      );
+      const startMinutes = toMinutes(rawStart);
+      const endMinutes = toMinutes(rawEnd);
+      const safeStart = startMinutes >= 0 ? rawStart : normalized.start;
+      const safeEnd =
+        endMinutes > startMinutes
+          ? rawEnd
+          : day === 6
+            ? normalized.saturdayEnd
+            : normalized.end;
+
+      let lunchBreakStart: string | null = null;
+      let lunchBreakEnd: string | null = null;
+      const rawLunchStart = (item as { lunchBreakStart?: unknown }).lunchBreakStart;
+      const rawLunchEnd = (item as { lunchBreakEnd?: unknown }).lunchBreakEnd;
+      if (
+        typeof rawLunchStart === "string" &&
+        rawLunchStart.trim().length > 0 &&
+        typeof rawLunchEnd === "string" &&
+        rawLunchEnd.trim().length > 0
+      ) {
+        const lunchStart = normalizeTimeValue(rawLunchStart, safeStart);
+        const lunchEnd = normalizeTimeValue(rawLunchEnd, safeEnd);
+        const lunchStartMinutes = toMinutes(lunchStart);
+        const lunchEndMinutes = toMinutes(lunchEnd);
+        if (
+          lunchEndMinutes > lunchStartMinutes &&
+          lunchStartMinutes >= toMinutes(safeStart) &&
+          lunchEndMinutes <= toMinutes(safeEnd)
+        ) {
+          lunchBreakStart = lunchStart;
+          lunchBreakEnd = lunchEnd;
+        }
+      }
+
+      weekdayMap.set(day, {
+        day,
+        enabled,
+        start: safeStart,
+        end: safeEnd,
+        lunchBreakStart,
+        lunchBreakEnd,
+      });
+    }
+  } else {
+    const workingSet = new Set(normalized.workingDays);
+    for (let day = 0; day <= 6; day++) {
+      weekdayMap.set(day, {
+        day,
+        enabled: workingSet.has(day),
+        start: normalized.start,
+        end: day === 6 ? normalized.saturdayEnd : normalized.end,
+        lunchBreakStart: null,
+        lunchBreakEnd: null,
+      });
+    }
+  }
+
+  normalized.weekdaySchedule = Array.from(weekdayMap.values()).sort(
+    (a, b) => a.day - b.day
+  );
+  normalized.workingDays = normalized.weekdaySchedule
+    .filter((item) => item.enabled)
+    .map((item) => item.day);
+
   return normalized;
 }
 
@@ -237,13 +345,22 @@ function getDateOverride(
   return schedule.dateOverrides.find((item) => item.date === dateStr) ?? null;
 }
 
+function getWeekdayEntry(
+  dateStr: string,
+  schedule: ReservationScheduleConfigNormalized
+): ReservationWeekdayScheduleEntry | null {
+  const date = parseDateLocal(dateStr);
+  if (!date) return null;
+  return schedule.weekdaySchedule.find((item) => item.day === date.getDay()) ?? null;
+}
+
 function getDayClosingMinutes(
   dateStr: string,
   schedule: ReservationScheduleConfigNormalized
 ): number {
-  const date = parseDateLocal(dateStr);
-  if (date && date.getDay() === 6) {
-    return toMinutes(schedule.saturdayEnd);
+  const weekdayEntry = getWeekdayEntry(dateStr, schedule);
+  if (weekdayEntry) {
+    return toMinutes(weekdayEntry.end);
   }
   return toMinutes(schedule.end);
 }
@@ -256,9 +373,9 @@ export function isDateAllowedForSchedule(
   if (normalized.blockedDates.includes(dateStr)) return false;
   const override = getDateOverride(dateStr, normalized);
   if (override) return !override.closed;
-  const date = parseDateLocal(dateStr);
-  if (!date) return false;
-  return normalized.workingDays.includes(date.getDay());
+  const weekdayEntry = getWeekdayEntry(dateStr, normalized);
+  if (!weekdayEntry) return false;
+  return weekdayEntry.enabled;
 }
 
 export function getReservationWindowsForDate(
@@ -269,10 +386,14 @@ export function getReservationWindowsForDate(
   if (!isDateAllowedForSchedule(dateStr, normalized)) return [];
   const override = getDateOverride(dateStr, normalized);
   if (override?.closed) return [];
+  const weekdayEntry = getWeekdayEntry(dateStr, normalized);
+  if (!weekdayEntry?.enabled) return [];
 
-  const effectiveStart = override?.start ?? normalized.start;
+  const effectiveStart = override?.start ?? weekdayEntry.start;
   const openingMinutes = toMinutes(effectiveStart);
-  const dayClosingMinutes = override ? toMinutes(override.end) : getDayClosingMinutes(dateStr, normalized);
+  const dayClosingMinutes = override
+    ? toMinutes(override.end)
+    : toMinutes(weekdayEntry.end);
   if (
     openingMinutes < 0 ||
     dayClosingMinutes < 0 ||
@@ -284,14 +405,14 @@ export function getReservationWindowsForDate(
   const effectiveLunchStart =
     override?.lunchBreakStart && override.lunchBreakEnd
       ? override.lunchBreakStart
-      : normalized.lunchBreakStart;
+      : weekdayEntry.lunchBreakStart ?? null;
   const effectiveLunchEnd =
     override?.lunchBreakStart && override.lunchBreakEnd
       ? override.lunchBreakEnd
-      : normalized.lunchBreakEnd;
+      : weekdayEntry.lunchBreakEnd ?? null;
 
-  const lunchStartMinutes = toMinutes(effectiveLunchStart);
-  const lunchEndMinutes = toMinutes(effectiveLunchEnd);
+  const lunchStartMinutes = effectiveLunchStart ? toMinutes(effectiveLunchStart) : -1;
+  const lunchEndMinutes = effectiveLunchEnd ? toMinutes(effectiveLunchEnd) : -1;
   const hasLunchBreak =
     lunchStartMinutes >= openingMinutes &&
     lunchEndMinutes <= dayClosingMinutes &&
@@ -392,19 +513,16 @@ export function buildReservationWindowLabel(
   schedule?: Partial<ReservationScheduleConfigNormalized> | null
 ): string {
   const normalized = normalizeReservationScheduleConfig(schedule);
-  const lunchLabel =
-    toMinutes(normalized.lunchBreakEnd) > toMinutes(normalized.lunchBreakStart)
-      ? `intervalo ${normalized.lunchBreakStart} as ${normalized.lunchBreakEnd}`
-      : null;
-  const saturdayDiffers = normalized.saturdayEnd !== normalized.end;
-  const saturdayLabel = saturdayDiffers
-    ? `sabado ate ${normalized.saturdayEnd}`
-    : null;
+  const enabled = normalized.weekdaySchedule.filter((item) => item.enabled);
+  if (enabled.length === 0) return `${normalized.start} as ${normalized.end}`;
 
-  const details = [lunchLabel, saturdayLabel].filter(Boolean).join(" | ");
-  return details.length > 0
-    ? `${normalized.start} as ${normalized.end} (${details})`
-    : `${normalized.start} as ${normalized.end}`;
+  const distinctRanges = Array.from(
+    new Set(enabled.map((item) => `${item.start}-${item.end}`))
+  );
+  if (distinctRanges.length === 1) {
+    return distinctRanges[0]!.replace("-", " as ");
+  }
+  return "horarios por dia da semana";
 }
 
 function buildOutsideBusinessHoursMessage(
@@ -412,23 +530,15 @@ function buildOutsideBusinessHoursMessage(
   schedule?: Partial<ReservationScheduleConfigNormalized> | null
 ): string {
   const normalized = normalizeReservationScheduleConfig(schedule);
-  const date = parseDateLocal(dateStr);
-  const isSaturday = Boolean(date && date.getDay() === 6);
-  const saturdayLine =
-    normalized.saturdayEnd !== normalized.end
-      ? ` Aos sabados atendemos ate ${normalized.saturdayEnd}.`
-      : "";
-
-  const lunchLine =
-    toMinutes(normalized.lunchBreakEnd) > toMinutes(normalized.lunchBreakStart)
-      ? ` Temos intervalo das ${normalized.lunchBreakStart} as ${normalized.lunchBreakEnd}.`
-      : "";
-
-  if (isSaturday) {
-    return `Esse horario fica fora do expediente de sabado. Atendemos das ${normalized.start} as ${normalized.saturdayEnd}.${lunchLine}`.trim();
+  const weekdayEntry = getWeekdayEntry(dateStr, normalized);
+  if (!weekdayEntry || !weekdayEntry.enabled) {
+    return "Esse dia nao tem atendimento. Me diga outro dia da semana e eu verifico para voce.";
   }
-
-  return `Esse horario fica fora do nosso atendimento. Atendemos das ${normalized.start} as ${normalized.end}.${lunchLine}${saturdayLine}`.trim();
+  const lunchLine =
+    weekdayEntry.lunchBreakStart && weekdayEntry.lunchBreakEnd
+      ? ` Temos intervalo das ${weekdayEntry.lunchBreakStart} as ${weekdayEntry.lunchBreakEnd}.`
+      : "";
+  return `Esse horario fica fora do nosso atendimento nesse dia. Atendemos das ${weekdayEntry.start} as ${weekdayEntry.end}.${lunchLine}`.trim();
 }
 
 export async function checkAvailabilityForOrg(
@@ -494,13 +604,13 @@ export async function checkAvailabilityForOrg(
     dateOverrides: Array.isArray(schedule.dateOverrides)
       ? (schedule.dateOverrides as ReservationDateOverride[])
       : [],
+    weekdaySchedule: Array.isArray(schedule.weekdaySchedule)
+      ? (schedule.weekdaySchedule as ReservationWeekdayScheduleEntry[])
+      : undefined,
   });
 
-  const date = parseDateLocal(dateStr);
-  const effectiveEnd =
-    date && date.getDay() === 6
-      ? normalizedSchedule.saturdayEnd
-      : normalizedSchedule.end;
+  const weekdayEntry = getWeekdayEntry(dateStr, normalizedSchedule);
+  const effectiveEnd = weekdayEntry?.end ?? normalizedSchedule.end;
 
   if (!isDateAllowedForSchedule(dateStr, normalizedSchedule)) {
     return {
@@ -665,13 +775,13 @@ export async function listAvailableSlotsForOrg(
     dateOverrides: Array.isArray(schedule.dateOverrides)
       ? (schedule.dateOverrides as ReservationDateOverride[])
       : [],
+    weekdaySchedule: Array.isArray(schedule.weekdaySchedule)
+      ? (schedule.weekdaySchedule as ReservationWeekdayScheduleEntry[])
+      : undefined,
   });
 
-  const date = parseDateLocal(dateStr);
-  const effectiveEnd =
-    date && date.getDay() === 6
-      ? normalizedSchedule.saturdayEnd
-      : normalizedSchedule.end;
+  const weekdayEntry = getWeekdayEntry(dateStr, normalizedSchedule);
+  const effectiveEnd = weekdayEntry?.end ?? normalizedSchedule.end;
 
   if (!isDateAllowedForSchedule(dateStr, normalizedSchedule)) {
     return {
