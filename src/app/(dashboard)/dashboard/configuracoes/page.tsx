@@ -7,7 +7,6 @@ import { ReservationScheduleForm } from "@/components/configuracoes/reservation-
 import { BusinessProfileForm } from "@/components/configuracoes/business-profile-form";
 import { BotPersonalizationForm } from "@/components/configuracoes/bot-personalization-form";
 import { VehicleServicePolicyForm } from "@/components/configuracoes/vehicle-service-policy-form";
-import { OfferedServicesForm } from "@/components/configuracoes/offered-services-form";
 import { ReservationGroupNotificationsForm } from "@/components/configuracoes/reservation-group-notifications-form";
 import { DataDeletionForm } from "@/components/configuracoes/data-deletion-form";
 import { AccountSecurityForm } from "@/components/configuracoes/account-security-form";
@@ -22,7 +21,6 @@ type SettingsSection =
   | "plugins"
   | "bot"
   | "veiculos"
-  | "servicos"
   | "agenda";
 
 const SETTINGS_MENU: Array<{ key: SettingsSection; label: string }> = [
@@ -30,7 +28,6 @@ const SETTINGS_MENU: Array<{ key: SettingsSection; label: string }> = [
   { key: "plugins", label: "Plugins" },
   { key: "bot", label: "Configuracoes do bot" },
   { key: "veiculos", label: "Veiculos" },
-  { key: "servicos", label: "Servicos" },
   { key: "agenda", label: "Agenda" },
 ];
 
@@ -79,8 +76,6 @@ export default async function ConfiguracoesPage({
   const businessProfile =
     (settings.businessProfile as Record<string, unknown> | undefined) ?? {};
   const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
-  const offeredServicesConfig =
-    (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
   const vehicleServicePolicy =
     (settings.vehicleServicePolicy as Record<string, unknown> | undefined) ?? {};
   const reservationsEnabled = !!settings.reservationsEnabled;
@@ -294,17 +289,6 @@ export default async function ConfiguracoesPage({
                   ? (vehicleServicePolicy.blockedModels as string[])
                   : [],
               }}
-            />
-            {!isPlanActive && <LockedOverlay />}
-          </SectionCard>
-        )}
-
-        {activeSection === "servicos" && (
-          <SectionCard className="relative">
-            <OfferedServicesForm
-              initialSelectedServices={Array.isArray(offeredServicesConfig.selectedServices)
-                ? (offeredServicesConfig.selectedServices as string[])
-                : []}
             />
             {!isPlanActive && <LockedOverlay />}
           </SectionCard>
