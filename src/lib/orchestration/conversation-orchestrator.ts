@@ -2788,13 +2788,13 @@ function extractCustomerName(
 ): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  if (looksLikeGreeting(trimmed)) return null;
   const explicit = trimmed.match(
     /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
   );
   if (explicit?.[1]) {
     return sanitizeNameCandidate(explicit[1], options?.blockedValues);
   }
+  if (looksLikeGreeting(trimmed)) return null;
 
   const lower = trimmed.toLowerCase();
   if (containsDateOrTimeHint(lower) || looksLikeReservationConfirmation(lower)) return null;
@@ -5331,9 +5331,11 @@ export async function processInboundMessage(
     };
   }
   const allowSingleWordName = isAwaitingNameStage;
-  const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
-  // Regra estrita: só captura/salva nome quando o fluxo está em "awaiting_name".
-  const canCaptureNameNow = isAwaitingNameStage;
+  const explicitNameIntro =
+    hasExplicitNameIntro(intentProbeText) || hasExplicitNameIntro(ctx.messageContent);
+  // Captura nome fora de awaiting_name apenas quando o cliente se apresenta explicitamente
+  // (ex.: "me chamo Mateus", "sou o Mateus").
+  const canCaptureNameNow = isAwaitingNameStage || (!contactName && explicitNameIntro);
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(intentProbeText, {
@@ -6819,6 +6821,93 @@ export async function processInboundMessage(
     );
     const mustCollectVehicleBeforeNeed =
       hasKnownName && missingVehicleAfterGreeting.length > 0;
+    const serviceFromGreeting =
+      primaryServiceInMessage ??
+      detectAskedOfferedService(
+        intentProbeText,
+        ctx.offeredServices ?? [],
+        ctx.servicePromptByName
+      );
+    const normalizedGreetingService = normalizeServiceLabel(serviceFromGreeting ?? "");
+    const greetingServiceNeedsFullVehicle = normalizedGreetingService.includes("oleo");
+    const greetingServiceMissingVehicle = getMissingSlots(mergedVehicleAfterGreeting).filter(
+      (slot) => !(slot === "km" && !greetingServiceNeedsFullVehicle)
+    );
+    const greetingVehicleLabel = [
+      mergedVehicleAfterGreeting.modelo ?? null,
+      mergedVehicleAfterGreeting.ano ? String(mergedVehicleAfterGreeting.ano) : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (hasKnownName && serviceFromGreeting) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: serviceFromGreeting,
+        productName: reservationContext.productName,
+      });
+
+      if (greetingServiceMissingVehicle.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName!.trim()}*. Anotei o serviço de *${serviceFromGreeting.toLowerCase()}*. ${buildMissingVehicleRequiredReply(
+            greetingServiceMissingVehicle
+          )}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Saudação com serviço; coletando dados obrigatórios do veículo",
+          silence: false,
+        };
+      }
+
+      if (serviceRequiresHumanByRule(serviceFromGreeting, ctx.serviceHumanPolicyByName)) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName!.trim()}*. Registrei seu veículo como *${greetingVehicleLabel}* e vou direcionar agora seu atendimento de *${serviceFromGreeting.toLowerCase()}* para um mecânico técnico.`
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          `Cliente solicitou ${serviceFromGreeting}; encaminhado para mecânico técnico`
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Saudação com serviço humano e veículo completo; handoff técnico",
+          silence: false,
+        };
+      }
+
+      if (normalizedGreetingService.includes("oleo")) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingUnknownOilConfirmation: true,
+        });
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito, *${contactName!.trim()}*. Registrei seu veículo como *${greetingVehicleLabel}*.\nVocê sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico.`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Saudação com troca de óleo e veículo completo; qualificando óleo",
+          silence: false,
+        };
+      }
+    }
+
     const botName = ctx.businessProfile?.botName?.trim() || "";
     const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
