@@ -215,7 +215,7 @@ export function ReservationScheduleForm({
         </div>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr),320px]">
+      <div className="grid gap-4 xl:grid-cols-[7fr_3fr]">
         <div className="space-y-4">
           <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-3 sm:grid-cols-3">
             <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
