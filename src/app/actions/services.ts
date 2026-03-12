@@ -22,6 +22,12 @@ function normalizeServiceLabel(value: string): string {
     .trim();
 }
 
+function parsePriorityValue(raw: FormDataEntryValue | null | undefined, fallback = 3): number {
+  const value = Number(raw ?? fallback);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(9, Math.max(1, Math.floor(value)));
+}
+
 function parseServiceHumanPolicy(
   settings: Record<string, unknown> | null | undefined
 ): {
@@ -52,10 +58,52 @@ function parseServiceHumanPolicy(
   return { byServiceId, byName };
 }
 
-async function persistServiceHumanPolicy(
+function parseServicePriorityPolicy(
+  settings: Record<string, unknown> | null | undefined
+): {
+  byServiceId: Record<string, number>;
+  byName: Record<string, number>;
+} {
+  const root = (settings ?? {}) as Record<string, unknown>;
+  const policy =
+    (root.servicePriorityPolicy as Record<string, unknown> | undefined) ?? {};
+  const rawById = (policy.byServiceId as Record<string, unknown> | undefined) ?? {};
+  const rawByName = (policy.byName as Record<string, unknown> | undefined) ?? {};
+
+  const parsePriority = (value: unknown): number | null => {
+    const num = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(num)) return null;
+    return Math.min(9, Math.max(1, Math.floor(num)));
+  };
+
+  const byServiceId: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawById)) {
+    const parsed = parsePriority(value);
+    if (parsed && key.trim().length > 0) {
+      byServiceId[key] = parsed;
+    }
+  }
+
+  const byName: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawByName)) {
+    const normalized = normalizeServiceLabel(key);
+    const parsed = parsePriority(value);
+    if (normalized && parsed) {
+      byName[normalized] = parsed;
+    }
+  }
+
+  return { byServiceId, byName };
+}
+
+async function persistServicePolicies(
   organizationId: string,
-  nextByServiceId: Record<string, boolean>,
-  nextByName: Record<string, boolean>
+  payload: {
+    humanByServiceId: Record<string, boolean>;
+    humanByName: Record<string, boolean>;
+    priorityByServiceId: Record<string, number>;
+    priorityByName: Record<string, number>;
+  }
 ) {
   const [orgRow] = await db
     .select({ settings: organizations.settings })
@@ -72,8 +120,12 @@ async function persistServiceHumanPolicy(
       settings: {
         ...currentSettings,
         serviceHumanPolicy: {
-          byServiceId: nextByServiceId,
-          byName: nextByName,
+          byServiceId: payload.humanByServiceId,
+          byName: payload.humanByName,
+        },
+        servicePriorityPolicy: {
+          byServiceId: payload.priorityByServiceId,
+          byName: payload.priorityByName,
         },
       },
       updatedAt: new Date(),
@@ -84,7 +136,11 @@ async function persistServiceHumanPolicy(
 export async function listServices() {
   const org = await getCurrentOrganization();
   if (!org) {
-    return { services: [] as Array<typeof services.$inferSelect & { requiresHuman: boolean }> };
+    return {
+      services: [] as Array<
+        typeof services.$inferSelect & { requiresHuman: boolean; priority: number }
+      >,
+    };
   }
 
   const rows = await db
@@ -95,6 +151,8 @@ export async function listServices() {
   const { byServiceId, byName } = parseServiceHumanPolicy(
     (org.settings as Record<string, unknown> | undefined) ?? {}
   );
+  const { byServiceId: priorityByServiceId, byName: priorityByName } =
+    parseServicePriorityPolicy((org.settings as Record<string, unknown> | undefined) ?? {});
 
   return {
     services: rows.map((item) => {
@@ -103,7 +161,11 @@ export async function listServices() {
         byServiceId[item.id] ??
         (normalizedName ? byName[normalizedName] : false) ??
         false;
-      return { ...item, requiresHuman };
+      const priority =
+        priorityByServiceId[item.id] ??
+        (normalizedName ? priorityByName[normalizedName] : undefined) ??
+        3;
+      return { ...item, requiresHuman, priority };
     }),
   };
 }
@@ -116,6 +178,7 @@ export async function createService(formData: FormData) {
   const description = ((formData.get("description") as string) || "").trim();
   const priceCents = parseCurrencyToCents((formData.get("price") as string) || "0");
   const durationMinutes = Number(formData.get("durationMinutes") || 60);
+  const priority = parsePriorityValue(formData.get("priority"), 3);
   const isActive = formData.get("isActive") === "on";
   const requiresHuman = formData.get("requiresHuman") === "on";
 
@@ -140,10 +203,19 @@ export async function createService(formData: FormData) {
     const { byServiceId, byName } = parseServiceHumanPolicy(
       (org.settings as Record<string, unknown> | undefined) ?? {}
     );
+    const { byServiceId: priorityByServiceId, byName: priorityByName } =
+      parseServicePriorityPolicy((org.settings as Record<string, unknown> | undefined) ?? {});
     const normalizedName = normalizeServiceLabel(created.name);
     byServiceId[created.id] = requiresHuman;
     if (normalizedName) byName[normalizedName] = requiresHuman;
-    await persistServiceHumanPolicy(org.id, byServiceId, byName);
+    priorityByServiceId[created.id] = priority;
+    if (normalizedName) priorityByName[normalizedName] = priority;
+    await persistServicePolicies(org.id, {
+      humanByServiceId: byServiceId,
+      humanByName: byName,
+      priorityByServiceId,
+      priorityByName,
+    });
   }
 
   revalidatePath("/dashboard/servicos");
@@ -159,6 +231,7 @@ export async function updateService(formData: FormData) {
   const description = ((formData.get("description") as string) || "").trim();
   const priceCents = parseCurrencyToCents((formData.get("price") as string) || "0");
   const durationMinutes = Number(formData.get("durationMinutes") || 60);
+  const priority = parsePriorityValue(formData.get("priority"), 3);
   const isActive = formData.get("isActive") === "on";
   const requiresHuman = formData.get("requiresHuman") === "on";
 
@@ -191,19 +264,29 @@ export async function updateService(formData: FormData) {
   const { byServiceId, byName } = parseServiceHumanPolicy(
     (org.settings as Record<string, unknown> | undefined) ?? {}
   );
+  const { byServiceId: priorityByServiceId, byName: priorityByName } =
+    parseServicePriorityPolicy((org.settings as Record<string, unknown> | undefined) ?? {});
 
   const previousNameKey = normalizeServiceLabel(currentService.name);
   if (previousNameKey) {
     delete byName[previousNameKey];
+    delete priorityByName[previousNameKey];
   }
 
   const nextNameKey = normalizeServiceLabel(name);
   byServiceId[id] = requiresHuman;
   if (nextNameKey) {
     byName[nextNameKey] = requiresHuman;
+    priorityByName[nextNameKey] = priority;
   }
+  priorityByServiceId[id] = priority;
 
-  await persistServiceHumanPolicy(org.id, byServiceId, byName);
+  await persistServicePolicies(org.id, {
+    humanByServiceId: byServiceId,
+    humanByName: byName,
+    priorityByServiceId,
+    priorityByName,
+  });
 
   revalidatePath("/dashboard/servicos");
   return { success: true };
@@ -237,11 +320,18 @@ export async function setServiceRequiresHuman(id: string, requiresHuman: boolean
   const { byServiceId, byName } = parseServiceHumanPolicy(
     (org.settings as Record<string, unknown> | undefined) ?? {}
   );
+  const { byServiceId: priorityByServiceId, byName: priorityByName } =
+    parseServicePriorityPolicy((org.settings as Record<string, unknown> | undefined) ?? {});
   byServiceId[serviceRow.id] = requiresHuman;
   const normalizedName = normalizeServiceLabel(serviceRow.name);
   if (normalizedName) byName[normalizedName] = requiresHuman;
 
-  await persistServiceHumanPolicy(org.id, byServiceId, byName);
+  await persistServicePolicies(org.id, {
+    humanByServiceId: byServiceId,
+    humanByName: byName,
+    priorityByServiceId,
+    priorityByName,
+  });
 
   revalidatePath("/dashboard/servicos");
   return { success: true };

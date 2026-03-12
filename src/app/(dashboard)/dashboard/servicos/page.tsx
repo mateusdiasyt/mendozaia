@@ -12,6 +12,13 @@ function formatCurrencyInput(cents: number): string {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
 
+function formatPriorityLabel(priority: number): string {
+  if (priority <= 1) return "Alta";
+  if (priority === 2) return "Media";
+  if (priority === 3) return "Normal";
+  return `Nivel ${priority}`;
+}
+
 export default async function ServicosPage() {
   const org = await getCurrentOrganization();
   const settings = (org?.settings as Record<string, unknown> | undefined) ?? {};
@@ -87,6 +94,21 @@ export default async function ServicosPage() {
                 />
               </label>
             </div>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                Prioridade do servico
+              </span>
+              <select
+                name="priority"
+                defaultValue={3}
+                className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+              >
+                <option value={1}>1 - Alta (ganha em mensagens mistas)</option>
+                <option value={2}>2 - Media</option>
+                <option value={3}>3 - Normal</option>
+              </select>
+            </label>
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Descricao</span>
@@ -180,6 +202,9 @@ export default async function ServicosPage() {
                     >
                       Atendimento humano: {item.requiresHuman ? "Sim" : "Nao"}
                     </span>
+                    <span className="rounded-lg border border-[var(--brand-muted)]/25 bg-white px-2.5 py-1 text-xs font-medium text-[var(--brand-deep)]">
+                      Prioridade: {formatPriorityLabel(item.priority ?? 3)}
+                    </span>
                   </div>
 
                   <details className="group mt-4">
@@ -232,6 +257,21 @@ export default async function ServicosPage() {
                           />
                         </label>
                       </div>
+
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                          Prioridade do servico
+                        </span>
+                        <select
+                          name="priority"
+                          defaultValue={item.priority ?? 3}
+                          className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                        >
+                          <option value={1}>1 - Alta (ganha em mensagens mistas)</option>
+                          <option value={2}>2 - Media</option>
+                          <option value={3}>3 - Normal</option>
+                        </select>
+                      </label>
 
                       <label className="block">
                         <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Descricao</span>

@@ -505,6 +505,18 @@ function serviceRequiresHumanByRule(
   return rulesByName[normalized] === true;
 }
 
+function servicePriorityByRule(
+  serviceName: string | null | undefined,
+  rulesByName: Record<string, number> | undefined
+): number {
+  if (!serviceName || !rulesByName) return 3;
+  const normalized = normalizeServiceLabel(serviceName);
+  if (!normalized) return 3;
+  const value = rulesByName[normalized];
+  if (typeof value !== "number" || !Number.isFinite(value)) return 3;
+  return Math.min(9, Math.max(1, Math.floor(value)));
+}
+
 function detectAskedOfferedService(
   text: string,
   offeredServices: string[]
@@ -542,6 +554,54 @@ function detectAskedOfferedService(
     }
   }
   return best?.service ?? null;
+}
+
+function detectPrimaryOfferedServiceByPriority(
+  text: string,
+  offeredServices: string[],
+  priorityRulesByName: Record<string, number> | undefined,
+  humanRulesByName: Record<string, boolean> | undefined
+): string | null {
+  const normalizedText = normalizeForSearch(text);
+  if (!normalizedText || offeredServices.length === 0) return null;
+
+  const tokens = normalizedText
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+
+  const scored = offeredServices
+    .map((service) => {
+      const normalizedService = normalizeServiceLabel(service);
+      if (!normalizedService) return null;
+      let score = 0;
+      if (normalizedText.includes(normalizedService)) score += 3;
+      for (const token of tokens) {
+        if (normalizedService.includes(token)) score += 1;
+      }
+      if (score <= 0) return null;
+      const priority = servicePriorityByRule(service, priorityRulesByName);
+      const requiresHuman = serviceRequiresHumanByRule(service, humanRulesByName);
+      return { service, score, priority, requiresHuman };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        service: string;
+        score: number;
+        priority: number;
+        requiresHuman: boolean;
+      } => Boolean(item)
+    )
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      if (a.requiresHuman !== b.requiresHuman) return a.requiresHuman ? -1 : 1;
+      if (a.score !== b.score) return b.score - a.score;
+      return b.service.length - a.service.length;
+    });
+
+  return scored[0]?.service ?? null;
 }
 
 function extractBrandMention(text: string): string | null {
@@ -3259,13 +3319,17 @@ export async function loadConversationContext(
     .where(eq(organizations.id, params.organizationId))
     .limit(1);
 
-  const [contactRows, memories] = await Promise.all([
+  const [contactRows, memories, activeServiceRows] = await Promise.all([
     db
       .select({ name: contacts.name })
       .from(contacts)
       .where(eq(contacts.id, params.contactId))
       .limit(1),
     getContactMemories(params.contactId),
+    db
+      .select({ name: services.name, isActive: services.isActive })
+      .from(services)
+      .where(eq(services.organizationId, params.organizationId)),
   ]);
   const [contact] = contactRows;
 
@@ -3290,6 +3354,8 @@ export async function loadConversationContext(
     (settings.offeredServicesConfig as Record<string, unknown> | undefined) ?? {};
   const serviceHumanPolicySettings =
     (settings.serviceHumanPolicy as Record<string, unknown> | undefined) ?? {};
+  const servicePriorityPolicySettings =
+    (settings.servicePriorityPolicy as Record<string, unknown> | undefined) ?? {};
   const rawServiceHumanPolicyByName =
     (serviceHumanPolicySettings.byName as Record<string, unknown> | undefined) ?? {};
   const serviceHumanPolicyByName = Object.fromEntries(
@@ -3297,11 +3363,33 @@ export async function loadConversationContext(
       .filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")
       .map(([name, requiresHuman]) => [normalizeServiceLabel(name), requiresHuman])
   ) as Record<string, boolean>;
+  const rawServicePriorityPolicyByName =
+    (servicePriorityPolicySettings.byName as Record<string, unknown> | undefined) ?? {};
+  const servicePriorityByName = Object.fromEntries(
+    Object.entries(rawServicePriorityPolicyByName)
+      .map(([name, priority]) => [
+        normalizeServiceLabel(name),
+        typeof priority === "number" ? Math.min(9, Math.max(1, Math.floor(priority))) : null,
+      ])
+      .filter((entry): entry is [string, number] => !!entry[0] && typeof entry[1] === "number")
+  ) as Record<string, number>;
   const configuredSegment =
     (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     undefined;
   const isMecanicaSegment = configuredSegment === "mecanica";
   const isRestauranteSegment = configuredSegment === "restaurante";
+  const configuredOfferedServices = Array.isArray(offeredServicesSettings.selectedServices)
+    ? (offeredServicesSettings.selectedServices as string[])
+    : [];
+  const offeredServices = Array.from(
+    new Set([
+      ...configuredOfferedServices,
+      ...activeServiceRows
+        .filter((row) => row.isActive)
+        .map((row) => row.name.trim())
+        .filter(Boolean),
+    ])
+  );
   const reservationSchedule = {
     start:
       (reservationScheduleSettings.start as string | undefined) ||
@@ -3463,10 +3551,9 @@ export async function loadConversationContext(
         "neutro",
       language: (botConfigSettings.language as string | undefined) ?? "pt-BR",
     },
-    offeredServices: Array.isArray(offeredServicesSettings.selectedServices)
-      ? (offeredServicesSettings.selectedServices as string[])
-      : [],
+    offeredServices,
     serviceHumanPolicyByName,
+    servicePriorityByName,
     vehicleServicePolicy: {
       minAllowedYear:
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
@@ -4006,6 +4093,16 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_profile" ||
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation";
+  const primaryServiceInMessage = detectPrimaryOfferedServiceByPriority(
+    intentProbeText,
+    ctx.offeredServices ?? [],
+    ctx.servicePriorityByName,
+    ctx.serviceHumanPolicyByName
+  );
+  const primaryServiceRequiresHuman = serviceRequiresHumanByRule(
+    primaryServiceInMessage,
+    ctx.serviceHumanPolicyByName
+  );
 
   // Persistência passiva de pista de agendamento (data/horário) em qualquer etapa:
   // se o cliente disser "hoje", "amanhã" ou horário, salva no metadata para UI e próximos passos.
@@ -4109,9 +4206,19 @@ export async function processInboundMessage(
 
   // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo. Prioriza fluxo específico quando ativo.
   const hasRevisionIntentInCurrentMessage = isRevisionServiceIntent(intentProbeText);
+  const primaryServiceLooksLikeOil = primaryServiceInMessage
+    ? isOilExchangeIntent(primaryServiceInMessage)
+    : false;
+  const shouldBypassOilFlowForPriorityService =
+    primaryServiceRequiresHuman && !primaryServiceLooksLikeOil;
   if (
     ctx.usesVehicleSlots &&
-    (hasActiveOilFlow || (isOilExchangeIntent(intentProbeText) && !hasRevisionIntentInCurrentMessage))
+    (
+      hasActiveOilFlow ||
+      (isOilExchangeIntent(intentProbeText) &&
+        !hasRevisionIntentInCurrentMessage &&
+        !shouldBypassOilFlowForPriorityService)
+    )
   ) {
     if (shouldEscalateMechanicalIssue(intentProbeText)) {
       const mergedVehicleForIssue = mergeVehicleSlots(
@@ -6611,6 +6718,53 @@ export async function processInboundMessage(
         didReply: true,
         decision: "human_only",
         reason: "Problema no carro com modelo e ano; handoff técnico",
+        silence: false,
+      };
+    }
+
+    if (primaryServiceInMessage && primaryServiceRequiresHuman) {
+      const slots = ctx.vehicleSlots ?? {};
+      const hasCompleteVehicleData = !!(slots.modelo && slots.ano && slots.km);
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: primaryServiceInMessage,
+        productName: reservationContext.productName,
+      });
+      if (!hasCompleteVehicleData) {
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito! Para *${primaryServiceInMessage.toLowerCase()}*, antes de encaminhar para o mecânico técnico, preciso dos dados completos do veículo: *modelo, ano e km*.`
+        );
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Servico prioritario com atendimento humano; coletando modelo, ano e km",
+          silence: false,
+        };
+      }
+
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, vou direcionar agora seu atendimento de *${primaryServiceInMessage.toLowerCase()}* para um mecânico técnico.`
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        `Cliente solicitou ${primaryServiceInMessage}; encaminhado para mecânico técnico`
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Servico prioritario requer atendimento humano",
         silence: false,
       };
     }
