@@ -5802,9 +5802,32 @@ export async function processInboundMessage(
       }
     }
 
-    const requiresFullVehicleProfile =
-      reservationContext.serviceName === "Revisão" ||
-      reservationContext.serviceName === "Troca de Óleo";
+    const serviceFromMessageInVehicleStage =
+      reservationContext.serviceName ??
+      primaryServiceInMessage ??
+      detectAskedOfferedService(
+        ctx.messageContent,
+        ctx.offeredServices ?? [],
+        ctx.servicePromptByName
+      ) ??
+      detectAskedOfferedService(
+        intentProbeText,
+        ctx.offeredServices ?? [],
+        ctx.servicePromptByName
+      );
+    if (serviceFromMessageInVehicleStage && !reservationContext.serviceName) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: serviceFromMessageInVehicleStage,
+        productName: reservationContext.productName,
+      });
+    }
+    const normalizedServiceInVehicleStage = normalizeServiceLabel(
+      serviceFromMessageInVehicleStage ?? ""
+    );
+    const isRevisionService = normalizedServiceInVehicleStage.includes("revis");
+    const isOilService = normalizedServiceInVehicleStage.includes("oleo");
+    const isInspectionService = normalizedServiceInVehicleStage.includes("verific");
+    const requiresFullVehicleProfile = isRevisionService || isOilService;
     const hasVehicleProfileForCurrentNeed = requiresFullVehicleProfile
       ? hasAllVehicleSlots(mergedVehicleSlotsForVehicleStage)
       : !!(
@@ -5826,16 +5849,18 @@ export async function processInboundMessage(
         ? ""
         : "\nSe souber, me passe também o *km* para deixar o orçamento mais preciso.";
 
-      if (reservationContext.serviceName === "Revisão") {
+      if (isRevisionService) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
         await sendMessage(
           ctx.conversationId,
-          `Perfeito, registrei seu veículo como *${vehicleLabel}*.\nVou direcionar agora seu atendimento de revisão para um mecânico técnico.`
+          `Perfeito, registrei seu veículo como *${vehicleLabel}*.\nVou direcionar agora seu atendimento de ${serviceFromMessageInVehicleStage?.toLowerCase() ?? "revisão"} para um mecânico técnico.`
         );
         const handoff = await handoffToHuman(
           ctx.conversationId,
           ctx.organizationId,
-          "Cliente solicitou revisão; dados do veículo coletados"
+          `Cliente solicitou ${
+            serviceFromMessageInVehicleStage ?? "revisão"
+          }; dados do veículo coletados`
         );
         if (handoff.success) {
           await db
@@ -5849,12 +5874,12 @@ export async function processInboundMessage(
         return {
           didReply: true,
           decision: "human_only",
-          reason: "Revisão com dados completos; handoff técnico",
+          reason: `${serviceFromMessageInVehicleStage ?? "Revisão"} com dados completos; handoff técnico`,
           silence: false,
         };
       }
 
-      if (reservationContext.serviceName === "Troca de Óleo") {
+      if (isOilService) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
         await sendMessage(
           ctx.conversationId,
@@ -5868,7 +5893,7 @@ export async function processInboundMessage(
         };
       }
 
-      if (reservationContext.serviceName === "Verificação") {
+      if (isInspectionService) {
         const hasKm = !!mergedVehicleSlotsForVehicleStage.km;
         const providedModelOrYearNow = Boolean(
           vehicleSlotsFromVehicleStage.modelo ||
