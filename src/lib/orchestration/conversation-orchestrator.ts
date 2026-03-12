@@ -689,7 +689,8 @@ function buildVehiclePolicySummaryText(policy: {
     const moreCount = blockedModels.length - preview.length;
     const suffix = moreCount > 0 ? ` e mais ${moreCount}` : "";
     chunks.push(`Exceções por modelo: *${preview.join(", ")}*${suffix}.`);
-  }  chunks.push("Se quiser, me diga *modelo e ano* que eu confirmo na hora pra você.");
+  }
+  chunks.push("Se quiser, me diga *modelo e ano* que eu confirmo na hora pra você.");
   return chunks.join("\n");
 }
 
@@ -724,7 +725,8 @@ function evaluateVehicleServicePolicy(
       blocked: true,
       reason: `No momento, não atendemos o modelo *${slots.modelo}*.`,
     };
-  }  const supportedModelsNormalized = new Set(
+  }
+  const supportedModelsNormalized = new Set(
     (policy.supportedModels ?? []).map((model) => normalizeVehicleModelKey(model))
   );
   if (
@@ -6828,7 +6830,21 @@ export async function processInboundMessage(
         ctx.offeredServices ?? [],
         ctx.servicePromptByName
       );
-    const normalizedGreetingService = normalizeServiceLabel(serviceFromGreeting ?? "");
+    const fallbackServiceFromGreeting = isRevisionServiceIntent(intentProbeText)
+      ? "Revisão"
+      : shouldAskOilQualification(intentProbeText)
+        ? "Troca de Óleo"
+        : null;
+    const resolvedServiceFromGreeting =
+      serviceFromGreeting ?? fallbackServiceFromGreeting;
+    const hasDirectRequestInGreeting =
+      !!resolvedServiceFromGreeting ||
+      looksLikeCatalogIntent(intentProbeText) ||
+      looksLikeCarProblemOrRepairIntent(intentProbeText) ||
+      looksLikeDirectHumanMechanicalIssue(intentProbeText);
+    const normalizedGreetingService = normalizeServiceLabel(
+      resolvedServiceFromGreeting ?? ""
+    );
     const greetingServiceNeedsFullVehicle = normalizedGreetingService.includes("oleo");
     const greetingServiceMissingVehicle = getMissingSlots(mergedVehicleAfterGreeting).filter(
       (slot) => !(slot === "km" && !greetingServiceNeedsFullVehicle)
@@ -6840,38 +6856,31 @@ export async function processInboundMessage(
       .filter(Boolean)
       .join(" ");
 
-    if (hasKnownName && serviceFromGreeting) {
+    if (hasDirectRequestInGreeting && resolvedServiceFromGreeting) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
-        serviceName: serviceFromGreeting,
+        serviceName: resolvedServiceFromGreeting,
         productName: reservationContext.productName,
       });
 
-      if (greetingServiceMissingVehicle.length > 0) {
-        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
-        await sendMessage(
-          ctx.conversationId,
-          `Perfeito, *${contactName!.trim()}*. Anotei o serviço de *${serviceFromGreeting.toLowerCase()}*. ${buildMissingVehicleRequiredReply(
-            greetingServiceMissingVehicle
-          )}`
-        );
-        return {
-          didReply: true,
-          decision: "tool_then_ai",
-          reason: "Saudação com serviço; coletando dados obrigatórios do veículo",
-          silence: false,
-        };
-      }
+      const resolvedServiceRequiresHuman = serviceRequiresHumanByRule(
+        resolvedServiceFromGreeting,
+        ctx.serviceHumanPolicyByName
+      );
 
-      if (serviceRequiresHumanByRule(serviceFromGreeting, ctx.serviceHumanPolicyByName)) {
+      if (resolvedServiceRequiresHuman) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+        const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
+        const vehicleSummary = greetingVehicleLabel
+          ? ` Veiculo registrado: *${greetingVehicleLabel}*.`
+          : "";
         await sendMessage(
           ctx.conversationId,
-          `Perfeito, *${contactName!.trim()}*. Registrei seu veículo como *${greetingVehicleLabel}* e vou direcionar agora seu atendimento de *${serviceFromGreeting.toLowerCase()}* para um mecânico técnico.`
+          `Perfeito${knownNamePrefix}. Vou direcionar agora seu atendimento de *${resolvedServiceFromGreeting.toLowerCase()}* para um mecanico tecnico.${vehicleSummary}`
         );
         const handoff = await handoffToHuman(
           ctx.conversationId,
           ctx.organizationId,
-          `Cliente solicitou ${serviceFromGreeting}; encaminhado para mecânico técnico`
+          `Cliente solicitou ${resolvedServiceFromGreeting}; encaminhado para mecanico tecnico`
         );
         if (handoff.success) {
           await db
@@ -6885,7 +6894,24 @@ export async function processInboundMessage(
         return {
           didReply: true,
           decision: "human_only",
-          reason: "Saudação com serviço humano e veículo completo; handoff técnico",
+          reason: "Saudacao com solicitacao direta de servico humano; handoff tecnico",
+          silence: false,
+        };
+      }
+
+      if (greetingServiceMissingVehicle.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito${knownNamePrefix}. Anotei o servico de *${resolvedServiceFromGreeting.toLowerCase()}*. ${buildMissingVehicleRequiredReply(
+            greetingServiceMissingVehicle
+          )}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Saudacao com servico direto; coletando dados obrigatorios do veiculo",
           silence: false,
         };
       }
@@ -6895,19 +6921,41 @@ export async function processInboundMessage(
         await persistOilFlowState(ctx.conversationId, conversationMetadata, {
           awaitingUnknownOilConfirmation: true,
         });
+        const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
         await sendMessage(
           ctx.conversationId,
-          `Perfeito, *${contactName!.trim()}*. Registrei seu veículo como *${greetingVehicleLabel}*.\nVocê sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico.`
+          `Perfeito${knownNamePrefix}. Registrei seu veiculo como *${greetingVehicleLabel}*.\nVoce sabe qual oleo e utilizado no carro? Se nao souber o oleo, me responda *nao sei* que eu ja direciono para o mecanico tecnico.`
         );
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Saudação com troca de óleo e veículo completo; qualificando óleo",
+          reason: "Saudacao com troca de oleo e veiculo completo; qualificando oleo",
+          silence: false,
+        };
+      }
+
+      const directCatalogQuery = buildCatalogQueryWithContext(ctx.messageContent, {
+        serviceName: resolvedServiceFromGreeting,
+        productName: reservationContext.productName,
+      });
+      const directCatalog = await buildCatalogReply(ctx.organizationId, directCatalogQuery, {
+        skipIntentCheck: true,
+      });
+      if (directCatalog) {
+        await sendMessage(ctx.conversationId, directCatalog.reply);
+        await persistReservationContext(ctx.conversationId, conversationMetadata, {
+          serviceName: directCatalog.selectedServiceName ?? resolvedServiceFromGreeting,
+          productName: directCatalog.selectedProductName ?? reservationContext.productName,
+        });
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Saudacao com solicitacao direta; orcamento retornado",
           silence: false,
         };
       }
     }
-
     const botName = ctx.businessProfile?.botName?.trim() || "";
     const botIntro = botName ? ` Me chamo *${botName}*.` : "";
     const greetingPrefix = buildAdaptiveGreeting(
