@@ -5330,22 +5330,10 @@ export async function processInboundMessage(
       silence: false,
     };
   }
-  const isReservationProfileCollection =
-    ctx.reservationsEnabled && ctx.usesVehicleSlots && !contactName;
-  const isPendingWithoutName = !!ctx.pendingReservation && !contactName;
-  const allowSingleWordName =
-    isPendingWithoutName || isReservationProfileCollection || isAwaitingNameStage;
+  const allowSingleWordName = isAwaitingNameStage;
   const explicitNameIntro = hasExplicitNameIntro(intentProbeText);
-  const canCaptureNameNow =
-    isAwaitingNameStage ||
-    (!contactName && explicitNameIntro) ||
-    (!contactName &&
-      (
-        intakeStage === "awaiting_reservation_profile" ||
-        reservationFlow.collectionStage === "collect_profile" ||
-        isPendingWithoutName ||
-        isReservationProfileCollection
-      ));
+  // Regra estrita: só captura/salva nome quando o fluxo está em "awaiting_name".
+  const canCaptureNameNow = isAwaitingNameStage;
   let inferredName: string | null = null;
   if (canCaptureNameNow) {
     inferredName = extractCustomerName(intentProbeText, {
