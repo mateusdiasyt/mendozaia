@@ -4108,9 +4108,10 @@ export async function processInboundMessage(
   }
 
   // Fluxo de troca de óleo: pergunta óleo ANTES de nome/veículo. Prioriza fluxo específico quando ativo.
+  const hasRevisionIntentInCurrentMessage = isRevisionServiceIntent(intentProbeText);
   if (
     ctx.usesVehicleSlots &&
-    (isOilExchangeIntent(intentProbeText) || hasActiveOilFlow)
+    (hasActiveOilFlow || (isOilExchangeIntent(intentProbeText) && !hasRevisionIntentInCurrentMessage))
   ) {
     if (shouldEscalateMechanicalIssue(intentProbeText)) {
       const mergedVehicleForIssue = mergeVehicleSlots(
