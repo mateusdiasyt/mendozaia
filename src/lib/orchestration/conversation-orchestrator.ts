@@ -4942,11 +4942,26 @@ export async function processInboundMessage(
         : askedYear
           ? `Sim, conseguimos atender ${modelLabel} ${askedYear}.`
           : "Sim, conseguimos atender esse veículo.";
-      await sendMessage(ctx.conversationId, response);
+      let continuation = "";
+      if (!decision.blocked) {
+        if (askedModel) {
+          await saveContactMemory(ctx.contactId, "vehicle_model", prettifyVehicleLabel(askedModel));
+        }
+        if (askedYear) {
+          await saveContactMemory(ctx.contactId, "vehicle_year", String(askedYear));
+        }
+        const knownName = contactName?.trim();
+        continuation = knownName
+          ? `\n\nPerfeito, *${knownName}*. Agora me diga qual serviço você precisa (ex.: troca de óleo) para eu seguir com seu atendimento.`
+          : "\n\nPerfeito. Para eu continuar seu atendimento, me diga seu *nome* e qual serviço você precisa (ex.: troca de óleo).";
+      }
+      await sendMessage(ctx.conversationId, `${response}${continuation}`);
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Pergunta de cobertura por modelo/ano respondida",
+        reason: decision.blocked
+          ? "Pergunta de cobertura por modelo/ano respondida"
+          : "Pergunta de cobertura por modelo/ano respondida com continuidade de fluxo",
         silence: false,
       };
     }
