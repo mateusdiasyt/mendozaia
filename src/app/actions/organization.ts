@@ -41,6 +41,9 @@ export interface ReservationScheduleConfig {
   timezone?: string;
   workingDays?: number[];
   blockedDates?: string[];
+  lunchBreakStart?: string;
+  lunchBreakEnd?: string;
+  saturdayEnd?: string;
 }
 
 export interface BusinessProfileConfig {
@@ -256,7 +259,51 @@ export async function updateReservationScheduleConfig(
   config: ReservationScheduleConfig
 ) {
   const org = await getCurrentOrganization();
-  if (!org) return { error: "Não autorizado" };
+  if (!org) return { error: "Nao autorizado" };
+
+  const timePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const start = config.start?.trim();
+  const end = config.end?.trim();
+  const lunchBreakStart = config.lunchBreakStart?.trim() || "12:00";
+  const lunchBreakEnd = config.lunchBreakEnd?.trim() || "13:00";
+  const saturdayEnd = config.saturdayEnd?.trim() || "12:00";
+
+  if (!start || !end || !timePattern.test(start) || !timePattern.test(end)) {
+    return { error: "Informe horarios validos no formato HH:MM." };
+  }
+
+  const toMinutes = (timeStr: string) => {
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
+  };
+
+  const startMinutes = toMinutes(start);
+  const endMinutes = toMinutes(end);
+  if (endMinutes <= startMinutes) {
+    return { error: "O horario final deve ser maior que o horario inicial." };
+  }
+
+  if (!timePattern.test(lunchBreakStart) || !timePattern.test(lunchBreakEnd)) {
+    return { error: "Informe um intervalo de almoco valido no formato HH:MM." };
+  }
+
+  const lunchStartMinutes = toMinutes(lunchBreakStart);
+  const lunchEndMinutes = toMinutes(lunchBreakEnd);
+  if (lunchEndMinutes <= lunchStartMinutes) {
+    return { error: "O fim do intervalo deve ser maior que o inicio do intervalo." };
+  }
+
+  if (!timePattern.test(saturdayEnd)) {
+    return { error: "Informe um horario de termino de sabado valido (HH:MM)." };
+  }
+
+  const saturdayEndMinutes = toMinutes(saturdayEnd);
+  if (saturdayEndMinutes < startMinutes || saturdayEndMinutes > endMinutes) {
+    return {
+      error:
+        "O termino de sabado precisa estar dentro do horario geral de atendimento.",
+    };
+  }
 
   const [current] = await db
     .select({ settings: organizations.settings })
@@ -282,11 +329,14 @@ export async function updateReservationScheduleConfig(
     : [];
 
   const reservationSchedule: ReservationScheduleConfig = {
-    start: config.start,
-    end: config.end,
+    start,
+    end,
     timezone: config.timezone || "America/Sao_Paulo",
     workingDays: safeWorkingDays,
     blockedDates: safeBlockedDates,
+    lunchBreakStart,
+    lunchBreakEnd,
+    saturdayEnd,
   };
 
   await db
@@ -307,7 +357,6 @@ export async function updateReservationScheduleConfig(
 
   return { success: true };
 }
-
 export async function updateBusinessProfileConfig(config: BusinessProfileConfig) {
   const org = await getCurrentOrganization();
   if (!org) return { error: "Não autorizado" };
@@ -883,3 +932,4 @@ export async function deleteOrganizationData(scope: DeleteDataScope) {
     };
   }
 }
+

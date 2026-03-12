@@ -59,6 +59,9 @@ export interface OrchestrationContext {
     timezone?: string;
     workingDays?: number[];
     blockedDates?: string[];
+    lunchBreakStart?: string;
+    lunchBreakEnd?: string;
+    saturdayEnd?: string;
   };
   businessProfile?: {
     botName?: string | null;

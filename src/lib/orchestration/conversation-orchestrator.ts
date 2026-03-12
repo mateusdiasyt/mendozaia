@@ -30,7 +30,17 @@ import {
   setLastUsedFaqId,
   clearLastUsedFaqId,
 } from "@/lib/faq-engine";
-import { checkAvailabilityForOrg, createReservationForOrg } from "@/lib/reservations";
+import {
+  buildReservationWindowLabel as buildReservationWindowLabelFromConfig,
+  checkAvailabilityForOrg,
+  createReservationForOrg,
+  hasRemainingReservableSlotOnDate as hasRemainingReservableSlotOnDateInSchedule,
+  isDateAllowedForSchedule,
+  isTimeAllowedForSchedule,
+  listAvailableSlotsForOrg,
+  normalizeReservationScheduleConfig,
+  type ReservationScheduleConfigNormalized,
+} from "@/lib/reservations";
 import { getContactMemories, saveContactMemory } from "@/lib/contact-memories";
 import { normalizeContactName } from "@/lib/contact-name";
 import {
@@ -1360,23 +1370,39 @@ function timeToMinutes(timeStr: string): number {
   return hour * 60 + minute;
 }
 
+type ReservationScheduleInput = Partial<ReservationScheduleConfigNormalized> | undefined;
+
+function normalizeOrchestratorReservationSchedule(
+  schedule?: ReservationScheduleInput
+): ReservationScheduleConfigNormalized {
+  return normalizeReservationScheduleConfig(schedule);
+}
+
+function getReservationWindowLabel(schedule?: ReservationScheduleInput): string {
+  return buildReservationWindowLabelFromConfig(
+    normalizeOrchestratorReservationSchedule(schedule)
+  );
+}
+
 function isReservationTimeAllowed(
   timeStr: string,
-  schedule?: { start: string; end: string }
+  schedule?: ReservationScheduleInput,
+  options?: { dateStr?: string; durationMinutes?: number }
 ): boolean {
-  const [hour, minute] = timeStr.split(":").map(Number);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return false;
-  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
-  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
-  if (startMinutes < 0 || endMinutes < 0 || endMinutes <= startMinutes) {
-    return false;
-  }
-  const appointmentStart = hour * 60 + minute;
-  const appointmentEnd = appointmentStart + 60;
-  if (appointmentStart < startMinutes) return false;
-  if (appointmentEnd > endMinutes) return false;
-  if (minute < 0 || minute > 59) return false;
-  return true;
+  const normalizedSchedule = normalizeOrchestratorReservationSchedule(schedule);
+  const dateStr =
+    options?.dateStr ??
+    toDateStr(
+      new Date().getFullYear(),
+      new Date().getMonth() + 1,
+      new Date().getDate()
+    );
+  return isTimeAllowedForSchedule(
+    dateStr,
+    timeStr,
+    options?.durationMinutes ?? 60,
+    normalizedSchedule
+  );
 }
 
 type ReservationPeriodSelection = {
@@ -1482,58 +1508,49 @@ async function findAvailableSlotsForPeriod(
   dateStr: string,
   period: "morning" | "afternoon",
   now: Date,
-  schedule?: { start: string; end: string }
+  schedule?: ReservationScheduleInput,
+  durationMinutes: number = 60
 ): Promise<string[]> {
-  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
-  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
-  if (startMinutes < 0 || endMinutes <= startMinutes) return [];
+  const normalizedSchedule = normalizeOrchestratorReservationSchedule(schedule);
+  const slotResult = await listAvailableSlotsForOrg(
+    organizationId,
+    dateStr,
+    durationMinutes
+  );
+  if (slotResult.reason !== "ok" && slotResult.reason !== "no_slots") return [];
 
-  const candidateMinutes: number[] = [];
-  for (let mins = startMinutes; mins + 60 <= endMinutes; mins += 60) {
-    const hour = Math.floor(mins / 60);
-    if (period === "morning" && hour > 12) continue;
-    if (period === "afternoon" && hour < 13) continue;
-    candidateMinutes.push(mins);
-  }
   const [year, month, day] = dateStr.split("-").map(Number);
   const sameDay =
     now.getFullYear() === year &&
     now.getMonth() + 1 === month &&
     now.getDate() === day;
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
-  const available: string[] = [];
-  for (const mins of candidateMinutes) {
-    const hour = Math.floor(mins / 60);
-    const minute = mins % 60;
-    if (sameDay) {
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
-      if (mins <= currentMinutes) continue;
+  return slotResult.slots.filter((slot) => {
+    const minutes = timeToMinutes(slot);
+    if (minutes < 0) return false;
+    if (
+      !isTimeAllowedForSchedule(
+        dateStr,
+        slot,
+        durationMinutes,
+        normalizedSchedule
+      )
+    ) {
+      return false;
     }
-    const timeStr = toTimeStr(hour, minute);
-    const availability = await checkAvailabilityForOrg(
-      organizationId,
-      dateStr,
-      timeStr,
-      60
-    );
-    if (availability.available) {
-      available.push(timeStr);
-    }
-  }
-  return available;
+    if (sameDay && minutes <= currentMinutes) return false;
+    if (period === "morning") return minutes < 12 * 60;
+    return minutes >= 13 * 60;
+  });
 }
 
 function isDateAllowedForReservation(
   dateStr: string,
-  schedule?: { workingDays?: number[]; blockedDates?: string[] }
+  schedule?: ReservationScheduleInput
 ): boolean {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const dt = new Date(year, month - 1, day, 0, 0, 0);
-  if (Number.isNaN(dt.getTime())) return false;
-  const blocked = new Set((schedule?.blockedDates ?? []).map((d) => d.trim()));
-  if (blocked.has(dateStr)) return false;
-  const workingDays = schedule?.workingDays ?? [1, 2, 3, 4, 5];
-  return workingDays.includes(dt.getDay());
+  const normalizedSchedule = normalizeOrchestratorReservationSchedule(schedule);
+  return isDateAllowedForSchedule(dateStr, normalizedSchedule);
 }
 
 function findNextAllowedReservationDate(
@@ -1586,19 +1603,16 @@ function isSameReservationDate(dateStr: string, reference: Date): boolean {
 function hasRemainingReservableSlotOnDate(
   dateStr: string,
   now: Date,
-  schedule?: { start?: string; end?: string },
+  schedule?: ReservationScheduleInput,
   durationMinutes: number = 60
 ): boolean {
-  if (!isSameReservationDate(dateStr, now)) return true;
-  const startMinutes = timeToMinutes(schedule?.start ?? "09:00");
-  const endMinutes = timeToMinutes(schedule?.end ?? "17:00");
-  if (startMinutes < 0 || endMinutes <= startMinutes) return false;
-
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const nextHalfHourStart = Math.ceil(currentMinutes / 30) * 30;
-  const candidateStart = Math.max(startMinutes, nextHalfHourStart);
-
-  return candidateStart + durationMinutes <= endMinutes;
+  const normalizedSchedule = normalizeOrchestratorReservationSchedule(schedule);
+  return hasRemainingReservableSlotOnDateInSchedule(
+    dateStr,
+    now,
+    durationMinutes,
+    normalizedSchedule
+  );
 }
 
 function buildTodayClosedReply(
@@ -2314,6 +2328,7 @@ function buildAvailabilityReply(
   parsed: { dateStr: string; timeStr: string },
   availability: {
     available: boolean;
+    message?: string;
     reason?: string;
     start?: string;
     end?: string;
@@ -2322,7 +2337,7 @@ function buildAvailabilityReply(
   options?: {
     now?: Date;
     reservationWindowLabel?: string;
-    reservationSchedule?: { workingDays?: number[]; blockedDates?: string[] };
+    reservationSchedule?: ReservationScheduleInput;
   }
 ): string {
   const friendlyDate = formatDateForPtBr(parsed.dateStr);
@@ -2342,10 +2357,16 @@ function buildAvailabilityReply(
   if (availability.reason === "outside_business_hours") {
     const start = availability.start ?? "09:00";
     const end = availability.end ?? "17:00";
-    const reservationWindowLabel = options?.reservationWindowLabel ?? `${start} as ${end}`;
+    const reservationWindowLabel =
+      options?.reservationWindowLabel ??
+      getReservationWindowLabel(options?.reservationSchedule ?? { start, end });
     if (
       options?.now &&
-      !hasRemainingReservableSlotOnDate(parsed.dateStr, options.now, { start, end })
+      !hasRemainingReservableSlotOnDate(
+        parsed.dateStr,
+        options.now,
+        options.reservationSchedule ?? { start, end }
+      )
     ) {
       return buildTodayClosedReply(
         parsed.dateStr,
@@ -2353,6 +2374,9 @@ function buildAvailabilityReply(
         options.now,
         options.reservationSchedule
       );
+    }
+    if (availability.message && availability.message.trim().length > 0) {
+      return availability.message;
     }
     return `Esse horario fica fora do nosso atendimento. Atendemos das ${start} as ${end}. Quer agendar em outro horario nesse intervalo?`;
   }
@@ -3255,6 +3279,15 @@ export async function loadConversationContext(
     blockedDates: Array.isArray(reservationScheduleSettings.blockedDates)
       ? (reservationScheduleSettings.blockedDates as string[])
       : [],
+    lunchBreakStart:
+      (reservationScheduleSettings.lunchBreakStart as string | undefined) ||
+      "12:00",
+    lunchBreakEnd:
+      (reservationScheduleSettings.lunchBreakEnd as string | undefined) ||
+      "13:00",
+    saturdayEnd:
+      (reservationScheduleSettings.saturdayEnd as string | undefined) ||
+      "12:00",
   };
   const usesVehicleSlots =
     configuredSegment
@@ -3961,10 +3994,23 @@ export async function processInboundMessage(
       parsedDateTimeHint?.dateStr &&
       parsedDateTimeHint?.timeStr &&
       isDateAllowedForReservation(parsedDateTimeHint.dateStr, ctx.reservationSchedule) &&
-      isReservationTimeAllowed(parsedDateTimeHint.timeStr, {
-        start: ctx.reservationSchedule?.start ?? "09:00",
-        end: ctx.reservationSchedule?.end ?? "17:00",
-      });
+      isReservationTimeAllowed(
+        parsedDateTimeHint.timeStr,
+        {
+          start: ctx.reservationSchedule?.start ?? "09:00",
+          end: ctx.reservationSchedule?.end ?? "17:00",
+          lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
+          lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
+          saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
+        },
+        {
+          dateStr: parsedDateTimeHint.dateStr,
+          durationMinutes:
+            typeof currentPending.durationMinutes === "number"
+              ? currentPending.durationMinutes
+              : 60,
+        }
+      );
     if (canPersistDateTimeHint && parsedDateTimeHint?.dateStr && parsedDateTimeHint?.timeStr) {
       nextMetadata = {
         ...nextMetadata,
@@ -4221,9 +4267,7 @@ export async function processInboundMessage(
           );
         } else {
           const knownDate = getKnownReservationDate(conversationMetadata, ctx.pendingReservation);
-          const reservationWindowLabel = `${
-            ctx.reservationSchedule?.start ?? "09:00"
-          } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
+          const reservationWindowLabel = getReservationWindowLabel(ctx.reservationSchedule);
           if (knownDate && !isDateAllowedForReservation(knownDate, ctx.reservationSchedule)) {
             await sendMessage(
               ctx.conversationId,
@@ -7131,8 +7175,11 @@ export async function processInboundMessage(
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
+      lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
+      lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
+      saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
     };
-    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+    const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const rf = getRestaurantReservationFlow(conversationMetadata);
     const periodSelection = getReservationPeriodSelection(conversationMetadata);
     const parsedDateOnly = extractReservationDateOnly(ctx.messageContent, nowRef);
@@ -7196,7 +7243,12 @@ export async function processInboundMessage(
         };
       }
       const timeStr = parsedDateTime.timeStr;
-      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
+      if (
+        !isReservationTimeAllowed(timeStr, reservationWindow, {
+          dateStr: parsedDateTime.dateStr,
+          durationMinutes: 90,
+        })
+      ) {
         await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
@@ -7330,7 +7382,12 @@ export async function processInboundMessage(
     ) {
       const normalizedTime = normalizeTimeToHalfHour(timeOnly.hour, timeOnly.minute);
       const timeStr = toTimeStr(normalizedTime.hour, normalizedTime.minute);
-      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
+      if (
+        !isReservationTimeAllowed(timeStr, reservationWindow, {
+          dateStr: rf.dateStr,
+          durationMinutes: 90,
+        })
+      ) {
         await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Qual horário você prefere?`
@@ -7431,8 +7488,11 @@ export async function processInboundMessage(
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
+      lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
+      lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
+      saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
     };
-    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+    const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const missingVehicle = getMissingSlots(ctx.vehicleSlots ?? {});
     const missingName = !contactName;
     const periodSelection = getReservationPeriodSelection(conversationMetadata);
@@ -7666,7 +7726,12 @@ export async function processInboundMessage(
     ) {
       const normalizedTime = normalizeTimeToHalfHour(timeOnly.hour, timeOnly.minute);
       const timeStr = toTimeStr(normalizedTime.hour, normalizedTime.minute);
-      if (!isReservationTimeAllowed(timeStr, reservationWindow)) {
+      if (
+        !isReservationTimeAllowed(timeStr, reservationWindow, {
+          dateStr: periodSelection.dateStr,
+          durationMinutes: 60,
+        })
+      ) {
         await sendMessage(
           ctx.conversationId,
           `Consigo reservar apenas entre *${reservationWindowLabel}*. Me diga um horário dentro desse intervalo, por favor.`
@@ -7753,8 +7818,11 @@ export async function processInboundMessage(
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
+      lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
+      lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
+      saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
     };
-    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+    const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
     const missingVehicle = ctx.usesVehicleSlots
       ? getMissingSlots(ctx.vehicleSlots ?? {})
       : [];
@@ -7859,7 +7927,12 @@ export async function processInboundMessage(
         };
       }
 
-      if (!isReservationTimeAllowed(candidateTimeStr, reservationWindow)) {
+      if (
+        !isReservationTimeAllowed(candidateTimeStr, reservationWindow, {
+          dateStr: candidateDateStr,
+          durationMinutes: pending.durationMinutes,
+        })
+      ) {
         await savePendingReservation(ctx.conversationId, conversationMetadata, null);
         await persistReservationPeriodSelection(
           ctx.conversationId,
@@ -8270,7 +8343,7 @@ if (
       );
       const reply = buildAvailabilityReply(parsed, availability, {
         now: nowRef,
-        reservationWindowLabel: `${ctx.reservationSchedule?.start ?? "09:00"} as ${ctx.reservationSchedule?.end ?? "17:00"}`,
+        reservationWindowLabel: getReservationWindowLabel(ctx.reservationSchedule),
         reservationSchedule: ctx.reservationSchedule,
       });
 
@@ -8361,9 +8434,7 @@ if (
         (await findLatestInboundReservationDateOnly(ctx.conversationId))?.dateStr ??
         null;
       const effectiveKnownDate = knownDate ?? knownDateFromRecentMessage;
-      const reservationWindowLabel = `${
-        ctx.reservationSchedule?.start ?? "09:00"
-      } às ${ctx.reservationSchedule?.end ?? "17:00"}`;
+      const reservationWindowLabel = getReservationWindowLabel(ctx.reservationSchedule);
       if (
         effectiveKnownDate &&
         !isDateAllowedForReservation(effectiveKnownDate, ctx.reservationSchedule)
@@ -8394,10 +8465,11 @@ if (
       }
       if (
         effectiveKnownDate &&
-        !hasRemainingReservableSlotOnDate(effectiveKnownDate, nowRef, {
-          start: ctx.reservationSchedule?.start ?? "09:00",
-          end: ctx.reservationSchedule?.end ?? "17:00",
-        })
+        !hasRemainingReservableSlotOnDate(
+          effectiveKnownDate,
+          nowRef,
+          ctx.reservationSchedule
+        )
       ) {
         await sendMessage(
           ctx.conversationId,
@@ -8501,7 +8573,7 @@ if (
       );
       const reply = buildAvailabilityReply(parsed, availability, {
         now: nowRef,
-        reservationWindowLabel: `${ctx.reservationSchedule?.start ?? "09:00"} as ${ctx.reservationSchedule?.end ?? "17:00"}`,
+        reservationWindowLabel: getReservationWindowLabel(ctx.reservationSchedule),
         reservationSchedule: ctx.reservationSchedule,
       });
 
@@ -8656,8 +8728,11 @@ if (
     const reservationWindow = {
       start: ctx.reservationSchedule?.start ?? "09:00",
       end: ctx.reservationSchedule?.end ?? "17:00",
+      lunchBreakStart: ctx.reservationSchedule?.lunchBreakStart ?? "12:00",
+      lunchBreakEnd: ctx.reservationSchedule?.lunchBreakEnd ?? "13:00",
+      saturdayEnd: ctx.reservationSchedule?.saturdayEnd ?? "12:00",
     };
-    const reservationWindowLabel = `${reservationWindow.start} às ${reservationWindow.end}`;
+    const reservationWindowLabel = getReservationWindowLabel(reservationWindow);
 
     if (ctx.usesVehicleSlots && missing.length > 0) {
       const parsedForPending =
@@ -9037,3 +9112,4 @@ if (
     silence: false,
   };
 }
+

@@ -27,16 +27,311 @@ function toTimeStrFromMinutes(totalMinutes: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
-function isValidDateForSchedule(
-  dateStr: string,
-  workingDays: number[],
-  blockedDates: string[]
-): boolean {
-  if (blockedDates.includes(dateStr)) return false;
+export interface ReservationScheduleConfigNormalized {
+  start: string;
+  end: string;
+  timezone: string;
+  workingDays: number[];
+  blockedDates: string[];
+  lunchBreakStart: string;
+  lunchBreakEnd: string;
+  saturdayEnd: string;
+}
+
+type ReservationScheduleWindow = {
+  startMinutes: number;
+  endMinutes: number;
+};
+
+const DEFAULT_RESERVATION_SCHEDULE: ReservationScheduleConfigNormalized = {
+  start: "09:00",
+  end: "17:00",
+  timezone: "America/Sao_Paulo",
+  workingDays: [1, 2, 3, 4, 5],
+  blockedDates: [],
+  lunchBreakStart: "12:00",
+  lunchBreakEnd: "13:00",
+  saturdayEnd: "12:00",
+};
+
+function isValidTimeValue(value: string): boolean {
+  return /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function normalizeTimeValue(
+  value: unknown,
+  fallback: string
+): string {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return isValidTimeValue(trimmed) ? trimmed : fallback;
+}
+
+function parseDateLocal(dateStr: string): Date | null {
   const [year, month, day] = dateStr.split("-").map(Number);
   const dt = new Date(year, month - 1, day, 0, 0, 0);
-  if (Number.isNaN(dt.getTime())) return false;
-  return workingDays.includes(dt.getDay());
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
+export function normalizeReservationScheduleConfig(
+  config?: Partial<ReservationScheduleConfigNormalized> | null
+): ReservationScheduleConfigNormalized {
+  const base = DEFAULT_RESERVATION_SCHEDULE;
+  const normalized: ReservationScheduleConfigNormalized = {
+    start: normalizeTimeValue(config?.start, base.start),
+    end: normalizeTimeValue(config?.end, base.end),
+    timezone:
+      typeof config?.timezone === "string" && config.timezone.trim().length > 0
+        ? config.timezone.trim()
+        : base.timezone,
+    workingDays: Array.isArray(config?.workingDays)
+      ? Array.from(
+          new Set(
+            config.workingDays.filter(
+              (day): day is number =>
+                typeof day === "number" &&
+                Number.isInteger(day) &&
+                day >= 0 &&
+                day <= 6
+            )
+          )
+        ).sort((a, b) => a - b)
+      : [...base.workingDays],
+    blockedDates: Array.isArray(config?.blockedDates)
+      ? Array.from(
+          new Set(
+            config.blockedDates
+              .filter((date): date is string => typeof date === "string")
+              .map((date) => date.trim())
+              .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+          )
+        ).sort()
+      : [],
+    lunchBreakStart: normalizeTimeValue(
+      config?.lunchBreakStart,
+      base.lunchBreakStart
+    ),
+    lunchBreakEnd: normalizeTimeValue(config?.lunchBreakEnd, base.lunchBreakEnd),
+    saturdayEnd: normalizeTimeValue(config?.saturdayEnd, base.saturdayEnd),
+  };
+
+  const openingMinutes = toMinutes(normalized.start);
+  let closingMinutes = toMinutes(normalized.end);
+  if (
+    openingMinutes < 0 ||
+    closingMinutes < 0 ||
+    closingMinutes <= openingMinutes
+  ) {
+    normalized.start = base.start;
+    normalized.end = base.end;
+    closingMinutes = toMinutes(base.end);
+  }
+
+  let saturdayClosingMinutes = toMinutes(normalized.saturdayEnd);
+  if (!Number.isFinite(saturdayClosingMinutes) || saturdayClosingMinutes <= 0) {
+    saturdayClosingMinutes = Math.min(closingMinutes, toMinutes(base.saturdayEnd));
+  }
+  if (saturdayClosingMinutes < openingMinutes) {
+    saturdayClosingMinutes = openingMinutes;
+  }
+  if (saturdayClosingMinutes > closingMinutes) {
+    saturdayClosingMinutes = closingMinutes;
+  }
+  normalized.saturdayEnd = toTimeStrFromMinutes(saturdayClosingMinutes);
+
+  const lunchStartMinutes = toMinutes(normalized.lunchBreakStart);
+  const lunchEndMinutes = toMinutes(normalized.lunchBreakEnd);
+  if (
+    lunchStartMinutes < 0 ||
+    lunchEndMinutes < 0 ||
+    lunchEndMinutes <= lunchStartMinutes
+  ) {
+    normalized.lunchBreakStart = base.lunchBreakStart;
+    normalized.lunchBreakEnd = base.lunchBreakEnd;
+  }
+
+  return normalized;
+}
+
+function getDayClosingMinutes(
+  dateStr: string,
+  schedule: ReservationScheduleConfigNormalized
+): number {
+  const date = parseDateLocal(dateStr);
+  if (date && date.getDay() === 6) {
+    return toMinutes(schedule.saturdayEnd);
+  }
+  return toMinutes(schedule.end);
+}
+
+export function isDateAllowedForSchedule(
+  dateStr: string,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): boolean {
+  const normalized = normalizeReservationScheduleConfig(schedule);
+  if (normalized.blockedDates.includes(dateStr)) return false;
+  const date = parseDateLocal(dateStr);
+  if (!date) return false;
+  return normalized.workingDays.includes(date.getDay());
+}
+
+export function getReservationWindowsForDate(
+  dateStr: string,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): ReservationScheduleWindow[] {
+  const normalized = normalizeReservationScheduleConfig(schedule);
+  if (!isDateAllowedForSchedule(dateStr, normalized)) return [];
+
+  const openingMinutes = toMinutes(normalized.start);
+  const dayClosingMinutes = getDayClosingMinutes(dateStr, normalized);
+  if (
+    openingMinutes < 0 ||
+    dayClosingMinutes < 0 ||
+    dayClosingMinutes <= openingMinutes
+  ) {
+    return [];
+  }
+
+  const lunchStartMinutes = toMinutes(normalized.lunchBreakStart);
+  const lunchEndMinutes = toMinutes(normalized.lunchBreakEnd);
+  const hasLunchBreak =
+    lunchStartMinutes >= openingMinutes &&
+    lunchEndMinutes <= dayClosingMinutes &&
+    lunchEndMinutes > lunchStartMinutes;
+
+  if (!hasLunchBreak) {
+    return [{ startMinutes: openingMinutes, endMinutes: dayClosingMinutes }];
+  }
+
+  const windows: ReservationScheduleWindow[] = [];
+  if (lunchStartMinutes > openingMinutes) {
+    windows.push({
+      startMinutes: openingMinutes,
+      endMinutes: lunchStartMinutes,
+    });
+  }
+  if (lunchEndMinutes < dayClosingMinutes) {
+    windows.push({
+      startMinutes: lunchEndMinutes,
+      endMinutes: dayClosingMinutes,
+    });
+  }
+
+  return windows.filter((window) => window.endMinutes > window.startMinutes);
+}
+
+export function isTimeAllowedForSchedule(
+  dateStr: string,
+  timeStr: string,
+  durationMinutes: number = 60,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): boolean {
+  if (!isDateAllowedForSchedule(dateStr, schedule)) return false;
+
+  const appointmentStartMinutes = toMinutes(timeStr);
+  const safeDuration = Math.max(1, Math.trunc(durationMinutes || 60));
+  if (appointmentStartMinutes < 0) return false;
+
+  const appointmentEndMinutes = appointmentStartMinutes + safeDuration;
+  const windows = getReservationWindowsForDate(dateStr, schedule);
+
+  return windows.some(
+    (window) =>
+      appointmentStartMinutes >= window.startMinutes &&
+      appointmentEndMinutes <= window.endMinutes
+  );
+}
+
+function listCandidateStartMinutesForDate(
+  dateStr: string,
+  durationMinutes: number,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): number[] {
+  const windows = getReservationWindowsForDate(dateStr, schedule);
+  const safeDuration = Math.max(1, Math.trunc(durationMinutes || 60));
+  const candidates: number[] = [];
+
+  for (const window of windows) {
+    for (
+      let candidateStart = window.startMinutes;
+      candidateStart + safeDuration <= window.endMinutes;
+      candidateStart += 30
+    ) {
+      candidates.push(candidateStart);
+    }
+  }
+
+  return Array.from(new Set(candidates)).sort((a, b) => a - b);
+}
+
+export function hasRemainingReservableSlotOnDate(
+  dateStr: string,
+  now: Date,
+  durationMinutes: number = 60,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): boolean {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  if (
+    now.getFullYear() !== year ||
+    now.getMonth() + 1 !== month ||
+    now.getDate() !== day
+  ) {
+    return true;
+  }
+
+  const safeDuration = Math.max(1, Math.trunc(durationMinutes || 60));
+  const nextHalfHour = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 30) * 30;
+  const candidates = listCandidateStartMinutesForDate(
+    dateStr,
+    safeDuration,
+    schedule
+  );
+
+  return candidates.some((candidateStart) => candidateStart >= nextHalfHour);
+}
+
+export function buildReservationWindowLabel(
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): string {
+  const normalized = normalizeReservationScheduleConfig(schedule);
+  const lunchLabel =
+    toMinutes(normalized.lunchBreakEnd) > toMinutes(normalized.lunchBreakStart)
+      ? `intervalo ${normalized.lunchBreakStart} as ${normalized.lunchBreakEnd}`
+      : null;
+  const saturdayDiffers = normalized.saturdayEnd !== normalized.end;
+  const saturdayLabel = saturdayDiffers
+    ? `sabado ate ${normalized.saturdayEnd}`
+    : null;
+
+  const details = [lunchLabel, saturdayLabel].filter(Boolean).join(" | ");
+  return details.length > 0
+    ? `${normalized.start} as ${normalized.end} (${details})`
+    : `${normalized.start} as ${normalized.end}`;
+}
+
+function buildOutsideBusinessHoursMessage(
+  dateStr: string,
+  schedule?: Partial<ReservationScheduleConfigNormalized> | null
+): string {
+  const normalized = normalizeReservationScheduleConfig(schedule);
+  const date = parseDateLocal(dateStr);
+  const isSaturday = Boolean(date && date.getDay() === 6);
+  const saturdayLine =
+    normalized.saturdayEnd !== normalized.end
+      ? ` Aos sabados atendemos ate ${normalized.saturdayEnd}.`
+      : "";
+
+  const lunchLine =
+    toMinutes(normalized.lunchBreakEnd) > toMinutes(normalized.lunchBreakStart)
+      ? ` Temos intervalo das ${normalized.lunchBreakStart} as ${normalized.lunchBreakEnd}.`
+      : "";
+
+  if (isSaturday) {
+    return `Esse horario fica fora do expediente de sabado. Atendemos das ${normalized.start} as ${normalized.saturdayEnd}.${lunchLine}`.trim();
+  }
+
+  return `Esse horario fica fora do nosso atendimento. Atendemos das ${normalized.start} as ${normalized.end}.${lunchLine}${saturdayLine}`.trim();
 }
 
 export async function checkAvailabilityForOrg(
@@ -68,30 +363,52 @@ export async function checkAvailabilityForOrg(
     (settings.reservationSchedule as Record<string, unknown> | undefined) ?? {};
   const businessHours =
     (settings.businessHours as Record<string, unknown> | undefined) ?? {};
+
   if (!(settings.reservationsEnabled as boolean)) {
     return {
       available: false,
-      message: "Sistema de reservas não está ativado",
+      message: "Sistema de reservas nao esta ativado",
       reason: "reservations_disabled",
     };
   }
 
-  const start = (schedule.start as string | undefined) || (businessHours.start as string | undefined) || "09:00";
-  const end = (schedule.end as string | undefined) || (businessHours.end as string | undefined) || "17:00";
-  const workingDays = Array.isArray(schedule.workingDays)
-    ? (schedule.workingDays as number[])
-    : [1, 2, 3, 4, 5];
-  const blockedDates = Array.isArray(schedule.blockedDates)
-    ? (schedule.blockedDates as string[])
-    : [];
+  const normalizedSchedule = normalizeReservationScheduleConfig({
+    start:
+      (schedule.start as string | undefined) ||
+      (businessHours.start as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.start,
+    end:
+      (schedule.end as string | undefined) ||
+      (businessHours.end as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.end,
+    timezone:
+      (schedule.timezone as string | undefined) ||
+      (businessHours.timezone as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.timezone,
+    workingDays: Array.isArray(schedule.workingDays)
+      ? (schedule.workingDays as number[])
+      : DEFAULT_RESERVATION_SCHEDULE.workingDays,
+    blockedDates: Array.isArray(schedule.blockedDates)
+      ? (schedule.blockedDates as string[])
+      : [],
+    lunchBreakStart: schedule.lunchBreakStart as string | undefined,
+    lunchBreakEnd: schedule.lunchBreakEnd as string | undefined,
+    saturdayEnd: schedule.saturdayEnd as string | undefined,
+  });
 
-  if (!isValidDateForSchedule(dateStr, workingDays, blockedDates)) {
+  const date = parseDateLocal(dateStr);
+  const effectiveEnd =
+    date && date.getDay() === 6
+      ? normalizedSchedule.saturdayEnd
+      : normalizedSchedule.end;
+
+  if (!isDateAllowedForSchedule(dateStr, normalizedSchedule)) {
     return {
       available: false,
-      message: "Não atendemos nessa data.",
+      message: "Nao atendemos nessa data.",
       reason: "date_not_allowed",
-      start,
-      end,
+      start: normalizedSchedule.start,
+      end: effectiveEnd,
     };
   }
 
@@ -103,22 +420,21 @@ export async function checkAvailabilityForOrg(
   const startAt = new Date(year, month, day, hour, min ?? 0, 0);
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
 
-  const openMinutes = toMinutes(start);
-  const closeMinutes = toMinutes(end);
   const startMinutes = hour * 60 + (min ?? 0);
   if (
-    openMinutes < 0 ||
-    closeMinutes < 0 ||
-    closeMinutes <= openMinutes ||
-    startMinutes < openMinutes ||
-    startMinutes + durationMinutes > closeMinutes
+    !isTimeAllowedForSchedule(
+      dateStr,
+      timeStr,
+      durationMinutes,
+      normalizedSchedule
+    )
   ) {
     return {
       available: false,
-      message: `Atendimento disponível apenas entre ${start} e ${end}.`,
+      message: buildOutsideBusinessHoursMessage(dateStr, normalizedSchedule),
       reason: "outside_business_hours",
-      start,
-      end,
+      start: normalizedSchedule.start,
+      end: effectiveEnd,
     };
   }
 
@@ -147,48 +463,47 @@ export async function checkAvailabilityForOrg(
     return r.startAt < endAt && rEnd > startAt;
   });
 
-  const suggestedSlots =
-    hasOverlap
-      ? (() => {
-          const available: string[] = [];
-          for (
-            let candidateStart = openMinutes;
-            candidateStart + durationMinutes <= closeMinutes;
-            candidateStart += 30
-          ) {
-            if (candidateStart === startMinutes) continue;
-            const candidateEnd = candidateStart + durationMinutes;
-            const overlaps = dayReservations.some((r) => {
-              const reservationStartMinutes =
-                r.startAt.getHours() * 60 + r.startAt.getMinutes();
-              const reservationDuration = r.durationMinutes || 60;
-              const reservationEndMinutes = reservationStartMinutes + reservationDuration;
-              return (
-                reservationStartMinutes < candidateEnd &&
-                reservationEndMinutes > candidateStart
-              );
-            });
-            if (!overlaps) {
-              available.push(toTimeStrFromMinutes(candidateStart));
-            }
-            if (available.length >= 5) break;
+  const suggestedSlots = hasOverlap
+    ? (() => {
+        const available: string[] = [];
+        for (const candidateStart of listCandidateStartMinutesForDate(
+          dateStr,
+          durationMinutes,
+          normalizedSchedule
+        )) {
+          if (candidateStart === startMinutes) continue;
+          const candidateEnd = candidateStart + durationMinutes;
+          const overlaps = dayReservations.some((r) => {
+            const reservationStartMinutes =
+              r.startAt.getHours() * 60 + r.startAt.getMinutes();
+            const reservationDuration = r.durationMinutes || 60;
+            const reservationEndMinutes =
+              reservationStartMinutes + reservationDuration;
+            return (
+              reservationStartMinutes < candidateEnd &&
+              reservationEndMinutes > candidateStart
+            );
+          });
+          if (!overlaps) {
+            available.push(toTimeStrFromMinutes(candidateStart));
           }
-          return available;
-        })()
-      : undefined;
+          if (available.length >= 5) break;
+        }
+        return available;
+      })()
+    : undefined;
 
   return {
     available: !hasOverlap,
     message: hasOverlap
-      ? "Não há disponibilidade neste horário."
-      : "Horário disponível para reserva.",
+      ? "Nao ha disponibilidade neste horario."
+      : "Horario disponivel para reserva.",
     reason: hasOverlap ? "slot_unavailable" : "ok",
-    start,
-    end,
+    start: normalizedSchedule.start,
+    end: effectiveEnd,
     suggestedSlots,
   };
 }
-
 export async function listAvailableSlotsForOrg(
   organizationId: string,
   dateStr: string,
@@ -220,45 +535,59 @@ export async function listAvailableSlotsForOrg(
   if (!(settings.reservationsEnabled as boolean)) {
     return {
       slots: [],
-      message: "Sistema de reservas não está ativado.",
+      message: "Sistema de reservas nao esta ativado.",
       reason: "reservations_disabled",
     };
   }
 
-  const start =
-    (schedule.start as string | undefined) ||
-    (businessHours.start as string | undefined) ||
-    "09:00";
-  const end =
-    (schedule.end as string | undefined) ||
-    (businessHours.end as string | undefined) ||
-    "17:00";
-  const workingDays = Array.isArray(schedule.workingDays)
-    ? (schedule.workingDays as number[])
-    : [1, 2, 3, 4, 5];
-  const blockedDates = Array.isArray(schedule.blockedDates)
-    ? (schedule.blockedDates as string[])
-    : [];
+  const normalizedSchedule = normalizeReservationScheduleConfig({
+    start:
+      (schedule.start as string | undefined) ||
+      (businessHours.start as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.start,
+    end:
+      (schedule.end as string | undefined) ||
+      (businessHours.end as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.end,
+    timezone:
+      (schedule.timezone as string | undefined) ||
+      (businessHours.timezone as string | undefined) ||
+      DEFAULT_RESERVATION_SCHEDULE.timezone,
+    workingDays: Array.isArray(schedule.workingDays)
+      ? (schedule.workingDays as number[])
+      : DEFAULT_RESERVATION_SCHEDULE.workingDays,
+    blockedDates: Array.isArray(schedule.blockedDates)
+      ? (schedule.blockedDates as string[])
+      : [],
+    lunchBreakStart: schedule.lunchBreakStart as string | undefined,
+    lunchBreakEnd: schedule.lunchBreakEnd as string | undefined,
+    saturdayEnd: schedule.saturdayEnd as string | undefined,
+  });
 
-  if (!isValidDateForSchedule(dateStr, workingDays, blockedDates)) {
+  const date = parseDateLocal(dateStr);
+  const effectiveEnd =
+    date && date.getDay() === 6
+      ? normalizedSchedule.saturdayEnd
+      : normalizedSchedule.end;
+
+  if (!isDateAllowedForSchedule(dateStr, normalizedSchedule)) {
     return {
       slots: [],
-      message: "Não atendemos nessa data.",
+      message: "Nao atendemos nessa data.",
       reason: "date_not_allowed",
-      start,
-      end,
+      start: normalizedSchedule.start,
+      end: effectiveEnd,
     };
   }
 
-  const openMinutes = toMinutes(start);
-  const closeMinutes = toMinutes(end);
-  if (openMinutes < 0 || closeMinutes <= openMinutes) {
+  const windows = getReservationWindowsForDate(dateStr, normalizedSchedule);
+  if (windows.length === 0) {
     return {
       slots: [],
-      message: "Horário de atendimento inválido nas configurações.",
+      message: "Horario de atendimento invalido nas configuracoes.",
       reason: "outside_business_hours",
-      start,
-      end,
+      start: normalizedSchedule.start,
+      end: effectiveEnd,
     };
   }
 
@@ -287,17 +616,21 @@ export async function listAvailableSlotsForOrg(
     );
 
   const slots: string[] = [];
-  for (
-    let candidateStart = openMinutes;
-    candidateStart + durationMinutes <= closeMinutes;
-    candidateStart += 30
-  ) {
+  for (const candidateStart of listCandidateStartMinutesForDate(
+    dateStr,
+    durationMinutes,
+    normalizedSchedule
+  )) {
     const candidateEnd = candidateStart + durationMinutes;
     const overlaps = dayReservations.some((r) => {
-      const reservationStartMinutes = r.startAt.getHours() * 60 + r.startAt.getMinutes();
+      const reservationStartMinutes =
+        r.startAt.getHours() * 60 + r.startAt.getMinutes();
       const reservationDuration = r.durationMinutes || 60;
       const reservationEndMinutes = reservationStartMinutes + reservationDuration;
-      return reservationStartMinutes < candidateEnd && reservationEndMinutes > candidateStart;
+      return (
+        reservationStartMinutes < candidateEnd &&
+        reservationEndMinutes > candidateStart
+      );
     });
 
     if (!overlaps) {
@@ -308,22 +641,21 @@ export async function listAvailableSlotsForOrg(
   if (slots.length === 0) {
     return {
       slots: [],
-      message: "Sem horários disponíveis nessa data.",
+      message: "Sem horarios disponiveis nessa data.",
       reason: "no_slots",
-      start,
-      end,
+      start: normalizedSchedule.start,
+      end: effectiveEnd,
     };
   }
 
   return {
     slots,
-    message: `Horários disponíveis entre ${start} e ${end}.`,
+    message: `Horarios disponiveis em ${buildReservationWindowLabel(normalizedSchedule)}.`,
     reason: "ok",
-    start,
-    end,
+    start: normalizedSchedule.start,
+    end: effectiveEnd,
   };
 }
-
 type ReservationNotesPayload = {
   customerName?: string | null;
   customerPhone?: string | null;
@@ -624,3 +956,5 @@ export async function createReservationForOrg(
 
   return { success: true, reservation };
 }
+
+

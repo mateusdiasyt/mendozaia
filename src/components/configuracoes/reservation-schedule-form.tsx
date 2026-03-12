@@ -10,6 +10,9 @@ interface ReservationScheduleFormProps {
     timezone: string;
     workingDays: number[];
     blockedDates: string[];
+    lunchBreakStart: string;
+    lunchBreakEnd: string;
+    saturdayEnd: string;
   };
 }
 
@@ -20,7 +23,7 @@ const WEEKDAYS = [
   { value: 3, label: "Qua" },
   { value: 4, label: "Qui" },
   { value: 5, label: "Sex" },
-  { value: 6, label: "Sáb" },
+  { value: 6, label: "Sab" },
 ];
 
 export function ReservationScheduleForm({
@@ -28,6 +31,11 @@ export function ReservationScheduleForm({
 }: ReservationScheduleFormProps) {
   const [start, setStart] = useState(initialConfig.start);
   const [end, setEnd] = useState(initialConfig.end);
+  const [lunchBreakStart, setLunchBreakStart] = useState(
+    initialConfig.lunchBreakStart
+  );
+  const [lunchBreakEnd, setLunchBreakEnd] = useState(initialConfig.lunchBreakEnd);
+  const [saturdayEnd, setSaturdayEnd] = useState(initialConfig.saturdayEnd);
   const [timezone, setTimezone] = useState(initialConfig.timezone);
   const [workingDays, setWorkingDays] = useState<number[]>(initialConfig.workingDays);
   const [blockedDates, setBlockedDates] = useState<string[]>(
@@ -113,7 +121,25 @@ export function ReservationScheduleForm({
       setSaving(false);
       setMessage({
         type: "error",
-        text: "O horário final deve ser maior que o horário inicial.",
+        text: "O horario final deve ser maior que o horario inicial.",
+      });
+      return;
+    }
+
+    if (lunchBreakStart >= lunchBreakEnd) {
+      setSaving(false);
+      setMessage({
+        type: "error",
+        text: "O fim do intervalo deve ser maior que o inicio do intervalo.",
+      });
+      return;
+    }
+
+    if (saturdayEnd < start || saturdayEnd > end) {
+      setSaving(false);
+      setMessage({
+        type: "error",
+        text: "O termino de sabado deve ficar dentro do horario geral.",
       });
       return;
     }
@@ -124,6 +150,9 @@ export function ReservationScheduleForm({
       timezone: timezone.trim() || "America/Sao_Paulo",
       workingDays,
       blockedDates,
+      lunchBreakStart,
+      lunchBreakEnd,
+      saturdayEnd,
     });
 
     setSaving(false);
@@ -133,7 +162,7 @@ export function ReservationScheduleForm({
     }
     setMessage({
       type: "success",
-      text: "Horários e datas de atendimento salvos com sucesso.",
+      text: "Agenda salva com sucesso.",
     });
   }
 
@@ -145,7 +174,7 @@ export function ReservationScheduleForm({
       <div>
         <h3 className="font-medium text-slate-900">Agenda de atendimento</h3>
         <p className="mt-1 text-sm text-slate-500">
-          O bot usa esta configuração para sugerir e validar horários de reserva.
+          O bot usa esta configuracao para sugerir e validar horarios de reserva.
         </p>
       </div>
 
@@ -163,7 +192,7 @@ export function ReservationScheduleForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="text-sm font-medium text-slate-700">
-          Início
+          Inicio
           <input
             type="time"
             value={start}
@@ -178,6 +207,39 @@ export function ReservationScheduleForm({
             type="time"
             value={end}
             onChange={(e) => setEnd(e.target.value)}
+            className={inputClass}
+            required
+          />
+        </label>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <label className="text-sm font-medium text-slate-700">
+          Intervalo inicio
+          <input
+            type="time"
+            value={lunchBreakStart}
+            onChange={(e) => setLunchBreakStart(e.target.value)}
+            className={inputClass}
+            required
+          />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Intervalo fim
+          <input
+            type="time"
+            value={lunchBreakEnd}
+            onChange={(e) => setLunchBreakEnd(e.target.value)}
+            className={inputClass}
+            required
+          />
+        </label>
+        <label className="text-sm font-medium text-slate-700">
+          Fim de sabado
+          <input
+            type="time"
+            value={saturdayEnd}
+            onChange={(e) => setSaturdayEnd(e.target.value)}
             className={inputClass}
             required
           />
