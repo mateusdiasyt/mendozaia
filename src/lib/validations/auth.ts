@@ -52,5 +52,13 @@ export const updateAccountPasswordSchema = z
     path: ["confirmPassword"],
   });
 
+export const updateAccountNameSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Nome deve ter pelo menos 2 caracteres")
+    .max(80, "Nome deve ter no maximo 80 caracteres"),
+});
+
 export type SignUpInput = z.infer<typeof signUpSchema>;
 export type SignInInput = z.infer<typeof signInSchema>;

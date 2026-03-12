@@ -11,6 +11,8 @@ import { OfferedServicesForm } from "@/components/configuracoes/offered-services
 import { ReservationGroupNotificationsForm } from "@/components/configuracoes/reservation-group-notifications-form";
 import { DataDeletionForm } from "@/components/configuracoes/data-deletion-form";
 import { AccountSecurityForm } from "@/components/configuracoes/account-security-form";
+import { AccountNameForm } from "@/components/configuracoes/account-name-form";
+import { OrganizationNameForm } from "@/components/configuracoes/organization-name-form";
 import { Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { parseReservationGroupNotifications } from "@/lib/whatsapp-group-notifications";
@@ -179,6 +181,7 @@ export default async function ConfiguracoesPage({
                   <dd className="font-medium text-slate-900">{session?.user?.email}</dd>
                 </div>
               </dl>
+              <AccountNameForm currentName={session?.user?.name ?? ""} />
               <AccountSecurityForm currentEmail={session?.user?.email ?? ""} />
             </SectionCard>
 
@@ -194,6 +197,7 @@ export default async function ConfiguracoesPage({
                   <dd className="font-medium text-slate-900">{planLabel}</dd>
                 </div>
               </dl>
+              <OrganizationNameForm currentName={org.name} />
             </SectionCard>
 
             <SectionCard className="md:col-span-2">

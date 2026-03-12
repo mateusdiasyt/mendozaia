@@ -14,6 +14,7 @@ import {
   resetPasswordSchema,
   updateAccountEmailSchema,
   updateAccountPasswordSchema,
+  updateAccountNameSchema,
 } from "@/lib/validations/auth";
 import { eq, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -283,6 +284,34 @@ export async function updateAccountEmailAction(input: {
   return {
     success: true,
     message: "Email atualizado. Se necessario, faca novo login para atualizar a sessao.",
+  };
+}
+
+export async function updateAccountNameAction(input: { name: string }) {
+  const session = await auth();
+  if (!session?.user?.id) return { error: "Nao autorizado" };
+
+  const parsed = updateAccountNameSchema.safeParse(input);
+  if (!parsed.success) {
+    const first = parsed.error.issues[0]?.message ?? "Dados invalidos";
+    return { error: first };
+  }
+
+  const nextName = parsed.data.name.trim();
+
+  await db
+    .update(users)
+    .set({
+      name: nextName,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, session.user.id));
+
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard");
+  return {
+    success: true,
+    message: "Nome da conta atualizado com sucesso.",
   };
 }
 

@@ -147,6 +147,33 @@ export async function updateReservationsEnabled(enabled: boolean) {
   return { success: true };
 }
 
+export async function updateOrganizationNameAction(input: { name: string }) {
+  const org = await getCurrentOrganization();
+  if (!org) return { error: "Nao autorizado" };
+
+  const membership = await getCurrentMembership();
+  if (!membership || membership.role !== "admin") {
+    return { error: "Somente administradores podem alterar o nome da organizacao." };
+  }
+
+  const nextName = (input.name ?? "").trim();
+  if (nextName.length < 2 || nextName.length > 100) {
+    return { error: "Nome da organizacao deve ter entre 2 e 100 caracteres." };
+  }
+
+  await db
+    .update(organizations)
+    .set({
+      name: nextName,
+      updatedAt: new Date(),
+    })
+    .where(eq(organizations.id, org.id));
+
+  revalidatePath("/dashboard/configuracoes");
+  revalidatePath("/dashboard");
+  return { success: true, message: "Nome da organizacao atualizado com sucesso." };
+}
+
 export async function updateReservationGroupNotificationsConfig(
   input: ReservationGroupNotificationsConfigInput
 ) {
