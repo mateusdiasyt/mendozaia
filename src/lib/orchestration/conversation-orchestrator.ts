@@ -603,6 +603,11 @@ function detectPrimaryOfferedServiceByPriority(
   const normalizedText = normalizeForSearch(text);
   if (!normalizedText || offeredServices.length === 0) return null;
 
+  const hasRevisionHint = /\b(revisao|checkup|check up)\b/.test(normalizedText);
+  const hasOilHint = /\b(oleo|lubrificante|lubrificacao|5w|10w|15w|0w)\b/.test(
+    normalizedText
+  );
+
   const tokens = normalizedText
     .split(" ")
     .map((token) => token.trim())
@@ -613,16 +618,30 @@ function detectPrimaryOfferedServiceByPriority(
       const normalizedService = normalizeServiceLabel(service);
       if (!normalizedService) return null;
       const promptText = servicePromptByName?.[normalizedService]?.toLowerCase() ?? "";
+      const directMention = normalizedText.includes(normalizedService);
+      const isRevisionService = normalizedService.includes("revis");
+      const isOilService = normalizedService.includes("oleo");
       let score = 0;
-      if (normalizedText.includes(normalizedService)) score += 3;
+      if (directMention) score += 4;
       for (const token of tokens) {
         if (normalizedService.includes(token)) score += 1;
-        if (promptText.includes(token)) score += 1;
+        // Prompt ajuda em casos ambíguos, mas com peso menor para não
+        // sobrescrever o serviço citado explicitamente pelo cliente.
+        if (promptText.includes(token)) score += 0.35;
       }
       if (score <= 0) return null;
+
+      let intentPenalty = 0;
+      if (hasOilHint && !hasRevisionHint && isRevisionService && !directMention) {
+        intentPenalty = 4;
+      }
+      if (hasRevisionHint && !hasOilHint && isOilService && !directMention) {
+        intentPenalty = 4;
+      }
+
       const priority = servicePriorityByRule(service, priorityRulesByName);
       const requiresHuman = serviceRequiresHumanByRule(service, humanRulesByName);
-      return { service, score, priority, requiresHuman };
+      return { service, score, priority, requiresHuman, directMention, intentPenalty };
     })
     .filter(
       (
@@ -632,12 +651,17 @@ function detectPrimaryOfferedServiceByPriority(
         score: number;
         priority: number;
         requiresHuman: boolean;
+        directMention: boolean;
+        intentPenalty: number;
       } => Boolean(item)
     )
     .sort((a, b) => {
+      if (a.directMention !== b.directMention) return a.directMention ? -1 : 1;
+      const effectiveA = a.score - a.intentPenalty;
+      const effectiveB = b.score - b.intentPenalty;
+      if (effectiveA !== effectiveB) return effectiveB - effectiveA;
       if (a.priority !== b.priority) return a.priority - b.priority;
       if (a.requiresHuman !== b.requiresHuman) return a.requiresHuman ? -1 : 1;
-      if (a.score !== b.score) return b.score - a.score;
       return b.service.length - a.service.length;
     });
 
