@@ -2041,7 +2041,8 @@ function isOilExchangeIntent(text: string): boolean {
 }
 
 function shouldAskOilQualification(text: string): boolean {
-  return isOilExchangeIntent(text) && !extractOilSpec(text);
+  // Fluxo legado: não perguntamos mais tipo de óleo.
+  return false;
 }
 
 function shouldEscalateMechanicalIssue(text: string): boolean {
@@ -4175,13 +4176,13 @@ export async function processInboundMessage(
       );
     }
     if (oilFlowState.awaitingUnknownOilConfirmation) {
-      return "Você sabe o tipo do óleo? (ex.: *5W30*). Se não souber, me avise que eu encaminho para o mecânico técnico.";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
     }
     if (oilFlowState.awaitingOilYesNo) {
-      return "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: *5W30*).";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
     }
     if (oilFlowState.awaitingOilSpec) {
-      return "Perfeito. Me fala qual é o tipo do óleo (ex.: *5W30*).";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
     }
     if (oilFlowState.awaitingOilVehicle) {
       return "Para seguir com o agendamento, me informe o *modelo* e o *ano* do veículo.";
@@ -4780,46 +4781,121 @@ export async function processInboundMessage(
         await sendMessage(ctx.conversationId, oilReply?.reply ?? `Temos o óleo *${oilToSearch}* disponível.`);
         return { didReply: true, decision: "tool_then_ai", reason: "Óleo extraído; resposta disponibilidade", silence: false };
       }
-      if (isSimpleAffirmative(ctx.messageContent) || looksLikeKnowsOilMessage(ctx.messageContent)) {
+      if (
+        isSimpleAffirmative(ctx.messageContent) ||
+        looksLikeKnowsOilMessage(ctx.messageContent) ||
+        isSimpleNegative(ctx.messageContent) ||
+        looksLikeUnknownOilMessage(ctx.messageContent)
+      ) {
         await persistOilFlowState(ctx.conversationId, conversationMetadata, {
           awaitingOilYesNo: false,
-          awaitingOilSpec: true,
+          awaitingOilSpec: false,
         });
-        await sendMessage(ctx.conversationId, "Perfeito. Me fala qual é o tipo do óleo (ex.: 5W30).");
-        return { didReply: true, decision: "tool_then_ai", reason: "Cliente sabe o óleo; pedindo especificação", silence: false };
-      }
-      if (isSimpleNegative(ctx.messageContent) || looksLikeUnknownOilMessage(ctx.messageContent)) {
-        await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-        await sendMessage(
-          ctx.conversationId,
-          "Tranquilo. Para não te passar algo errado, vou te encaminhar para um mecânico técnico continuar seu atendimento, tudo bem?"
+        await persistReservationContext(ctx.conversationId, conversationMetadata, {
+          serviceName: "Troca de Óleo",
+          productName: reservationContext.productName,
+        });
+        const mergedOilVehicleForFlow = sanitizeVehicleSlotsByContactName(
+          mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)),
+          contactName,
+          ctx.vehicleServicePolicy?.supportedModels
         );
-        const handoff = await handoffToHuman(
-          ctx.conversationId,
-          ctx.organizationId,
-          "Cliente não sabe o óleo; encaminhado para mecânico técnico"
-        );
-        if (handoff.success) {
+        if (
+          JSON.stringify(mergedOilVehicleForFlow) !== JSON.stringify(ctx.vehicleSlots ?? {})
+        ) {
           await db
             .update(conversations)
             .set({
-              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              conversationStateMetadata: {
+                ...conversationMetadata,
+                vehicleSlots: mergedOilVehicleForFlow,
+                vehicleSlotsUpdatedAt: new Date().toISOString(),
+              },
               updatedAt: new Date(),
             })
             .where(eq(conversations.id, ctx.conversationId));
         }
+        const missingMandatoryOil = getMandatoryVehicleMissing(mergedOilVehicleForFlow);
+        if (missingMandatoryOil.length > 0) {
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+          await sendMessage(
+            ctx.conversationId,
+            `Perfeito. Para seguir com a troca de óleo, ${buildMissingVehicleMandatoryReply(
+              missingMandatoryOil
+            )}`
+          );
+          return {
+            didReply: true,
+            decision: "tool_then_ai",
+            reason: "Troca de óleo sem dados obrigatórios; coletando modelo/ano/km",
+            silence: false,
+          };
+        }
+
+        const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+          "Troca de Óleo",
+          ctx.serviceHumanPolicyByName
+        );
+        if (oilServiceRequiresHuman) {
+          await sendMessage(
+            ctx.conversationId,
+            "Perfeito, vou te encaminhar agora para um mecânico técnico continuar sua troca de óleo."
+          );
+          const handoff = await handoffToHuman(
+            ctx.conversationId,
+            ctx.organizationId,
+            "Cliente em troca de óleo com dados obrigatórios completos; handoff técnico"
+          );
+          if (handoff.success) {
+            await db
+              .update(conversations)
+              .set({
+                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, ctx.conversationId));
+          }
+          return {
+            didReply: true,
+            decision: "human_only",
+            reason: "Troca de óleo configurada para atendimento humano",
+            silence: false,
+          };
+        }
+
+        const fallbackOilReply = await buildOilAvailabilityReply(
+          ctx.organizationId,
+          extractOilSpec(ctx.messageContent) ?? ctx.knownOilSpec ?? null,
+          extractEngineCodeFromText(ctx.messageContent),
+          ctx.messageContent
+        );
+        const followUpReply =
+          fallbackOilReply?.status === "available"
+            ? fallbackOilReply.reply
+            : "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?";
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingOilYesNo: false,
+          awaitingOilSpec: false,
+          awaitingOilScheduleConfirmation: true,
+        });
+        await sendMessage(ctx.conversationId, followUpReply);
         return {
           didReply: true,
-          decision: "human_only",
-          reason: "Cliente não sabe o óleo; handoff técnico",
+          decision: "tool_then_ai",
+          reason: "Troca de óleo em andamento sem solicitar tipo de óleo",
           silence: false,
         };
       }
       await sendMessage(
         ctx.conversationId,
-        "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: 5W30). Se não souber, eu te encaminho pro técnico."
+        "Perfeito. Não preciso do tipo do óleo. Para seguir com a troca de óleo, me informe *modelo, ano e km* do veículo."
       );
-      return { didReply: true, decision: "tool_then_ai", reason: "Aguardando confirmação/tipo de óleo; reenviando pergunta", silence: false };
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo de óleo sem pergunta de tipo; solicitando dados obrigatórios",
+        silence: false,
+      };
     }
 
     if (oilFlowState.awaitingOilSpec || detectedOilSpec || engineCode) {
@@ -4888,24 +4964,109 @@ export async function processInboundMessage(
         return { didReply: true, decision: "tool_then_ai", reason: "Óleo encontrado; oferecendo agendamento", silence: false };
       }
       if (oilFlowState.awaitingOilSpec) {
-        await sendMessage(ctx.conversationId, "Não encontrei esse óleo no cadastro. Consegue me falar o tipo? (ex.: 5W30)?");
-        return { didReply: true, decision: "tool_then_ai", reason: "Óleo não encontrado; pedindo novamente", silence: false };
+        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+          awaitingOilSpec: false,
+          awaitingOilYesNo: false,
+        });
+        await sendMessage(
+          ctx.conversationId,
+          "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo."
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fluxo de óleo ajustado; não solicita mais tipo de óleo",
+          silence: false,
+        };
       }
     }
 
-    if (shouldAskOilQualification(intentProbeText) && !oilFlowState.awaitingUnknownOilConfirmation) {
+    if (isOilExchangeIntent(intentProbeText) && !oilFlowState.awaitingUnknownOilConfirmation) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
       });
+      const mergedOilSlots = sanitizeVehicleSlotsByContactName(
+        mergeVehicleSlots(ctx.vehicleSlots ?? {}, extractVehicleSlotsFromText(ctx.messageContent)),
+        contactName,
+        ctx.vehicleServicePolicy?.supportedModels
+      );
+      if (JSON.stringify(mergedOilSlots) !== JSON.stringify(ctx.vehicleSlots ?? {})) {
+        await db
+          .update(conversations)
+          .set({
+            conversationStateMetadata: {
+              ...conversationMetadata,
+              vehicleSlots: mergedOilSlots,
+              vehicleSlotsUpdatedAt: new Date().toISOString(),
+            },
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      const missingMandatoryOil = getMandatoryVehicleMissing(mergedOilSlots);
+      if (missingMandatoryOil.length > 0) {
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+        await sendMessage(
+          ctx.conversationId,
+          `Perfeito. Para seguir com a troca de óleo, ${buildMissingVehicleMandatoryReply(
+            missingMandatoryOil
+          )}`
+        );
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Troca de óleo identificada; coletando dados obrigatórios",
+          silence: false,
+        };
+      }
+
+      const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+        "Troca de Óleo",
+        ctx.serviceHumanPolicyByName
+      );
+      if (oilServiceRequiresHuman) {
+        await sendMessage(
+          ctx.conversationId,
+          "Perfeito, vou te encaminhar agora para um mecânico técnico continuar sua troca de óleo."
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Troca de óleo com dados obrigatórios completos; encaminhado ao técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Troca de óleo configurada para atendimento humano",
+          silence: false,
+        };
+      }
+
       await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-        awaitingOilYesNo: true,
+        awaitingOilYesNo: false,
+        awaitingOilSpec: false,
+        awaitingOilScheduleConfirmation: true,
       });
       await sendMessage(
         ctx.conversationId,
-        "Você sabe qual óleo seu carro usa? Se souber, me diga o tipo (ex.: 5W30). Se não souber, eu te encaminho pro técnico."
+        "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?"
       );
-      return { didReply: true, decision: "tool_then_ai", reason: "Troca de óleo; perguntando se sabe o tipo", silence: false };
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Troca de óleo identificada sem solicitar tipo de óleo",
+        silence: false,
+      };
     }
   }
 
@@ -5457,7 +5618,7 @@ export async function processInboundMessage(
     looksLikeCarProblemOrRepairIntent(intentProbeText) ||
     looksLikeDirectHumanMechanicalIssue(intentProbeText) ||
     isRevisionServiceIntent(intentProbeText) ||
-    shouldAskOilQualification(intentProbeText);
+    isOilExchangeIntent(intentProbeText);
   const vehiclePolicyCandidateRawSlots = mergeVehicleSlots(
     ctx.vehicleSlots ?? {},
     vehicleSlotsFromCurrentMessage
@@ -5908,15 +6069,53 @@ export async function processInboundMessage(
       }
 
       if (isOilService) {
+        const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+          serviceFromMessageInVehicleStage ?? "Troca de Óleo",
+          ctx.serviceHumanPolicyByName
+        );
+        if (oilServiceRequiresHuman) {
+          await sendMessage(
+            ctx.conversationId,
+            `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\nVou te encaminhar agora para um mecânico técnico continuar esse atendimento.`
+          );
+          const handoff = await handoffToHuman(
+            ctx.conversationId,
+            ctx.organizationId,
+            "Troca de óleo com dados obrigatórios completos; handoff técnico"
+          );
+          if (handoff.success) {
+            await db
+              .update(conversations)
+              .set({
+                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, ctx.conversationId));
+          }
+          return {
+            didReply: true,
+            decision: "human_only",
+            reason: "Troca de óleo configurada para atendimento humano após dados obrigatórios",
+            silence: false,
+          };
+        }
+
+        const oilCatalogQuery = buildCatalogQueryWithContext(ctx.messageContent, {
+          serviceName: "Troca de Óleo",
+          productName: reservationContext.productName,
+        });
+        const oilCatalog = await buildCatalogReply(ctx.organizationId, oilCatalogQuery, {
+          skipIntentCheck: true,
+        });
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
         await sendMessage(
           ctx.conversationId,
-          `Perfeito, registrei seu veículo como *${vehicleLabel}*.${kmHint}\nVocê sabe qual óleo é utilizado no carro? Se não souber, me responda *não sei* que eu direciono para o mecânico técnico.`
+          oilCatalog?.reply ?? "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?"
         );
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Óleo identificado; seguindo com qualificação após dados completos do veículo",
+          reason: "Óleo identificado; seguindo fluxo sem pedir tipo do óleo",
           silence: false,
         };
       }
@@ -6072,151 +6271,100 @@ export async function processInboundMessage(
   }
 
   if (oilFlowState.awaitingUnknownOilConfirmation) {
-    if (
-      looksLikeVehicleCorrectionDuringOilFlow(
-        ctx.messageContent,
-        ctx.vehicleSlots?.modelo
-      )
-    ) {
-      const correctedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
-      const mergedCorrectedSlots = sanitizeVehicleSlotsByContactName(
-        mergeVehicleSlots(
-          ctx.vehicleSlots ?? {},
-          correctedFromMessage
-        ),
-        contactName,
-        ctx.vehicleServicePolicy?.supportedModels
-      );
-      const hasModelAndYearAfterCorrection = !!(
-        mergedCorrectedSlots.modelo && mergedCorrectedSlots.ano
-      );
+    const correctedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
+    const mergedOilSlots = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(ctx.vehicleSlots ?? {}, correctedFromMessage),
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
+    );
+    if (JSON.stringify(mergedOilSlots) !== JSON.stringify(ctx.vehicleSlots ?? {})) {
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: {
+            ...conversationMetadata,
+            vehicleSlots: mergedOilSlots,
+            vehicleSlotsUpdatedAt: new Date().toISOString(),
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
 
-      if (hasModelAndYearAfterCorrection) {
-        const nextMetadata = {
-          ...conversationMetadata,
-          vehicleSlots: mergedCorrectedSlots,
-          vehicleSlotsUpdatedAt: new Date().toISOString(),
-        };
+    await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+      awaitingUnknownOilConfirmation: false,
+      awaitingOilYesNo: false,
+      awaitingOilSpec: false,
+    });
+
+    const missingMandatoryOil = getMandatoryVehicleMissing(mergedOilSlots);
+    if (missingMandatoryOil.length > 0) {
+      await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito. Para seguir com a troca de óleo, ${buildMissingVehicleMandatoryReply(
+          missingMandatoryOil
+        )}`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo de óleo sem tipo; coletando dados obrigatórios do veículo",
+        silence: false,
+      };
+    }
+
+    const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+      "Troca de Óleo",
+      ctx.serviceHumanPolicyByName
+    );
+    if (oilServiceRequiresHuman) {
+      await sendMessage(
+        ctx.conversationId,
+        "Perfeito, vou te encaminhar agora para um mecânico técnico continuar sua troca de óleo."
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Troca de óleo com dados obrigatórios completos; handoff técnico"
+      );
+      if (handoff.success) {
         await db
           .update(conversations)
           .set({
-            conversationStateMetadata: nextMetadata,
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
             updatedAt: new Date(),
           })
           .where(eq(conversations.id, ctx.conversationId));
-
-        if (mergedCorrectedSlots.modelo) {
-          await saveContactMemory(
-            ctx.contactId,
-            "vehicle_model",
-            mergedCorrectedSlots.modelo
-          );
-        }
-        if (mergedCorrectedSlots.ano) {
-          await saveContactMemory(
-            ctx.contactId,
-            "vehicle_year",
-            String(mergedCorrectedSlots.ano)
-          );
-        }
-        if (mergedCorrectedSlots.km) {
-          await saveContactMemory(
-            ctx.contactId,
-            "vehicle_km",
-            String(mergedCorrectedSlots.km)
-          );
-        }
-
-        const vehicleLabel = [
-          mergedCorrectedSlots.modelo ?? null,
-          mergedCorrectedSlots.ano ? String(mergedCorrectedSlots.ano) : null,
-        ]
-          .filter(Boolean)
-          .join(" ");
-
-        await sendMessage(
-          ctx.conversationId,
-          `Perfeito, atualizei para *${vehicleLabel}*.\nSe conseguir, me passe também o *km* para deixar o orçamento mais preciso (se não souber, tudo bem).\nVocê sabe o tipo do óleo?`
-        );
-        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-          awaitingUnknownOilConfirmation: true,
-        });
-        return {
-          didReply: true,
-          decision: "tool_then_ai",
-          reason: "Veículo corrigido na mesma mensagem; segue validação de óleo e km opcional",
-          silence: false,
-        };
       }
-
-      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-      await sendMessage(
-        ctx.conversationId,
-        "Perfeito, vamos atualizar os dados do veículo.\nMe informe o *modelo* e o *ano* do carro atual. Se conseguir, me passe também o *km* para deixar o orçamento mais preciso. Se não souber, tudo bem."
-      );
       return {
         didReply: true,
-        decision: "tool_then_ai",
-        reason: "Cliente corrigiu o veículo durante fluxo de óleo",
+        decision: "human_only",
+        reason: "Troca de óleo configurada para atendimento humano",
         silence: false,
       };
     }
 
-    if (isSimpleNegative(ctx.messageContent)) {
-      const slots = ctx.vehicleSlots ?? {};
-      const hasModelAndYear = !!(slots.modelo && slots.ano);
-      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-      if (hasModelAndYear) {
-        await sendMessage(
-          ctx.conversationId,
-          "Perfeito, sem problema. Vou encaminhar para um mecânico técnico continuar seu atendimento e confirmar a especificação correta para o seu veículo."
-        );
-        const handoff = await handoffToHuman(
-          ctx.conversationId,
-          ctx.organizationId,
-          "Cliente confirmou que não sabe o óleo; encaminhado para mecânico técnico"
-        );
-        if (handoff.success) {
-          await db
-            .update(conversations)
-            .set({
-              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              updatedAt: new Date(),
-            })
-            .where(eq(conversations.id, ctx.conversationId));
-        }
-        return {
-          didReply: true,
-          decision: "human_only",
-          reason: "Cliente confirmou que não sabe o óleo; handoff técnico 24h",
-          silence: false,
-        };
-      }
-      await sendMessage(
-        ctx.conversationId,
-        "Sem problema. Para eu encaminhar certinho ao mecânico técnico, me informe o *modelo* e o *ano* do veículo. Se souber o *km*, também ajuda a deixar o orçamento mais preciso."
-      );
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Cliente não sabe óleo; solicitando modelo e ano para handoff",
-        silence: false,
-      };
-    }
-
-    if (isSimpleAffirmative(ctx.messageContent)) {
-      await persistOilFlowState(ctx.conversationId, conversationMetadata, null);
-      await sendMessage(
-        ctx.conversationId,
-        "Perfeito! Então me informe o tipo do óleo (ex.: *5W30* ou *10W40*) para eu seguir com o valor certinho."
-      );
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Cliente informou que sabe o óleo; solicitando especificação",
-        silence: false,
-      };
-    }
+    const oilReply = await buildOilAvailabilityReply(
+      ctx.organizationId,
+      extractOilSpec(ctx.messageContent) ?? ctx.knownOilSpec ?? null,
+      extractEngineCodeFromText(ctx.messageContent),
+      ctx.messageContent
+    );
+    const followUpReply =
+      oilReply?.status === "available"
+        ? oilReply.reply
+        : "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?";
+    await persistOilFlowState(ctx.conversationId, conversationMetadata, {
+      awaitingOilScheduleConfirmation: true,
+    });
+    await sendMessage(ctx.conversationId, followUpReply);
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Fluxo de óleo continuado sem solicitar tipo do óleo",
+      silence: false,
+    };
   }
 
   if (
@@ -6856,7 +7004,7 @@ export async function processInboundMessage(
       );
     const fallbackServiceFromGreeting = isRevisionServiceIntent(intentProbeText)
       ? "Revisão"
-      : shouldAskOilQualification(intentProbeText)
+      : isOilExchangeIntent(intentProbeText)
         ? "Troca de Óleo"
         : null;
     const resolvedServiceFromGreeting =
@@ -6892,6 +7040,22 @@ export async function processInboundMessage(
       );
 
       if (resolvedServiceRequiresHuman) {
+        if (normalizedGreetingService.includes("oleo") && greetingServiceMissingVehicle.length > 0) {
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+          const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
+          await sendMessage(
+            ctx.conversationId,
+            `Perfeito${knownNamePrefix}. Para eu encaminhar sua troca de óleo para o técnico, ${buildMissingVehicleMandatoryReply(
+              greetingServiceMissingVehicle
+            )}`
+          );
+          return {
+            didReply: true,
+            decision: "tool_then_ai",
+            reason: "Troca de óleo humano em saudação; coletando dados obrigatórios antes do handoff",
+            silence: false,
+          };
+        }
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
         const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
         const vehicleSummary = greetingVehicleLabel
@@ -6942,18 +7106,23 @@ export async function processInboundMessage(
 
       if (normalizedGreetingService.includes("oleo")) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-          awaitingUnknownOilConfirmation: true,
-        });
         const knownNamePrefix = hasKnownName ? `, *${contactName!.trim()}*` : "";
+        const directOilQuery = buildCatalogQueryWithContext(ctx.messageContent, {
+          serviceName: "Troca de Óleo",
+          productName: reservationContext.productName,
+        });
+        const directOilCatalog = await buildCatalogReply(ctx.organizationId, directOilQuery, {
+          skipIntentCheck: true,
+        });
         await sendMessage(
           ctx.conversationId,
-          `Perfeito${knownNamePrefix}. Registrei seu veiculo como *${greetingVehicleLabel}*.\nVoce sabe qual oleo e utilizado no carro? Se nao souber o oleo, me responda *nao sei* que eu ja direciono para o mecanico tecnico.`
+          directOilCatalog?.reply ??
+            `Perfeito${knownNamePrefix}. Registrei seu veículo como *${greetingVehicleLabel}*. Vamos agendar sua visita para troca de óleo?`
         );
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Saudacao com troca de oleo e veiculo completo; qualificando oleo",
+          reason: "Saudacao com troca de óleo e veículo completo; sem pedir tipo do óleo",
           silence: false,
         };
       }
@@ -7247,7 +7416,7 @@ export async function processInboundMessage(
       };
     }
 
-    if (shouldAskOilQualification(intentProbeText)) {
+    if (isOilExchangeIntent(intentProbeText)) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
@@ -7265,27 +7434,58 @@ export async function processInboundMessage(
           silence: false,
         };
       }
-      const oilQualificationReply = hasKnownModelAndYear
-        ? knownOilSpec
-          ? `Perfeito! Tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
-          : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
-        : "Perfeito! Você sabe qual óleo é utilizado no carro? Se não souber, pode me informar o *modelo* e o *ano* do veículo.";
-      await sendMessage(ctx.conversationId, oilQualificationReply);
-      if (hasKnownModelAndYear) {
-        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-          awaitingUnknownOilConfirmation: true,
-        });
+      const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+        "Troca de Óleo",
+        ctx.serviceHumanPolicyByName
+      );
+      if (oilServiceRequiresHuman) {
+        await sendMessage(
+          ctx.conversationId,
+          "Perfeito, vou te encaminhar agora para um mecânico técnico continuar sua troca de óleo."
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Troca de óleo com dados obrigatórios completos; handoff técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Troca de óleo configurada para atendimento humano",
+          silence: false,
+        };
       }
+
+      const oilQuery = buildCatalogQueryWithContext(ctx.messageContent, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
+      const oilCatalog = await buildCatalogReply(ctx.organizationId, oilQuery, {
+        skipIntentCheck: true,
+      });
+      await sendMessage(
+        ctx.conversationId,
+        oilCatalog?.reply ?? "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?"
+      );
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
-        event: "intake_ask_oil_spec",
+        event: "intake_oil_no_spec_needed",
         decision: "tool_then_ai",
-        reason: "Cliente pediu troca de óleo sem especificação do tipo",
+        reason: "Cliente pediu troca de óleo sem necessidade de especificar tipo",
         traceId: params.traceId,
         stage: "orchestrator.catalog",
-        decisionCode: "INTAKE_ASK_OIL_SPEC",
+        decisionCode: "INTAKE_OIL_NO_SPEC_NEEDED",
         durationMs: Date.now() - startedAt,
         metadata: {
           messageContent: ctx.messageContent,
@@ -7294,7 +7494,7 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Solicitando especificação do óleo para orçamento",
+        reason: "Troca de óleo identificada sem solicitar tipo do óleo",
         silence: false,
       };
     }
@@ -7458,15 +7658,12 @@ export async function processInboundMessage(
     ) {
       await sendMessage(
         ctx.conversationId,
-        "Entendi. Você sabe o tipo do óleo?\nSe conseguir, me passe também a *quilometragem (km)* do veículo, porque isso deixa o orçamento mais preciso. Se não souber, tudo bem que eu continuo o atendimento."
+        "Entendi. Não preciso do tipo do óleo.\nSe conseguir, me passe também a *quilometragem (km)* do veículo para deixar o orçamento mais preciso. Se não souber, tudo bem."
       );
-      await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-        awaitingUnknownOilConfirmation: true,
-      });
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Confirmação de óleo desconhecido antes do handoff",
+        reason: "Fluxo de óleo sem tipo; solicitando apenas km opcional",
         silence: false,
       };
     }
@@ -7533,34 +7730,79 @@ export async function processInboundMessage(
       };
     }
 
-    if (shouldAskOilQualification(ctx.messageContent)) {
-      const oilQualificationReply = hasKnownModelAndYear
-        ? knownOilSpec
-          ? `Pra te indicar o valor correto, tenho seu veículo como *${knownVehicleLabel}* e o último óleo como *${knownOilSpec}*. Você ainda usa esse óleo? Se não souber o óleo atual, me responda *não sei* que eu já direciono para o mecânico técnico.`
-          : "Pra te indicar o valor correto, você sabe qual óleo é utilizado no carro? Se não souber o óleo, me responda *não sei* que eu já direciono para o mecânico técnico."
-        : "Pra te indicar o valor correto da troca, você sabe qual óleo é utilizado no carro? Se não souber, me informe o *modelo* e o *ano* do veículo.";
-      await sendMessage(ctx.conversationId, oilQualificationReply);
+    if (isOilExchangeIntent(ctx.messageContent)) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Troca de Óleo",
         productName: reservationContext.productName,
       });
-      if (hasKnownModelAndYear) {
-        await persistOilFlowState(ctx.conversationId, conversationMetadata, {
-          awaitingUnknownOilConfirmation: true,
-        });
+
+      const oilServiceRequiresHuman = serviceRequiresHumanByRule(
+        "Troca de Óleo",
+        ctx.serviceHumanPolicyByName
+      );
+      if (oilServiceRequiresHuman) {
+        if (!hasKnownModelAndYear || !ctx.vehicleSlots?.km) {
+          await sendMessage(
+            ctx.conversationId,
+            "Perfeito. Para eu encaminhar sua troca de óleo para o técnico, preciso de *modelo, ano e km* do veículo."
+          );
+          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+          return {
+            didReply: true,
+            decision: "tool_then_ai",
+            reason: "Troca de óleo humana sem dados obrigatórios completos",
+            silence: false,
+          };
+        }
+        await sendMessage(
+          ctx.conversationId,
+          "Perfeito, vou te encaminhar agora para um mecânico técnico continuar sua troca de óleo."
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Troca de óleo com dados obrigatórios completos; handoff técnico"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Troca de óleo configurada para atendimento humano",
+          silence: false,
+        };
       }
+
+      const oilQuery = buildCatalogQueryWithContext(ctx.messageContent, {
+        serviceName: "Troca de Óleo",
+        productName: reservationContext.productName,
+      });
+      const oilCatalog = await buildCatalogReply(ctx.organizationId, oilQuery, {
+        skipIntentCheck: true,
+      });
+      await sendMessage(
+        ctx.conversationId,
+        oilCatalog?.reply ?? "Perfeito! Temos disponibilidade para troca de óleo. Vamos agendar sua visita?"
+      );
       if (intakeStage !== "awaiting_issue") {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
       }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
-        event: "catalog_need_oil_spec",
+        event: "catalog_oil_no_spec_needed",
         decision: "tool_then_ai",
-        reason: "Consulta de óleo sem especificação",
+        reason: "Consulta de óleo sem necessidade de especificação",
         traceId: params.traceId,
         stage: "orchestrator.catalog",
-        decisionCode: "CATALOG_NEED_OIL_SPEC",
+        decisionCode: "CATALOG_OIL_NO_SPEC_NEEDED",
         durationMs: Date.now() - startedAt,
         metadata: {
           messageContent: ctx.messageContent,
@@ -7569,7 +7811,7 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Solicitando tipo de óleo antes de cotar",
+        reason: "Troca de óleo identificada sem solicitar tipo do óleo",
         silence: false,
       };
     }
@@ -7604,12 +7846,40 @@ export async function processInboundMessage(
         serviceName: catalog.selectedServiceName,
         productName: catalog.selectedProductName,
       });
-      if (
-        serviceRequiresHumanByRule(
-          catalog.selectedServiceName,
-          ctx.serviceHumanPolicyByName
-        )
-      ) {
+      const selectedServiceRequiresHuman = serviceRequiresHumanByRule(
+        catalog.selectedServiceName,
+        ctx.serviceHumanPolicyByName
+      );
+      if (selectedServiceRequiresHuman) {
+        const selectedServiceIsOil = normalizeForSearch(
+          catalog.selectedServiceName ?? ""
+        ).includes("oleo");
+        if (selectedServiceIsOil) {
+          const mergedOilSlotsForCatalog = sanitizeVehicleSlotsByContactName(
+            mergeVehicleSlots(
+              ctx.vehicleSlots ?? {},
+              extractVehicleSlotsFromText(ctx.messageContent)
+            ),
+            contactName,
+            ctx.vehicleServicePolicy?.supportedModels
+          );
+          const missingMandatoryOil = getMandatoryVehicleMissing(mergedOilSlotsForCatalog);
+          if (missingMandatoryOil.length > 0) {
+            await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
+            await sendMessage(
+              ctx.conversationId,
+              `Antes de te encaminhar ao técnico para a troca de óleo, ${buildMissingVehicleMandatoryReply(
+                missingMandatoryOil
+              )}`
+            );
+            return {
+              didReply: true,
+              decision: "tool_then_ai",
+              reason: "Troca de óleo humana exige dados obrigatórios antes do handoff",
+              silence: false,
+            };
+          }
+        }
         await sendMessage(
           ctx.conversationId,
           `Perfeito, para *${catalog.selectedServiceName}* vou te encaminhar para um atendente humano confirmar tudo certinho.`
