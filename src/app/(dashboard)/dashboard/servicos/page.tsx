@@ -1,5 +1,6 @@
 import { createService, listServices, updateService } from "@/app/actions/services";
 import { getCurrentOrganization } from "@/lib/auth-utils";
+import { ServicePricingConfigFields } from "@/components/services/service-pricing-config-fields";
 
 function formatCurrencyFromCents(cents: number): string {
   return (cents / 100).toLocaleString("pt-BR", {
@@ -72,28 +73,21 @@ export default async function ServicosPage() {
               />
             </label>
 
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Preco</span>
-                <input
-                  name="price"
-                  required
-                  placeholder="Ex.: 120,00"
-                  className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Duracao (min)</span>
-                <input
-                  name="durationMinutes"
-                  type="number"
-                  min={1}
-                  defaultValue={60}
-                  placeholder="Ex.: 60"
-                  className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                />
-              </label>
-            </div>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                Duracao (min)
+              </span>
+              <input
+                name="durationMinutes"
+                type="number"
+                min={1}
+                defaultValue={60}
+                placeholder="Ex.: 60"
+                className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+              />
+            </label>
+
+            <ServicePricingConfigFields />
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
@@ -111,7 +105,9 @@ export default async function ServicosPage() {
             </label>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Descricao</span>
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                Descricao
+              </span>
               <textarea
                 name="description"
                 rows={3}
@@ -119,20 +115,6 @@ export default async function ServicosPage() {
                 className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
               />
             </label>
-
-            <div className="space-y-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white p-3">
-              <p className="text-xs font-medium uppercase tracking-wide text-[var(--brand-muted)]">
-                Configuracoes
-              </p>
-              <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
-                <input type="checkbox" name="isActive" defaultChecked />
-                Ativo
-              </label>
-              <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
-                <input type="checkbox" name="requiresHuman" />
-                Precisa de atendimento humano
-              </label>
-            </div>
 
             <button
               type="submit"
@@ -188,7 +170,9 @@ export default async function ServicosPage() {
 
                   <div className="mt-4 flex flex-wrap gap-2">
                     <span className="rounded-lg border border-[var(--brand-muted)]/25 bg-[var(--brand-soft)] px-2.5 py-1 text-xs font-medium text-[var(--brand-deep)]">
-                      {formatCurrencyFromCents(item.priceCents)}
+                      {item.requiresHuman && item.priceCents <= 0
+                        ? "Orcamento tecnico"
+                        : formatCurrencyFromCents(item.priceCents)}
                     </span>
                     <span className="rounded-lg border border-[var(--brand-muted)]/25 bg-[var(--brand-soft)] px-2.5 py-1 text-xs font-medium text-[var(--brand-deep)]">
                       {durationLabel}: {item.durationMinutes} min
@@ -234,29 +218,28 @@ export default async function ServicosPage() {
                         />
                       </label>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Preco</span>
-                          <input
-                            name="price"
-                            required
-                            defaultValue={formatCurrencyInput(item.priceCents)}
-                            placeholder="Ex.: 120,00"
-                            className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                          />
-                        </label>
-                        <label className="block">
-                          <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">Duracao (min)</span>
-                          <input
-                            name="durationMinutes"
-                            type="number"
-                            min={1}
-                            defaultValue={item.durationMinutes}
-                            placeholder="Ex.: 60"
-                            className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                          />
-                        </label>
-                      </div>
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                          Duracao (min)
+                        </span>
+                        <input
+                          name="durationMinutes"
+                          type="number"
+                          min={1}
+                          defaultValue={item.durationMinutes}
+                          placeholder="Ex.: 60"
+                          className="w-full rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                        />
+                      </label>
+
+                      <ServicePricingConfigFields
+                        priceDefaultValue={
+                          item.priceCents > 0 ? formatCurrencyInput(item.priceCents) : ""
+                        }
+                        requiresHumanDefaultChecked={item.requiresHuman}
+                        isActiveDefaultChecked={item.isActive}
+                        compact
+                      />
 
                       <label className="block">
                         <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
@@ -284,24 +267,6 @@ export default async function ServicosPage() {
                         />
                       </label>
 
-                      <div className="space-y-2 rounded-xl border border-[var(--brand-muted)]/25 bg-white p-3">
-                        <p className="text-xs font-medium uppercase tracking-wide text-[var(--brand-muted)]">
-                          Configuracoes
-                        </p>
-                        <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
-                          <input type="checkbox" name="isActive" defaultChecked={item.isActive} />
-                          Ativo
-                        </label>
-                        <label className="flex items-center gap-2 text-sm text-[var(--brand-deep)]">
-                          <input
-                            type="checkbox"
-                            name="requiresHuman"
-                            defaultChecked={item.requiresHuman}
-                          />
-                          Precisa de atendimento humano
-                        </label>
-                      </div>
-
                       <button
                         type="submit"
                         className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-95"
@@ -319,3 +284,4 @@ export default async function ServicosPage() {
     </div>
   );
 }
+

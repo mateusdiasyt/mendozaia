@@ -183,7 +183,7 @@ export async function createService(formData: FormData) {
   const requiresHuman = formData.get("requiresHuman") === "on";
 
   if (!name) return { error: "Nome do serviço é obrigatório" };
-  if (priceCents <= 0) return { error: "Preço inválido" };
+  if (!requiresHuman && priceCents <= 0) return { error: "Preço inválido" };
 
   const [created] = await db
     .insert(services)
@@ -191,7 +191,7 @@ export async function createService(formData: FormData) {
     organizationId: org.id,
     name,
     description: description || null,
-    priceCents,
+    priceCents: requiresHuman ? 0 : priceCents,
     durationMinutes: Number.isFinite(durationMinutes)
       ? Math.max(1, Math.floor(durationMinutes))
       : 60,
@@ -237,7 +237,7 @@ export async function updateService(formData: FormData) {
 
   if (!id) return { error: "ServiÃ§o invÃ¡lido" };
   if (!name) return { error: "Nome do serviÃ§o Ã© obrigatÃ³rio" };
-  if (priceCents <= 0) return { error: "PreÃ§o invÃ¡lido" };
+  if (!requiresHuman && priceCents <= 0) return { error: "PreÃ§o invÃ¡lido" };
 
   const [currentService] = await db
     .select({ id: services.id, name: services.name })
@@ -252,7 +252,7 @@ export async function updateService(formData: FormData) {
     .set({
       name,
       description: description || null,
-      priceCents,
+      priceCents: requiresHuman ? 0 : priceCents,
       durationMinutes: Number.isFinite(durationMinutes)
         ? Math.max(1, Math.floor(durationMinutes))
         : 60,

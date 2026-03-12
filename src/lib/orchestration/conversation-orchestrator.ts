@@ -2070,10 +2070,16 @@ async function buildCatalogReply(
       ? `${firstProduct.name} ${firstProduct.model}`
       : firstProduct.name;
     const productPrice = formatCurrencyFromCents(firstProduct.priceCents);
-    const servicePrice = formatCurrencyFromCents(firstService.priceCents);
-    lines.push(
-      `Temos ${productLabel} por ${productPrice}, e a ${firstService.name.toLowerCase()} fica em ${servicePrice} (${firstService.durationMinutes} min).`
-    );
+    if (firstService.priceCents > 0) {
+      const servicePrice = formatCurrencyFromCents(firstService.priceCents);
+      lines.push(
+        `Temos ${productLabel} por ${productPrice}, e a ${firstService.name.toLowerCase()} fica em ${servicePrice} (${firstService.durationMinutes} min).`
+      );
+    } else {
+      lines.push(
+        `Temos ${productLabel} por ${productPrice}, e a ${firstService.name.toLowerCase()} e sob orcamento tecnico (${firstService.durationMinutes} min).`
+      );
+    }
   } else if (firstProduct) {
     const productLabel = firstProduct.model?.trim()
       ? `${firstProduct.name} ${firstProduct.model}`
@@ -2081,10 +2087,16 @@ async function buildCatalogReply(
     const productPrice = formatCurrencyFromCents(firstProduct.priceCents);
     lines.push(`Temos ${productLabel} disponível por ${productPrice}.`);
   } else if (firstService) {
-    const servicePrice = formatCurrencyFromCents(firstService.priceCents);
-    lines.push(
-      `A ${firstService.name.toLowerCase()} está saindo por ${servicePrice} e leva cerca de ${firstService.durationMinutes} min.`
-    );
+    if (firstService.priceCents > 0) {
+      const servicePrice = formatCurrencyFromCents(firstService.priceCents);
+      lines.push(
+        `A ${firstService.name.toLowerCase()} esta saindo por ${servicePrice} e leva cerca de ${firstService.durationMinutes} min.`
+      );
+    } else {
+      lines.push(
+        `A ${firstService.name.toLowerCase()} e sob orcamento tecnico e leva cerca de ${firstService.durationMinutes} min.`
+      );
+    }
   }
 
   lines.push("Se você quiser, já consulto a disponibilidade e deixo um horário reservado. Qual dia e horário prefere?");
