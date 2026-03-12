@@ -176,7 +176,7 @@ export default async function ConfiguracoesPage({
         </div>
       </div>
 
-      <div className="max-w-5xl">
+      <div className={activeSection === "agenda" ? "max-w-none" : "max-w-5xl"}>
         {activeSection === "geral" && (
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <SectionCard>
