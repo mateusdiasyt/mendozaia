@@ -1,5 +1,5 @@
-/**
- * Tipos e constantes para orquestração de conversas.
+﻿/**
+ * Tipos e constantes para orquestraÃ§Ã£o de conversas.
  */
 
 export const CONVERSATION_STATES = {
@@ -41,13 +41,13 @@ export interface OrchestrationContext {
   reservationsEnabled: boolean;
   aiAgentEnabled: boolean;
   aiAgentUseAsFallback: boolean;
-  /** Slots extraídos (modelo, ano, km) para fluxo de mecânica */
+  /** Slots extraÃ­dos (modelo, ano, km) para fluxo de mecÃ¢nica */
   vehicleSlots?: VehicleSlots;
-  /** Última especificação de óleo conhecida para o contato (ex.: 5W30) */
+  /** Ãšltima especificaÃ§Ã£o de Ã³leo conhecida para o contato (ex.: 5W30) */
   knownOilSpec?: string | null;
-  /** Se o prompt parece ser de mecânica (coleta de veículo) */
+  /** Se o prompt parece ser de mecÃ¢nica (coleta de veÃ­culo) */
   usesVehicleSlots?: boolean;
-  /** Última sugestão de horário pendente de confirmação do cliente */
+  /** Ãšltima sugestÃ£o de horÃ¡rio pendente de confirmaÃ§Ã£o do cliente */
   pendingReservation?: {
     dateStr: string;
     timeStr: string;
@@ -99,7 +99,8 @@ export interface OrchestrationContext {
   offeredServices?: string[];
   serviceHumanPolicyByName?: Record<string, boolean>;
   servicePriorityByName?: Record<string, number>;
-  /** Contexto do cliente (perfil + memória de conversas anteriores) */
+  servicePromptByName?: Record<string, string>;
+  /** Contexto do cliente (perfil + memÃ³ria de conversas anteriores) */
   customerContext?: CustomerContext | null;
 }
 
@@ -110,3 +111,4 @@ export interface OrchestratorResult {
   shouldCallAI: boolean;
   stateAfter?: string;
 }
+

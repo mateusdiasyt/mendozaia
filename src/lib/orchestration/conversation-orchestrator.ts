@@ -551,7 +551,8 @@ function servicePriorityByRule(
 
 function detectAskedOfferedService(
   text: string,
-  offeredServices: string[]
+  offeredServices: string[],
+  servicePromptByName?: Record<string, string>
 ): string | null {
   const normalizedText = normalizeForSearch(text);
   if (!normalizedText) return null;
@@ -575,10 +576,14 @@ function detectAskedOfferedService(
   for (const service of sorted) {
     const normalizedService = normalizeServiceLabel(service);
     if (!normalizedService) continue;
-    const score = tokens.reduce(
-      (acc, token) => (normalizedService.includes(token) ? acc + 1 : acc),
-      0
-    );
+    const promptText =
+      servicePromptByName?.[normalizeServiceLabel(service)]?.toLowerCase() ?? "";
+    const score = tokens.reduce((acc, token) => {
+      let next = acc;
+      if (normalizedService.includes(token)) next += 1;
+      if (promptText.includes(token)) next += 1;
+      return next;
+    }, 0);
     if (score >= 2 || (tokens.length === 1 && score >= 1)) {
       if (!best || score > best.score) {
         best = { service, score };
@@ -592,7 +597,8 @@ function detectPrimaryOfferedServiceByPriority(
   text: string,
   offeredServices: string[],
   priorityRulesByName: Record<string, number> | undefined,
-  humanRulesByName: Record<string, boolean> | undefined
+  humanRulesByName: Record<string, boolean> | undefined,
+  servicePromptByName?: Record<string, string>
 ): string | null {
   const normalizedText = normalizeForSearch(text);
   if (!normalizedText || offeredServices.length === 0) return null;
@@ -606,10 +612,12 @@ function detectPrimaryOfferedServiceByPriority(
     .map((service) => {
       const normalizedService = normalizeServiceLabel(service);
       if (!normalizedService) return null;
+      const promptText = servicePromptByName?.[normalizedService]?.toLowerCase() ?? "";
       let score = 0;
       if (normalizedText.includes(normalizedService)) score += 3;
       for (const token of tokens) {
         if (normalizedService.includes(token)) score += 1;
+        if (promptText.includes(token)) score += 1;
       }
       if (score <= 0) return null;
       const priority = servicePriorityByRule(service, priorityRulesByName);
@@ -3435,6 +3443,8 @@ export async function loadConversationContext(
     (settings.serviceHumanPolicy as Record<string, unknown> | undefined) ?? {};
   const servicePriorityPolicySettings =
     (settings.servicePriorityPolicy as Record<string, unknown> | undefined) ?? {};
+  const servicePromptPolicySettings =
+    (settings.servicePromptPolicy as Record<string, unknown> | undefined) ?? {};
   const rawServiceHumanPolicyByName =
     (serviceHumanPolicySettings.byName as Record<string, unknown> | undefined) ?? {};
   const serviceHumanPolicyByName = Object.fromEntries(
@@ -3452,6 +3462,16 @@ export async function loadConversationContext(
       ])
       .filter((entry): entry is [string, number] => !!entry[0] && typeof entry[1] === "number")
   ) as Record<string, number>;
+  const rawServicePromptByName =
+    (servicePromptPolicySettings.byName as Record<string, unknown> | undefined) ?? {};
+  const servicePromptByName = Object.fromEntries(
+    Object.entries(rawServicePromptByName)
+      .map(([name, prompt]) => [
+        normalizeServiceLabel(name),
+        typeof prompt === "string" ? prompt.trim() : "",
+      ])
+      .filter((entry): entry is [string, string] => !!entry[0] && !!entry[1])
+  ) as Record<string, string>;
   const configuredSegment =
     (botConfigSettings.segment as "mecanica" | "restaurante" | "geral" | undefined) ??
     undefined;
@@ -3633,6 +3653,7 @@ export async function loadConversationContext(
     offeredServices,
     serviceHumanPolicyByName,
     servicePriorityByName,
+    servicePromptByName,
     vehicleServicePolicy: {
       minAllowedYear:
         typeof vehicleServicePolicySettings.minAllowedYear === "number"
@@ -4241,7 +4262,8 @@ export async function processInboundMessage(
     intentProbeText,
     ctx.offeredServices ?? [],
     ctx.servicePriorityByName,
-    ctx.serviceHumanPolicyByName
+    ctx.serviceHumanPolicyByName,
+    ctx.servicePromptByName
   );
   const primaryServiceRequiresHuman = serviceRequiresHumanByRule(
     primaryServiceInMessage,
@@ -5161,7 +5183,11 @@ export async function processInboundMessage(
   ) {
     const offeredServices = (ctx.offeredServices ?? []).map((service) => service.trim()).filter(Boolean);
     if (offeredServices.length > 0) {
-      const askedService = detectAskedOfferedService(intentProbeText, offeredServices);
+      const askedService = detectAskedOfferedService(
+        intentProbeText,
+        offeredServices,
+        ctx.servicePromptByName
+      );
       if (askedService) {
         await sendMessage(
           ctx.conversationId,

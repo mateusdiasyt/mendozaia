@@ -116,6 +116,18 @@ export default async function ServicosPage() {
               />
             </label>
 
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                Prompt do servico (IA)
+              </span>
+              <textarea
+                name="prompt"
+                rows={3}
+                placeholder="Ex.: Use este serviço quando o cliente falar revisão geral, check-up, revisão preventiva..."
+                className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2.5 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+              />
+            </label>
+
             <button
               type="submit"
               className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white transition hover:opacity-95"
@@ -156,6 +168,11 @@ export default async function ServicosPage() {
                       ) : (
                         <p className="mt-1 text-sm text-[var(--brand-muted)]">Sem descricao.</p>
                       )}
+                      {item.prompt ? (
+                        <p className="mt-2 line-clamp-2 text-xs text-[var(--brand-muted)]">
+                          Prompt IA: {item.prompt}
+                        </p>
+                      ) : null}
                     </div>
                     <span
                       className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -267,6 +284,19 @@ export default async function ServicosPage() {
                         />
                       </label>
 
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium text-[var(--brand-muted)]">
+                          Prompt do servico (IA)
+                        </span>
+                        <textarea
+                          name="prompt"
+                          rows={3}
+                          defaultValue={item.prompt ?? ""}
+                          placeholder="Ex.: Use este serviço quando o cliente falar revisão geral, check-up, revisão preventiva..."
+                          className="w-full resize-none rounded-xl border border-[var(--brand-muted)]/35 bg-white px-3 py-2 text-sm text-[var(--brand-deep)] placeholder:text-[var(--brand-muted)] focus:border-[var(--brand-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                        />
+                      </label>
+
                       <button
                         type="submit"
                         className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white transition hover:opacity-95"
@@ -284,4 +314,3 @@ export default async function ServicosPage() {
     </div>
   );
 }
-
