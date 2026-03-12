@@ -3301,6 +3301,7 @@ async function clearConversationFlowState(
   delete nextMetadata.workshopFlow;
   delete nextMetadata.restaurantReservationFlow;
   delete nextMetadata.resumeChoiceFlow;
+  delete nextMetadata.deferredBusinessInfoRequest;
 
   await db
     .update(conversations)
@@ -3923,6 +3924,10 @@ export async function processInboundMessage(
   const resumeChoiceFlow = getResumeChoiceFlowState(conversationMetadata);
   const reservationFlow = (conversationMetadata.reservationFlow as Record<string, unknown> | undefined) ?? {};
   const mechanicalIssuePendingHandoff = conversationMetadata.mechanicalIssuePendingHandoff === true;
+  const deferredBusinessInfoRequest =
+    (conversationMetadata.deferredBusinessInfoRequest as Record<string, unknown> | undefined) ?? {};
+  const deferredAsksInstagram = deferredBusinessInfoRequest.asksInstagram === true;
+  const deferredAsksAddress = deferredBusinessInfoRequest.asksAddress === true;
   const isCollectProfileStage = reservationFlow.collectionStage === "collect_profile";
   const isImplicitAwaitingName =
     intakeStage !== "awaiting_name" &&
@@ -3935,6 +3940,8 @@ export async function processInboundMessage(
     : [];
   const missingNameProfileAtEntry = !contactName;
   const hasModelAndYearProfile = !!(ctx.vehicleSlots?.modelo && ctx.vehicleSlots?.ano);
+  const hasCompleteProfileForBusinessReply =
+    !!contactName && (!ctx.usesVehicleSlots || hasModelAndYearProfile);
   const knownVehicleLabel = [ctx.vehicleSlots?.modelo, ctx.vehicleSlots?.ano]
     .filter(Boolean)
     .join(" ");
@@ -6276,6 +6283,56 @@ export async function processInboundMessage(
     };
   }
 
+  if (
+    hasCompleteProfileForBusinessReply &&
+    (deferredAsksInstagram || deferredAsksAddress) &&
+    !looksLikeAskInstagram(ctx.messageContent) &&
+    !looksLikeAskAddress(ctx.messageContent)
+  ) {
+    const instagram = ctx.businessProfile?.instagram?.trim() || "";
+    const address = ctx.businessProfile?.address?.trim() || "";
+    const mapsLink = ctx.businessProfile?.mapsLink?.trim() || "";
+    const chunks: string[] = [];
+
+    if (deferredAsksInstagram) {
+      chunks.push(
+        instagram
+          ? `Nosso Instagram: *${instagram}*`
+          : "No momento ainda nao temos Instagram cadastrado."
+      );
+    }
+
+    if (deferredAsksAddress) {
+      chunks.push(
+        address
+          ? `Nosso endereco: *${address}*`
+          : "No momento ainda nao temos endereco cadastrado."
+      );
+      if (mapsLink) chunks.push(`Localizacao no Google Maps: ${mapsLink}`);
+    }
+
+    await sendMessage(
+      ctx.conversationId,
+      `Agora que registrei seus dados, respondendo sua duvida:\n${chunks.join("\n")}`
+    );
+    const nextMetadata = { ...conversationMetadata };
+    delete nextMetadata.deferredBusinessInfoRequest;
+    await db
+      .update(conversations)
+      .set({
+        conversationStateMetadata:
+          Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(conversations.id, ctx.conversationId));
+    return {
+      didReply: true,
+      decision: "tool_then_ai",
+      reason: "Duvida de dados da empresa respondida apos concluir perfil",
+      silence: false,
+    };
+  }
+
   const asksKnownName = looksLikeAskKnownName(ctx.messageContent);
   const asksKnownVehicle = looksLikeAskKnownVehicle(ctx.messageContent);
   const asksBotName = looksLikeAskBotName(ctx.messageContent);
@@ -6416,6 +6473,38 @@ export async function processInboundMessage(
   const asksInstagram = looksLikeAskInstagram(ctx.messageContent);
   const asksAddress = looksLikeAskAddress(ctx.messageContent);
   if (asksInstagram || asksAddress) {
+    if (!hasCompleteProfileForBusinessReply) {
+      const nextMetadata = { ...conversationMetadata };
+      const currentDeferred =
+        (nextMetadata.deferredBusinessInfoRequest as Record<string, unknown> | undefined) ?? {};
+      nextMetadata.deferredBusinessInfoRequest = {
+        asksInstagram: (currentDeferred.asksInstagram === true) || asksInstagram,
+        asksAddress: (currentDeferred.asksAddress === true) || asksAddress,
+        updatedAt: new Date().toISOString(),
+      };
+      await db
+        .update(conversations)
+        .set({
+          conversationStateMetadata: nextMetadata,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      const missingProfilePrompt = buildMissingReservationProfileReply(
+        missingNameProfileAtEntry,
+        missingVehicleProfileAtEntry
+      );
+      await sendMessage(
+        ctx.conversationId,
+        `Perfeito, anotei sua duvida. Primeiro vou registrar seu nome e os dados do veiculo; em seguida eu te passo essa informacao.\n\n${missingProfilePrompt}`
+      );
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Duvida de dados da empresa adiada ate concluir cadastro basico",
+        silence: false,
+      };
+    }
+
     const instagram = ctx.businessProfile?.instagram?.trim() || "";
     const address = ctx.businessProfile?.address?.trim() || "";
     const mapsLink = ctx.businessProfile?.mapsLink?.trim() || "";
