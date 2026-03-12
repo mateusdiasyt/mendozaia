@@ -256,42 +256,73 @@ export function ReservationScheduleForm({
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white p-3">
-        <div className="mb-2 grid grid-cols-[52px,1fr,1fr,66px] gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-          <span>Dia</span>
-          <span>Abertura</span>
-          <span>Fechamento</span>
-          <span className="text-center">Ativo</span>
-        </div>
-        <div className="divide-y divide-slate-100 rounded-lg border border-slate-100">
+        <p className="text-sm font-semibold text-slate-900">Horario por dia da semana</p>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Defina abertura e fechamento por dia.
+        </p>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {weekdaySchedule.map((day) => {
             const label = WEEKDAYS.find((item) => item.value === day.day)?.label ?? String(day.day);
             return (
-              <div key={day.day} className="grid grid-cols-[52px,1fr,1fr,66px] items-center gap-2 px-2 py-2">
-                <label className="text-sm font-medium text-slate-700">
-                  {label}
-                </label>
-                <input
-                  type="time"
-                  value={day.start}
-                  onChange={(e) => updateWeekday(day.day, { start: e.target.value })}
-                  disabled={!day.enabled}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
-                />
-                <input
-                  type="time"
-                  value={day.end}
-                  onChange={(e) => updateWeekday(day.day, { end: e.target.value })}
-                  disabled={!day.enabled}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
-                />
-                <label className="inline-flex items-center justify-center">
-                  <input
-                    type="checkbox"
-                    checked={day.enabled}
-                    onChange={(e) => updateWeekday(day.day, { enabled: e.target.checked })}
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                  />
-                </label>
+              <div
+                key={day.day}
+                className={`rounded-xl border bg-white ${
+                  day.enabled ? "border-indigo-100 shadow-sm" : "border-slate-200"
+                }`}
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Disponibilidade
+                  </span>
+                  <label className="inline-flex cursor-pointer items-center gap-2">
+                    <span className="text-xs text-slate-600">Ativo</span>
+                    <input
+                      type="checkbox"
+                      checked={day.enabled}
+                      onChange={(e) => updateWeekday(day.day, { enabled: e.target.checked })}
+                      className="peer sr-only"
+                    />
+                    <span className="relative h-5 w-9 rounded-full bg-slate-200 transition peer-checked:bg-indigo-500">
+                      <span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-4" />
+                    </span>
+                  </label>
+                </div>
+
+                <div className="space-y-2 p-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Dia
+                    <input
+                      type="text"
+                      value={label}
+                      readOnly
+                      className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800"
+                    />
+                  </label>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      De
+                      <input
+                        type="time"
+                        value={day.start}
+                        onChange={(e) => updateWeekday(day.day, { start: e.target.value })}
+                        disabled={!day.enabled}
+                        className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Ate
+                      <input
+                        type="time"
+                        value={day.end}
+                        onChange={(e) => updateWeekday(day.day, { end: e.target.value })}
+                        disabled={!day.enabled}
+                        className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
             );
           })}
