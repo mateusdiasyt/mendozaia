@@ -84,7 +84,6 @@ export function ReservationScheduleForm({
   const [blockedDates, setBlockedDates] = useState<string[]>(
     [...new Set(initialConfig.blockedDates)].sort()
   );
-  const [pendingBlockedDate, setPendingBlockedDate] = useState("");
   const [monthCursor, setMonthCursor] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -99,12 +98,6 @@ export function ReservationScheduleForm({
     setWeekdaySchedule((prev) =>
       prev.map((item) => (item.day === day ? { ...item, ...patch } : item))
     );
-  }
-
-  function addBlockedDate() {
-    if (!pendingBlockedDate) return;
-    setBlockedDates((prev) => [...new Set([...prev, pendingBlockedDate])].sort());
-    setPendingBlockedDate("");
   }
 
   function formatDateLabel(date: string): string {
@@ -332,58 +325,9 @@ export function ReservationScheduleForm({
       <div>
         <p className="text-sm font-medium text-slate-700">Datas bloqueadas</p>
         <p className="mt-1 text-xs text-slate-500">
-          Selecione no calendario e clique em adicionar para bloquear.
+          Clique no calendario para bloquear ou desbloquear as datas.
         </p>
-        <div className="mt-3 grid gap-3 lg:grid-cols-[280px,1fr]">
-          <div className="rounded-xl border border-slate-200 bg-white p-3">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Selecionar data
-              <input
-                type="date"
-                value={pendingBlockedDate}
-                onChange={(e) => setPendingBlockedDate(e.target.value)}
-                className={inputClass}
-              />
-            </label>
-            <div className="mt-2 flex gap-2">
-              <button
-                type="button"
-                onClick={addBlockedDate}
-                disabled={!pendingBlockedDate}
-                className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
-              >
-                Adicionar
-              </button>
-              {blockedDates.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setBlockedDates([])}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-                >
-                  Limpar
-                </button>
-              )}
-            </div>
-
-            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
-              <p className="font-medium text-slate-700">Bloqueadas ({blockedDates.length})</p>
-              {blockedDates.length > 0 ? (
-                <div className="mt-2 flex max-h-28 flex-wrap gap-1.5 overflow-auto pr-1">
-                  {blockedDates.map((date) => (
-                    <span
-                      key={date}
-                      className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
-                    >
-                      {formatDateLabel(date)}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-1 text-[11px] text-slate-500">Nenhuma data bloqueada.</p>
-              )}
-            </div>
-          </div>
-
+        <div className="mt-3 grid gap-3 lg:grid-cols-[1fr,280px]">
           <div className="rounded-xl border border-slate-200 bg-white p-3">
           <div className="mb-3 flex items-center justify-between">
             <button
@@ -449,6 +393,41 @@ export function ReservationScheduleForm({
               );
             })}
           </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-slate-700">Bloqueadas ({blockedDates.length})</p>
+              {blockedDates.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setBlockedDates([])}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+
+            {blockedDates.length > 0 ? (
+              <div className="mt-3 space-y-2">
+                {blockedDates.map((date) => (
+                  <button
+                    type="button"
+                    key={date}
+                    onClick={() => toggleBlockedDate(date)}
+                    className="flex w-full items-center justify-between rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-left text-xs font-medium text-red-700 transition hover:bg-red-100"
+                  >
+                    <span>{formatDateLabel(date)}</span>
+                    <span className="text-[11px] opacity-80">Remover</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-5 text-center text-xs text-slate-500">
+                Nenhuma data bloqueada.
+              </div>
+            )}
           </div>
         </div>
       </div>
