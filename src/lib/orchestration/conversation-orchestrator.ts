@@ -317,6 +317,38 @@ function looksLikeVehicleStatusInquiry(text: string): boolean {
   );
 }
 
+function looksLikeCarAlreadyAtWorkshop(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    /\b(deixei|deixamos|deixou)\b.*\b(carro|veiculo)\b/.test(t) ||
+    /\b(carro|veiculo)\b.*\b(ta ai|esta ai|ficou ai|na oficina)\b/.test(t) ||
+    /\b(deixei)\b.*\b(ai ontem|ontem ai)\b/.test(t)
+  );
+}
+
+function looksLikeExplicitHumanHandoffRequest(text: string): boolean {
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/\b(nao|não)\b.*\b(humano|tecnico|tecnico|atendente)\b/.test(t)) return false;
+  return (
+    /\b(atendimento humano|atendente humano|suporte humano)\b/.test(t) ||
+    /\b(falar com humano|quero humano|passa pro humano)\b/.test(t) ||
+    /\b(mecanico tecnico|tecnico humano)\b/.test(t) ||
+    /\b(encaminha|direciona|transfere)\b.*\b(humano|tecnico|mecanico)\b/.test(t)
+  );
+}
+
 function looksLikeCarProblemOrRepairIntent(text: string): boolean {
   const t = text
     .toLowerCase()
@@ -1089,6 +1121,40 @@ async function wasRecentNamePrompt(conversationId: string): Promise<boolean> {
   return (
     /qual\s+(?:e|é)\s+o\s+seu\s+nome\??/i.test(lastOutbound.content) ||
     /qual\s+seria\s+o\s+seu\s+nome\??/i.test(lastOutbound.content)
+  );
+}
+
+async function wasRecentHumanRoutingOffer(conversationId: string): Promise<boolean> {
+  const [lastOutbound] = await db
+    .select({
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+
+  if (!lastOutbound?.content) return false;
+  const isRecent = Date.now() - lastOutbound.createdAt.getTime() <= 10 * 60 * 1000;
+  if (!isRecent) return false;
+  const normalized = lastOutbound.content
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (
+    normalized.includes("atendimento humano") ||
+    normalized.includes("mecanico tecnico") ||
+    normalized.includes("encaminhar para") ||
+    normalized.includes("direcionar para")
   );
 }
 
@@ -3877,6 +3943,11 @@ export async function processInboundMessage(
     ctx.botConfig?.segment === "restaurante" &&
     restaurantFlow?.collectionStage &&
     restaurantFlow.collectionStage !== "completed";
+  const askedForHumanNow = looksLikeExplicitHumanHandoffRequest(ctx.messageContent);
+  const confirmedRecentHumanOffer =
+    isSimpleAffirmative(ctx.messageContent) &&
+    (await wasRecentHumanRoutingOffer(ctx.conversationId));
+  const reportedCarAlreadyInShop = looksLikeCarAlreadyAtWorkshop(ctx.messageContent);
   const hasActiveFlow =
     hasActiveConversationFlowState(ctx.conversationState) ||
     !!intakeStage ||
@@ -3892,6 +3963,60 @@ export async function processInboundMessage(
     reservationFlow.collectionStage === "collect_datetime" ||
     reservationFlow.collectionStage === "confirm_reservation" ||
     hasRestaurantActiveFlow;
+
+  if (ctx.usesVehicleSlots && (reportedCarAlreadyInShop || askedForHumanNow || confirmedRecentHumanOffer)) {
+    await persistWorkshopState(ctx.conversationId, conversationMetadata, {
+      carInShop: true,
+      awaitingVehicleDetails: false,
+    });
+    const routingReply = reportedCarAlreadyInShop
+      ? "Perfeito, marquei seu carro como *na mecânica* e vou te direcionar agora para um atendente humano acompanhar seu caso."
+      : "Perfeito, vou te direcionar agora para atendimento humano para seguir com seu caso.";
+    await sendMessage(ctx.conversationId, routingReply);
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      reportedCarAlreadyInShop
+        ? "Cliente informou carro já deixado na mecânica; encaminhado para humano"
+        : "Cliente solicitou/confirmou atendimento humano; encaminhado para humano"
+    );
+    if (handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "manual_human_handoff",
+      decision: "human_only",
+      reason: reportedCarAlreadyInShop
+        ? "Cliente informou carro na mecânica; handoff humano imediato"
+        : "Cliente pediu/confirmou atendimento humano; handoff imediato",
+      traceId: params.traceId,
+      stage: "orchestrator.handoff",
+      decisionCode: "MANUAL_HUMAN_HANDOFF",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        messageContent: ctx.messageContent,
+        askedForHumanNow,
+        confirmedRecentHumanOffer,
+        reportedCarAlreadyInShop,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: reportedCarAlreadyInShop
+        ? "Carro marcado na mecânica e encaminhado ao humano"
+        : "Encaminhado para atendimento humano por solicitação do cliente",
+      silence: false,
+    };
+  }
 
   // Regra de negócio: em caso mecânico, após nome+dúvida deve coletar modelo+ano+km antes de encaminhar ao técnico.
   if (ctx.usesVehicleSlots && mechanicalIssuePendingHandoff) {
