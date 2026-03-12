@@ -23,6 +23,10 @@ function isSafeContactName(value: string): boolean {
     [
       "oi",
       "ola",
+      "opa",
+      "e ai",
+      "fala",
+      "salve",
       "ok",
       "sim",
       "nao",

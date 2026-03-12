@@ -795,6 +795,10 @@ const FLOW_RESUME_TIMEOUT_MS = 45 * 60 * 1000; // 45min
 const INVALID_NAME_TERMS = new Set([
   "oi",
   "ola",
+  "opa",
+  "e ai",
+  "fala",
+  "salve",
   "ok",
   "sim",
   "nao",
@@ -2784,6 +2788,7 @@ function extractCustomerName(
 ): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
+  if (looksLikeGreeting(trimmed)) return null;
   const explicit = trimmed.match(
     /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
   );
