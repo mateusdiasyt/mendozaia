@@ -4900,7 +4900,13 @@ export async function processInboundMessage(
     }
   }
 
-  if (ctx.usesVehicleSlots && looksLikeServiceCoverageQuestion(intentProbeText)) {
+  const isVehicleCoverageQuery = looksLikeVehicleCoverageQuestion(intentProbeText);
+
+  if (
+    ctx.usesVehicleSlots &&
+    looksLikeServiceCoverageQuestion(intentProbeText) &&
+    !isVehicleCoverageQuery
+  ) {
     const offeredServices = (ctx.offeredServices ?? []).map((service) => service.trim()).filter(Boolean);
     if (offeredServices.length > 0) {
       const askedService = detectAskedOfferedService(intentProbeText, offeredServices);
@@ -4954,7 +4960,7 @@ export async function processInboundMessage(
     hasVehicleInfoInCoverageReply &&
     (await hasRecentVehicleCoveragePrompt(ctx.conversationId));
 
-  if (ctx.usesVehicleSlots && (looksLikeVehicleCoverageQuestion(intentProbeText) || isCoverageFollowup)) {
+  if (ctx.usesVehicleSlots && (isVehicleCoverageQuery || isCoverageFollowup)) {
     const askedYear = extractedQuestionSlots.ano ?? shortYearHint ?? null;
     const askedModelRaw =
       extractedQuestionSlots.modelo ??
