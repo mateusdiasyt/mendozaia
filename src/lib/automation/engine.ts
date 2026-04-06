@@ -9,6 +9,7 @@ import {
   messages,
   conversations,
   contactTags,
+  organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { handoffToHuman } from "@/lib/orchestration";
@@ -26,6 +27,21 @@ import {
 } from "./types";
 
 // ==================== AVALIAÇÃO DE CONDIÇÕES ====================
+
+async function shouldBypassAutomationForOrganization(
+  organizationId: string
+): Promise<boolean> {
+  const [org] = await db
+    .select({ settings: organizations.settings })
+    .from(organizations)
+    .where(eq(organizations.id, organizationId))
+    .limit(1);
+
+  const settings = (org?.settings as Record<string, unknown> | undefined) ?? {};
+  const botConfig = (settings.botConfig as Record<string, unknown> | undefined) ?? {};
+
+  return botConfig.segment === "mecanica";
+}
 
 function evaluateCondition(
   conditionType: ConditionType,
@@ -143,6 +159,10 @@ export async function processMessageReceivedRules(
   context: AutomationContext,
   executor?: ActionExecutor
 ): Promise<{ didReply: boolean }> {
+  if (await shouldBypassAutomationForOrganization(context.organizationId)) {
+    return { didReply: false };
+  }
+
   const isAiPaused = !!(
     context.aiDisabledUntil && context.aiDisabledUntil > new Date()
   );
@@ -193,6 +213,10 @@ export async function processNoReplyTimeoutRules(
   organizationId: string,
   executor?: ActionExecutor
 ): Promise<void> {
+  if (await shouldBypassAutomationForOrganization(organizationId)) {
+    return;
+  }
+
   const rules = await db
     .select()
     .from(automationRules)

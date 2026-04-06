@@ -82,6 +82,17 @@ export interface ProcessResult {
   silence: boolean;
 }
 
+const SIMPLE_VEHICLE_TRIAGE_MODEL_PROMPT = "Olá! Me informe o modelo do seu veículo.";
+const SIMPLE_VEHICLE_TRIAGE_YEAR_PROMPT = "Perfeito. Me informe o ano do veículo.";
+const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
+  "No momento não atendemos esse modelo de veículo. Obrigado pelo contato.";
+const SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY =
+  "Perfeito, já vou encaminhar você para o mecânico.";
+
+function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
+  return ctx.usesVehicleSlots === true && ctx.botConfig?.segment === "mecanica";
+}
+
 function looksLikeFallbackReservationReply(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -3047,6 +3058,47 @@ async function persistIntakeStage(
     .where(eq(conversations.id, conversationId));
 }
 
+async function persistSimpleVehicleTriageMetadata(
+  conversationId: string,
+  currentMetadata: Record<string, unknown>,
+  stage: IntakeStage | null,
+  vehicleSlots: VehicleSlots | null
+): Promise<Record<string, unknown>> {
+  const [row] = await db
+    .select({ conversationStateMetadata: conversations.conversationStateMetadata })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+  const baseMetadata =
+    (row?.conversationStateMetadata as Record<string, unknown> | undefined) ?? currentMetadata;
+  const nextMetadata = { ...baseMetadata };
+
+  if (stage) {
+    nextMetadata.intakeFlow = { stage, updatedAt: new Date().toISOString() };
+  } else {
+    delete nextMetadata.intakeFlow;
+  }
+
+  if (vehicleSlots && Object.keys(vehicleSlots).length > 0) {
+    nextMetadata.vehicleSlots = vehicleSlots;
+    nextMetadata.vehicleSlotsUpdatedAt = new Date().toISOString();
+  } else {
+    delete nextMetadata.vehicleSlots;
+    delete nextMetadata.vehicleSlotsUpdatedAt;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      conversationStateMetadata:
+        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      updatedAt: new Date(),
+    })
+    .where(eq(conversations.id, conversationId));
+
+  return nextMetadata;
+}
+
 function getReservationContext(metadata: Record<string, unknown>): {
   serviceName: string | null;
   productName: string | null;
@@ -3908,18 +3960,25 @@ export async function processInboundMessage(
   const isHumanOnlyState =
     ctx.conversationState === CONVERSATION_STATES.WAITING_HUMAN ||
     ctx.conversationState === CONVERSATION_STATES.HUMAN_ACTIVE;
+  const isClosedState = ctx.conversationState === CONVERSATION_STATES.CLOSED;
   const isAiPaused = !!(ctx.aiDisabledUntil && ctx.aiDisabledUntil > new Date());
-  if (isHumanOnlyState || isAiPaused) {
+  if (isClosedState || isHumanOnlyState || isAiPaused) {
+    const decision = isClosedState ? "silence" : "human_only";
+    const reason = isClosedState
+      ? "Conversa encerrada"
+      : isAiPaused
+        ? "IA pausada manualmente"
+        : "Conversa aguardando humano";
     await logOrchestration({
       conversationId: ctx.conversationId,
       organizationId: ctx.organizationId,
       event: "decision",
       stateBefore: ctx.conversationState,
-      decision: "human_only",
-      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      decision,
+      reason,
       traceId: params.traceId,
       stage: "orchestrator.decision",
-      decisionCode: "HUMAN_ONLY",
+      decisionCode: isClosedState ? "SILENCE" : "HUMAN_ONLY",
       durationMs: Date.now() - startedAt,
       metadata: {
         reservationsEnabled: ctx.reservationsEnabled,
@@ -3930,8 +3989,8 @@ export async function processInboundMessage(
     });
     return {
       didReply: false,
-      decision: "human_only",
-      reason: isAiPaused ? "IA pausada manualmente" : "Conversa aguardando humano",
+      decision,
+      reason,
       silence: true,
     };
   }
@@ -3988,6 +4047,233 @@ export async function processInboundMessage(
   const isAwaitingNameStage =
     intakeStage === "awaiting_name" || isImplicitAwaitingName;
   let contactName = ctx.contactName ?? null;
+
+  if (shouldUseSimpleVehicleTriage(ctx)) {
+    const triageAlreadyStarted = intakeStage === "awaiting_vehicle";
+    const metadataVehicleSlots =
+      (conversationMetadata.vehicleSlots as VehicleSlots | undefined) ?? {};
+    const triageBaseSlots = triageAlreadyStarted ? metadataVehicleSlots : {};
+    const extractedVehicleFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
+    if (!extractedVehicleFromMessage.modelo) {
+      const looseVehicleModel = extractLooseVehicleModelFromReply(ctx.messageContent);
+      if (looseVehicleModel) {
+        extractedVehicleFromMessage.modelo = looseVehicleModel;
+      }
+    }
+
+    const incomingVehicleSlots = sanitizeVehicleSlotsByContactName(
+      extractedVehicleFromMessage,
+      contactName,
+      undefined
+    );
+    const mergedVehicleSlots = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(triageBaseSlots, incomingVehicleSlots),
+      contactName,
+      undefined
+    );
+    const alignedVehicleSlots = sanitizeVehicleSlotsByContactName(
+      mergedVehicleSlots,
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
+    );
+    const resolvedVehicleSlots: VehicleSlots = alignedVehicleSlots.modelo
+      ? { ...mergedVehicleSlots, modelo: alignedVehicleSlots.modelo }
+      : mergedVehicleSlots;
+    const hasVehicleSignalInCurrentMessage = Boolean(
+      incomingVehicleSlots.modelo || incomingVehicleSlots.ano
+    );
+
+    if (!triageAlreadyStarted && !hasVehicleSignalInCurrentMessage) {
+      conversationMetadata = await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        "awaiting_vehicle",
+        null
+      );
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_MODEL_PROMPT);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_prompted",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: solicitando modelo do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_MODEL",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          triageAlreadyStarted,
+          messageContent: ctx.messageContent,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: solicitando modelo do veículo",
+        silence: false,
+      };
+    }
+
+    conversationMetadata = await persistSimpleVehicleTriageMetadata(
+      ctx.conversationId,
+      conversationMetadata,
+      "awaiting_vehicle",
+      Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null
+    );
+
+    if (resolvedVehicleSlots.modelo) {
+      await saveContactMemory(ctx.contactId, "vehicle_model", resolvedVehicleSlots.modelo);
+    }
+    if (resolvedVehicleSlots.ano) {
+      await saveContactMemory(ctx.contactId, "vehicle_year", String(resolvedVehicleSlots.ano));
+    }
+
+    if (!resolvedVehicleSlots.modelo) {
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_MODEL_PROMPT);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_prompted",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: modelo ausente",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MISSING_MODEL",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          incomingVehicleSlots,
+          resolvedVehicleSlots,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: aguardando modelo do veículo",
+        silence: false,
+      };
+    }
+
+    if (!resolvedVehicleSlots.ano) {
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_YEAR_PROMPT);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_prompted",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: ano ausente",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MISSING_YEAR",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          resolvedVehicleSlots,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: aguardando ano do veículo",
+        silence: false,
+      };
+    }
+
+    const vehiclePolicyDecision = evaluateVehicleServicePolicy(
+      ctx.vehicleServicePolicy,
+      resolvedVehicleSlots
+    );
+
+    if (vehiclePolicyDecision.blocked) {
+      await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        null,
+        resolvedVehicleSlots
+      );
+      await db
+        .update(conversations)
+        .set({
+          conversationState: CONVERSATION_STATES.CLOSED,
+          handoffReason: "Atendimento encerrado: veículo não atendido",
+          handoffAt: null,
+          isPriority: false,
+          aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          assignedToId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_closed",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: veículo não atendido",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          vehicleSlots: resolvedVehicleSlots,
+          vehiclePolicyDecision,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: atendimento encerrado para veículo não atendido",
+        silence: false,
+      };
+    }
+
+    await persistSimpleVehicleTriageMetadata(
+      ctx.conversationId,
+      conversationMetadata,
+      null,
+      resolvedVehicleSlots
+    );
+    await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY);
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      "Fluxo simplificado: veículo atendido, encaminhado para mecânico"
+    );
+    if (!handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          conversationState: CONVERSATION_STATES.WAITING_HUMAN,
+          handoffReason: "Fluxo simplificado: aguardando mecânico",
+          handoffAt: new Date(),
+          isPriority: true,
+          aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          assignedToId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "vehicle_triage_handoff",
+      decision: "human_only",
+      reason: "Fluxo simplificado: veículo atendido e encaminhado ao mecânico",
+      traceId: params.traceId,
+      stage: "orchestrator.vehicle_triage",
+      decisionCode: "SIMPLE_VEHICLE_TRIAGE_HANDOFF",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        vehicleSlots: resolvedVehicleSlots,
+        handoffSuccess: handoff.success,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: "Fluxo simplificado: veículo atendido, encaminhando ao mecânico",
+      silence: false,
+    };
+  }
+
   const missingVehicleProfileAtEntry = ctx.usesVehicleSlots
     ? getMissingSlots(ctx.vehicleSlots ?? {})
     : [];

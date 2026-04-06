@@ -36,149 +36,41 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s1",
     sender: "client",
-    text: "Oi! Quero agendar uma revisão do meu carro.",
+    text: "Oi! Preciso de ajuda com meu carro.",
     delayMs: 1200,
     statePatch: {
-      stageLabel: "Intenção detectada: agendamento/revisão",
+      stageLabel: "Primeiro contato recebido no WhatsApp",
     },
   },
   {
     id: "s2",
     sender: "bot",
-    text: "Perfeito! Para começar, qual o seu nome?",
+    text: "Olá! Me informe o modelo do seu veículo.",
     delayMs: 2200,
     statePatch: {
-      stageLabel: "Coletando nome do contato",
+      stageLabel: "Triagem: aguardando modelo do veículo",
     },
   },
   {
     id: "s3",
     sender: "client",
-    text: "Mateus.",
+    text: "Onix 2022.",
     delayMs: 1200,
     statePatch: {
-      contactName: "Mateus",
-      stageLabel: "Nome validado",
+      carModel: "Onix",
+      carYear: "2022",
+      stageLabel: "Veículo validado pela política da oficina",
     },
   },
   {
     id: "s4",
     sender: "bot",
-    text: "Prazer, Mateus. Qual é o modelo do seu veículo?",
+    text: "Perfeito, já vou encaminhar você para o mecânico.",
     delayMs: 2200,
     statePatch: {
-      stageLabel: "Coletando modelo do veículo",
-    },
-  },
-  {
-    id: "s5",
-    sender: "client",
-    text: "Onix.",
-    delayMs: 1100,
-    statePatch: {
-      carModel: "Onix",
-      stageLabel: "Modelo validado",
-    },
-  },
-  {
-    id: "s6",
-    sender: "bot",
-    text: "Show. Qual é o ano do veículo?",
-    delayMs: 2000,
-    statePatch: {
-      stageLabel: "Coletando ano do veículo",
-    },
-  },
-  {
-    id: "s7",
-    sender: "client",
-    text: "2022.",
-    delayMs: 1100,
-    statePatch: {
-      carYear: "2022",
-      stageLabel: "Ano validado",
-    },
-  },
-  {
-    id: "s8",
-    sender: "bot",
-    text: "Perfeito. Se souber, me informa também a quilometragem atual.",
-    delayMs: 2300,
-    statePatch: {
-      stageLabel: "Coletando km do veículo",
-    },
-  },
-  {
-    id: "s9",
-    sender: "client",
-    text: "78 mil km.",
-    delayMs: 1100,
-    statePatch: {
-      carKm: "78.000",
-      stageLabel: "Perfil completo, pronto para agendamento",
-    },
-  },
-  {
-    id: "s10",
-    sender: "bot",
-    text: "Dados registrados. Qual dia você prefere para a revisão?",
-    delayMs: 2200,
-    statePatch: {
-      stageLabel: "Solicitando data para agendamento",
-    },
-  },
-  {
-    id: "s11",
-    sender: "client",
-    text: "Quinta-feira.",
-    delayMs: 1000,
-    statePatch: {
-      stageLabel: "Buscando disponibilidade da agenda",
-    },
-  },
-  {
-    id: "s12",
-    sender: "bot",
-    text: "Perfeito. Tenho 10:00, 14:00 e 16:00. Qual horário?",
-    delayMs: 2300,
-    statePatch: {
-      stageLabel: "Horários sugeridos ao cliente",
-    },
-  },
-  {
-    id: "s13",
-    sender: "client",
-    text: "14:00",
-    delayMs: 1100,
-    statePatch: {
-      stageLabel: "Horário escolhido, aguardando confirmação",
-    },
-  },
-  {
-    id: "s14",
-    sender: "bot",
-    text: "Confirmando: revisão do Onix 2022 na quinta às 14:00. Posso confirmar?",
-    delayMs: 2300,
-    statePatch: {
-      stageLabel: "Confirmação final de reserva",
-    },
-  },
-  {
-    id: "s15",
-    sender: "client",
-    text: "Pode confirmar.",
-    delayMs: 1100,
-    statePatch: {
-      stageLabel: "Autorização recebida",
-    },
-  },
-  {
-    id: "s16",
-    sender: "bot",
-    text: "Reserva confirmada. Te espero na quinta às 14:00.",
-    delayMs: 2200,
-    statePatch: {
-      stageLabel: "Reserva concluída com sucesso",
+      waitingHuman: "Sim",
+      aiStatus: "Aguardando humano",
+      stageLabel: "Mecânico assumindo o atendimento",
     },
   },
 ];
