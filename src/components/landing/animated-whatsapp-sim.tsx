@@ -32,6 +32,37 @@ const INITIAL_STATE: SimRuntimeState = {
   stageLabel: "Aguardando primeira mensagem",
 };
 
+function playTickSound(
+  audioContextRef: { current: AudioContext | null },
+  soundEnabled: boolean
+) {
+  if (!soundEnabled || typeof window === "undefined") return;
+  try {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new window.AudioContext();
+    }
+    const audioCtx = audioContextRef.current;
+    if (audioCtx.state === "suspended") {
+      void audioCtx.resume();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.value = 920;
+    gain.gain.value = 0.0001;
+    gain.gain.exponentialRampToValueAtTime(0.05, audioCtx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.16);
+  } catch {
+    // Ignora falhas de áudio por política do navegador.
+  }
+}
+
 const SCRIPT: SimMessage[] = [
   {
     id: "s1",
@@ -45,20 +76,21 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s2",
     sender: "bot",
-    text: "Olá! Me informe o modelo do seu veículo.",
+    text: "Olá, tudo bem? Me informa, por favor, o ano, modelo e KM do seu carro.",
     delayMs: 2200,
     statePatch: {
-      stageLabel: "Triagem: aguardando modelo do veículo",
+      stageLabel: "Triagem: aguardando ano, modelo e KM",
     },
   },
   {
     id: "s3",
     sender: "client",
-    text: "Onix 2022.",
+    text: "Onix 2022, 78 mil km.",
     delayMs: 1200,
     statePatch: {
       carModel: "Onix",
       carYear: "2022",
+      carKm: "78.000",
       stageLabel: "Veículo validado pela política da oficina",
     },
   },
@@ -111,34 +143,6 @@ export function AnimatedWhatsappSim({
   const isHighlighted = (key: keyof SimRuntimeState) =>
     highlightedKeys.includes(key);
 
-  const playTick = () => {
-    if (!soundEnabled || typeof window === "undefined") return;
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new window.AudioContext();
-      }
-      const audioCtx = audioContextRef.current;
-      if (audioCtx.state === "suspended") {
-        void audioCtx.resume();
-      }
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-
-      osc.type = "sine";
-      osc.frequency.value = 920;
-      gain.gain.value = 0.0001;
-      gain.gain.exponentialRampToValueAtTime(0.05, audioCtx.currentTime + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.15);
-
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.16);
-    } catch {
-      // Ignora falhas de áudio por política do navegador.
-    }
-  };
-
   useEffect(() => {
     const enableSound = () => {
       setSoundEnabled(true);
@@ -190,10 +194,17 @@ export function AnimatedWhatsappSim({
     >;
     if (patchKeys.length === 0) return;
 
-    setHighlightedKeys(patchKeys);
-    playTick();
-    const timeout = setTimeout(() => setHighlightedKeys([]), 850);
-    return () => clearTimeout(timeout);
+    let clearHighlightTimeout: ReturnType<typeof setTimeout> | undefined;
+    const startHighlightTimeout = setTimeout(() => {
+      setHighlightedKeys(patchKeys);
+      playTickSound(audioContextRef, soundEnabled);
+      clearHighlightTimeout = setTimeout(() => setHighlightedKeys([]), 850);
+    }, 0);
+
+    return () => {
+      clearTimeout(startHighlightTimeout);
+      if (clearHighlightTimeout) clearTimeout(clearHighlightTimeout);
+    };
   }, [visibleMessages, soundEnabled]);
 
   return (

@@ -450,6 +450,7 @@ export function getMissingSlots(slots: VehicleSlots): ("modelo" | "ano" | "km")[
   const missing: ("modelo" | "ano" | "km")[] = [];
   if (!isValidVehicleModel(slots.modelo)) missing.push("modelo");
   if (!slots.ano) missing.push("ano");
+  if (!slots.km) missing.push("km");
   return missing;
 }
 
