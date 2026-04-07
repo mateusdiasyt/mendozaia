@@ -917,19 +917,6 @@ function looksLikeVehicleChanged(text: string): boolean {
   return /\b(sim|mudei|mudou|troquei|tenho outro|outro carro)\b/.test(t);
 }
 
-function looksLikeUnknownKm(text: string): boolean {
-  const t = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return (
-    /\b(nao sei|desconheco|nao lembro|sem km)\b/.test(t) &&
-    /\b(km|quilometragem|odometro|odometro)\b/.test(t)
-  );
-}
 
 function looksLikeGenericFlowMessage(text: string): boolean {
   const t = text
@@ -2393,28 +2380,28 @@ function buildMissingVehicleInfoReply(missing: ("modelo" | "ano" | "km")[]): str
   if (missing.includes("ano")) {
     return "Ótimo. Agora me informe o *ano* do veículo.";
   }
-  return "Perfeito. Agora me informe a *quilometragem (km)* do veículo. Se não souber, tudo bem.";
+  return "Perfeito. Já tenho os dados do veículo para continuar.";
 }
 
 function buildMissingVehicleRequiredReply(missing: ("modelo" | "ano" | "km")[]): string {
   const requiredMissing = missing.filter((m) => m !== "km");
   if (requiredMissing.length === 0) {
-    return "Perfeito. Se souber, me passe também a *quilometragem (km)* para deixar o orçamento mais preciso.";
+    return "Perfeito. Já tenho os dados do veículo para continuar.";
   }
   if (requiredMissing.length === 2) {
-    return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
+    return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo.";
   }
   if (requiredMissing[0] === "modelo") {
-    return "Perfeito, já anotei o ano. Agora me informe o *modelo* do veículo. Se souber, pode me passar o *km* também.";
+    return "Perfeito, já anotei o ano. Agora me informe o *modelo* do veículo.";
   }
-  return "Perfeito, já anotei o modelo. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também.";
+  return "Perfeito, já anotei o modelo. Agora me informe o *ano* do veículo.";
 }
 
 function getMandatoryVehicleMissing(slots: VehicleSlots | undefined): ("modelo" | "ano" | "km")[] {
   const missing: ("modelo" | "ano" | "km")[] = [];
   if (!slots?.modelo) missing.push("modelo");
   if (!slots?.ano) missing.push("ano");
-  if (!slots?.km) missing.push("km");
+
   return missing;
 }
 
@@ -2437,9 +2424,9 @@ function buildMissingVehicleMandatoryReply(missing: ("modelo" | "ano" | "km")[])
     ]);
   }
   return pick([
-    "Ótimo, ano anotado. Agora me informe também a *quilometragem (km)* do veículo.",
-    "Perfeito, ano salvo. Falta só a *quilometragem (km)* do veículo.",
-    "Beleza, já registrei o ano. Agora me passa a *quilometragem (km)*.",
+    "Ótimo, ano anotado. Já tenho os dados do veículo para continuar.",
+    "Perfeito, ano salvo. Já tenho os dados do veículo para continuar.",
+    "Beleza, já registrei o ano. Já tenho os dados do veículo para continuar.",
   ]);
 }
 
@@ -2895,7 +2882,7 @@ function buildMissingReservationProfileReply(
     return "Ótimo. Agora me informe o *ano do veículo*.";
   }
   if (missingVehicle.includes("km")) {
-    return "Perfeito. Agora me informe a *quilometragem (km)* do veículo. Se não souber, pode me avisar.";
+    return "Perfeito. Pode me confirmar a reserva?";
   }
   return "Perfeito. Pode me confirmar a reserva?";
 }
@@ -2980,11 +2967,7 @@ function buildVehicleFollowUpForOilQuote(slots: VehicleSlots | undefined): strin
       missingRequired.length === 2
         ? "Antes de finalizar, preciso confirmar o *modelo* e o *ano* do veículo."
         : `Antes de finalizar, preciso confirmar o *${missingRequired[0]}* do veículo.`;
-    return `${requiredLine}\nSe conseguir, me passe também a *quilometragem (km)* para deixar o orçamento mais preciso. Se não souber, é só me avisar que eu continuo o atendimento.`;
-  }
-
-  if (!vehicleSlots.km) {
-    return "Consegue me passar a *quilometragem (km)* do veículo? Isso ajuda a deixar o orçamento mais preciso. Se não souber, é só me avisar que eu continuo o atendimento.";
+    return requiredLine;
   }
 
   return "";
@@ -4364,7 +4347,7 @@ export async function processInboundMessage(
     };
   }
 
-  // Regra de negócio: em caso mecânico, após nome+dúvida deve coletar modelo+ano+km antes de encaminhar ao técnico.
+  // Regra de negócio: em caso mecânico, após nome+dúvida deve coletar modelo+ano antes de encaminhar ao técnico.
   if (ctx.usesVehicleSlots && mechanicalIssuePendingHandoff) {
     const extractedFromMessage = extractVehicleSlotsFromText(ctx.messageContent);
     if (!extractedFromMessage.modelo && getMandatoryVehicleMissing(ctx.vehicleSlots).includes("modelo")) {
@@ -4404,14 +4387,14 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Caso mecânico pendente; coletando modelo/ano/km obrigatórios antes do handoff",
+        reason: "Caso mecânico pendente; coletando modelo/ano obrigatórios antes do handoff",
         silence: false,
       };
     }
 
     await sendMessage(
       ctx.conversationId,
-      "Perfeito, anotei modelo, ano e km. Vou te encaminhar agora para um mecânico técnico continuar o atendimento."
+      "Perfeito, anotei modelo e ano. Vou te encaminhar agora para um mecânico técnico continuar o atendimento."
     );
     const handoff = await handoffToHuman(
       ctx.conversationId,
@@ -4440,7 +4423,7 @@ export async function processInboundMessage(
       return "Para seguir, me diga seu *nome*, por favor.";
     }
     if (intakeStage === "awaiting_vehicle") {
-      return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo. Se souber, o *km* também ajuda a deixar o orçamento mais preciso.";
+      return "Para seguir certinho, me informe o *modelo* e o *ano* do veículo.";
     }
     if (intakeStage === "awaiting_need") {
       const needPrompt = intentProbeForNeed
@@ -4462,13 +4445,13 @@ export async function processInboundMessage(
       );
     }
     if (oilFlowState.awaitingUnknownOilConfirmation) {
-      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo e ano* do veículo.";
     }
     if (oilFlowState.awaitingOilYesNo) {
-      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo e ano* do veículo.";
     }
     if (oilFlowState.awaitingOilSpec) {
-      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo.";
+      return "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo e ano* do veículo.";
     }
     if (oilFlowState.awaitingOilVehicle) {
       return "Para seguir com o agendamento, me informe o *modelo* e o *ano* do veículo.";
@@ -4734,7 +4717,7 @@ export async function processInboundMessage(
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Problema mecânico detectado; coletando modelo/ano/km obrigatórios antes do handoff",
+          reason: "Problema mecânico detectado; coletando modelo/ano obrigatórios antes do handoff",
           silence: false,
         };
       }
@@ -5113,7 +5096,7 @@ export async function processInboundMessage(
           return {
             didReply: true,
             decision: "tool_then_ai",
-            reason: "Troca de óleo sem dados obrigatórios; coletando modelo/ano/km",
+            reason: "Troca de óleo sem dados obrigatórios; coletando modelo/ano",
             silence: false,
           };
         }
@@ -5174,7 +5157,7 @@ export async function processInboundMessage(
       }
       await sendMessage(
         ctx.conversationId,
-        "Perfeito. Não preciso do tipo do óleo. Para seguir com a troca de óleo, me informe *modelo, ano e km* do veículo."
+        "Perfeito. Não preciso do tipo do óleo. Para seguir com a troca de óleo, me informe *modelo e ano* do veículo."
       );
       return {
         didReply: true,
@@ -5256,7 +5239,7 @@ export async function processInboundMessage(
         });
         await sendMessage(
           ctx.conversationId,
-          "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo, ano e km* do veículo."
+          "Perfeito. Não preciso do tipo do óleo. Para seguir, me informe *modelo e ano* do veículo."
         );
         return {
           didReply: true,
@@ -5529,9 +5512,8 @@ export async function processInboundMessage(
         const singleAsk: Record<string, string> = {
           modelo: "Qual é o *modelo* do veículo?",
           ano: "Qual é o *ano* do veículo?",
-          km: "Qual é a *quilometragem* do veículo?",
         };
-        const labels = missing.map((m) => (m === "km" ? "quilometragem (km)" : m));
+        const labels = missing;
         const askMissing =
           missing.length === 1
             ? singleAsk[missing[0]] ?? `Me informe *${missing[0]}*.`
@@ -6031,7 +6013,7 @@ export async function processInboundMessage(
     if (reservationContext.serviceName === "Verificação" && ctx.usesVehicleSlots) {
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
 
-      if (hasModelAndYearProfile && ctx.vehicleSlots?.km) {
+      if (hasModelAndYearProfile) {
         const vehicleLabel = [
           ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
           ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
@@ -6064,32 +6046,9 @@ export async function processInboundMessage(
         };
       }
 
-      if (hasModelAndYearProfile) {
-        const vehicleLabel = [
-          ctx.vehicleSlots?.modelo ? ctx.vehicleSlots.modelo : null,
-          ctx.vehicleSlots?.ano ? String(ctx.vehicleSlots.ano) : null,
-        ]
-          .filter(Boolean)
-          .join(" ");
-        await sendMessage(
-          ctx.conversationId,
-          `Perfeito, *${contactName}*. Registrei seu veículo como *${vehicleLabel}*.`
-        );
-        await sendMessage(
-          ctx.conversationId,
-          "Você consegue me mandar a *km* do seu carro? Se não souber, tudo bem que eu continuo seu atendimento."
-        );
-        return {
-          didReply: true,
-          decision: "tool_then_ai",
-          reason: "Nome capturado com verificação; aguardando km para encaminhamento",
-          silence: false,
-        };
-      }
-
       await sendMessage(
         ctx.conversationId,
-        `Perfeito, *${contactName}*. Agora me informe o *modelo* e o *ano* do veículo. Se souber, me passe também a *km*.`
+        `Perfeito, *${contactName}*. Agora me informe o *modelo* e o *ano* do veículo.`
       );
       return {
         didReply: true,
@@ -6320,9 +6279,7 @@ export async function processInboundMessage(
       ]
         .filter(Boolean)
         .join(" ");
-      const kmHint = mergedVehicleSlotsForVehicleStage.km
-        ? ""
-        : "\nSe souber, me passe também o *km* para deixar o orçamento mais preciso.";
+      const kmHint = "";
 
       if (isRevisionService) {
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
@@ -6407,98 +6364,29 @@ export async function processInboundMessage(
       }
 
       if (isInspectionService) {
-        const hasKm = !!mergedVehicleSlotsForVehicleStage.km;
-        const providedModelOrYearNow = Boolean(
-          vehicleSlotsFromVehicleStage.modelo ||
-            vehicleSlotsFromVehicleStage.ano
-        );
-        if (hasKm) {
-          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-          await sendMessage(
-            ctx.conversationId,
-            `Perfeito, já salvei aqui os dados do veículo (${vehicleLabel}). Vou encaminhar agora para um mecânico técnico verificar esse problema.`
-          );
-          const handoff = await handoffToHuman(
-            ctx.conversationId,
-            ctx.organizationId,
-            "Cliente descreveu problema no carro; dados mínimos coletados para atendimento técnico"
-          );
-          if (handoff.success) {
-            await db
-              .update(conversations)
-              .set({
-                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
-                updatedAt: new Date(),
-              })
-              .where(eq(conversations.id, ctx.conversationId));
-          }
-          return {
-            didReply: true,
-            decision: "human_only",
-            reason: "Verificação com modelo, ano e km; handoff técnico",
-            silence: false,
-          };
-        }
-
-        if (isSimpleAffirmative(ctx.messageContent)) {
-          await sendMessage(
-            ctx.conversationId,
-            "Perfeito, fico no aguardo da quilometragem."
-          );
-          return {
-            didReply: true,
-            decision: "tool_then_ai",
-            reason: "Aguardando km do veículo no fluxo de verificação",
-            silence: false,
-          };
-        }
-
-        if (looksLikeUnknownKm(ctx.messageContent)) {
-          await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
-          await sendMessage(
-            ctx.conversationId,
-            `Sem problemas. Com os dados que já tenho do veículo (${vehicleLabel}), vou encaminhar agora para um mecânico técnico verificar seu caso.`
-          );
-          const handoff = await handoffToHuman(
-            ctx.conversationId,
-            ctx.organizationId,
-            "Cliente não sabe a quilometragem; encaminhado para mecânico técnico"
-          );
-          if (handoff.success) {
-            await db
-              .update(conversations)
-              .set({
-                aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
-                updatedAt: new Date(),
-              })
-              .where(eq(conversations.id, ctx.conversationId));
-          }
-          return {
-            didReply: true,
-            decision: "human_only",
-            reason: "Verificação sem km; handoff técnico",
-            silence: false,
-          };
-        }
-
+        await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_issue");
         await sendMessage(
           ctx.conversationId,
-          `Perfeito, registrei seu veículo como *${vehicleLabel}*.`
+          `Perfeito, já salvei aqui os dados do veículo (${vehicleLabel}). Vou encaminhar agora para um mecânico técnico verificar esse problema.`
         );
-        await sendMessage(
+        const handoff = await handoffToHuman(
           ctx.conversationId,
-          "Você consegue me mandar a *km* do seu carro?"
+          ctx.organizationId,
+          "Cliente descreveu problema no carro; dados mínimos coletados para atendimento técnico"
         );
-        if (!providedModelOrYearNow) {
-          await sendMessage(
-            ctx.conversationId,
-            "Se não souber a km, tudo bem que eu continuo seu atendimento."
-          );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
         }
         return {
           didReply: true,
-          decision: "tool_then_ai",
-          reason: "Verificação com modelo e ano; solicitando km de forma opcional",
+          decision: "human_only",
+          reason: "Verificação com modelo e ano; handoff técnico",
           silence: false,
         };
       }
@@ -6526,22 +6414,18 @@ export async function processInboundMessage(
     if (capturedModelNow && missingRequiredVehicle.includes("ano")) {
       await sendMessage(
         ctx.conversationId,
-        requiresFullVehicleProfile
-          ? "Perfeito, já anotei o *modelo*. Agora me informe o *ano* e o *km* do veículo."
-          : "Perfeito, já anotei o *modelo*. Agora me informe o *ano* do veículo. Se souber, pode me passar o *km* também."
+        "Perfeito, já anotei o *modelo*. Agora me informe o *ano* do veículo."
       );
     } else if (capturedYearNow && missingRequiredVehicle.includes("modelo")) {
       await sendMessage(
         ctx.conversationId,
-        requiresFullVehicleProfile
-          ? "Perfeito, já anotei o *ano*. Agora me informe o *modelo* e o *km* do veículo."
-          : "Perfeito, já anotei o *ano*. Agora me informe o *modelo* do veículo. Se souber, pode me passar o *km* também."
+        "Perfeito, já anotei o *ano*. Agora me informe o *modelo* do veículo."
       );
     } else {
       await sendMessage(
         ctx.conversationId,
         requiresFullVehicleProfile
-          ? "Para continuar esse atendimento, me informe *modelo, ano e km* do veículo."
+          ? "Para continuar esse atendimento, me informe *modelo e ano* do veículo."
           : buildMissingVehicleRequiredReply(
               getMissingSlots(mergedVehicleSlotsForVehicleStage)
             )
@@ -6870,7 +6754,7 @@ export async function processInboundMessage(
     await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
     await sendMessage(
       ctx.conversationId,
-      `Perfeito *${knownName}*, me informa o *modelo* e o *ano* do veículo para que eu possa verificar a disponibilidade de nosso agendamento. Se souber, pode me passar também a *quilometragem*.`
+      `Perfeito *${knownName}*, me informa o *modelo* e o *ano* do veículo para que eu possa verificar a disponibilidade de nosso agendamento.`
     );
     await logOrchestration({
       conversationId: ctx.conversationId,
@@ -6887,7 +6771,7 @@ export async function processInboundMessage(
     return {
       didReply: true,
       decision: "tool_then_ai",
-      reason: "Problema no carro identificado; solicitando modelo e ano (km opcional)",
+      reason: "Problema no carro identificado; solicitando modelo e ano",
       silence: false,
     };
   }
@@ -6902,13 +6786,6 @@ export async function processInboundMessage(
     const knownName = contactName?.trim() || null;
     const knownVehicle = ctx.vehicleSlots ?? {};
     const hasKnownVehicle = !!(knownVehicle.modelo || knownVehicle.ano || knownVehicle.km);
-    const vehicleLabel = [
-      knownVehicle.modelo ? knownVehicle.modelo : null,
-      knownVehicle.ano ? String(knownVehicle.ano) : null,
-      knownVehicle.km ? `${knownVehicle.km} km` : null,
-    ]
-      .filter(Boolean)
-      .join(" - ");
 
     let reply = "Ainda não tenho tudo salvo aqui.";
     const greetingPrefix = buildAdaptiveGreeting(
@@ -6924,7 +6801,7 @@ export async function processInboundMessage(
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
     } else if (asksKnownVehicle && hasKnownVehicle && wantsVehicleUpdate) {
       const naturalVehicle = formatVehicleForNaturalSpeech(knownVehicle);
-      reply = `Sei sim, você tem um *${naturalVehicle}*. Vou atualizar. Me informe o *modelo*, *ano* e *quilometragem* do veículo atual.`;
+      reply = `Sei sim, você tem um *${naturalVehicle}*. Vou atualizar. Me informe o *modelo* e o *ano* do veículo atual.`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     } else if (knownName && hasKnownVehicle) {
@@ -6946,7 +6823,7 @@ export async function processInboundMessage(
         awaitingConfirmation: true,
       });
     } else {
-      reply = `${introPrefix} Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo, ano e km*.`;
+      reply = `${introPrefix} Ainda não tenho seu nome e veículo salvos. Me passe, por favor: *nome, modelo e ano*.`;
       await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_name");
       await persistProfileUpdateFlowState(ctx.conversationId, conversationMetadata, null);
     }
@@ -7045,7 +6922,7 @@ export async function processInboundMessage(
       (intakeStage === "awaiting_need" || intakeStage === null)
     ) {
       continuationPrompt =
-        "Perfeito. Agora me passe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km*.";
+        "Perfeito. Agora me passe o *modelo* e o *ano* do veículo.";
     } else if (intakeStage === "awaiting_need") {
       continuationPrompt = `Perfeito. ${buildNeedDiscoveryPrompt(intentProbeText)}`;
     } else if (intakeStage === "awaiting_issue") {
@@ -7117,7 +6994,7 @@ export async function processInboundMessage(
     });
     await sendMessage(
       ctx.conversationId,
-      "Sem problemas. Me atualize, por favor: *modelo, ano e km* do veículo atual."
+      "Sem problemas. Me atualize, por favor: *modelo* e *ano* do veículo atual."
     );
     return {
       didReply: true,
@@ -7610,7 +7487,7 @@ export async function processInboundMessage(
 
     if (primaryServiceInMessage && primaryServiceRequiresHuman) {
       const slots = ctx.vehicleSlots ?? {};
-      const hasCompleteVehicleData = !!(slots.modelo && slots.ano && slots.km);
+      const hasCompleteVehicleData = !!(slots.modelo && slots.ano);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: primaryServiceInMessage,
         productName: reservationContext.productName,
@@ -7618,13 +7495,13 @@ export async function processInboundMessage(
       if (!hasCompleteVehicleData) {
         await sendMessage(
           ctx.conversationId,
-          `Perfeito! Para *${primaryServiceInMessage.toLowerCase()}*, antes de encaminhar para o mecânico técnico, preciso dos dados completos do veículo: *modelo, ano e km*.`
+          `Perfeito! Para *${primaryServiceInMessage.toLowerCase()}*, antes de encaminhar para o mecânico técnico, preciso dos dados completos do veículo: *modelo e ano*.`
         );
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Servico prioritario com atendimento humano; coletando modelo, ano e km",
+          reason: "Servico prioritario com atendimento humano; coletando modelo e ano",
           silence: false,
         };
       }
@@ -7657,7 +7534,7 @@ export async function processInboundMessage(
 
     if (isRevisionServiceIntent(intentProbeText)) {
       const slots = ctx.vehicleSlots ?? {};
-      const hasCompleteVehicleData = !!(slots.modelo && slots.ano && slots.km);
+      const hasCompleteVehicleData = !!(slots.modelo && slots.ano);
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: "Revisão",
         productName: reservationContext.productName,
@@ -7665,13 +7542,13 @@ export async function processInboundMessage(
       if (!hasCompleteVehicleData) {
         await sendMessage(
           ctx.conversationId,
-          "Perfeito! Para revisão, antes de eu agir, preciso dos dados completos do veículo: *modelo, ano e km*."
+          "Perfeito! Para revisão, antes de eu agir, preciso dos dados completos do veículo: *modelo e ano*."
         );
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Revisão identificada; solicitando modelo, ano e km antes de agir",
+          reason: "Revisão identificada; solicitando modelo e ano antes de agir",
           silence: false,
         };
       }
@@ -7710,13 +7587,13 @@ export async function processInboundMessage(
       if (!hasFullVehicleProfile) {
         await sendMessage(
           ctx.conversationId,
-          "Perfeito! Para óleo, antes de eu agir, preciso dos dados completos do veículo: *modelo, ano e km*."
+          "Perfeito! Para óleo, antes de eu agir, preciso dos dados completos do veículo: *modelo e ano*."
         );
         await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Óleo identificado; solicitando modelo, ano e km antes de agir",
+          reason: "Óleo identificado; solicitando modelo e ano antes de agir",
           silence: false,
         };
       }
@@ -7894,7 +7771,7 @@ export async function processInboundMessage(
       if (!hasModelAndYear) {
         await sendMessage(
           ctx.conversationId,
-          "Perfeito! Para revisão, me informe o *modelo* e o *ano* do veículo. Se souber, me passe também o *km* para deixar o diagnóstico inicial mais preciso."
+          "Perfeito! Para revisão, me informe o *modelo* e o *ano* do veículo."
         );
         return {
           didReply: true,
@@ -7944,12 +7821,12 @@ export async function processInboundMessage(
     ) {
       await sendMessage(
         ctx.conversationId,
-        "Entendi. Não preciso do tipo do óleo.\nSe conseguir, me passe também a *quilometragem (km)* do veículo para deixar o orçamento mais preciso. Se não souber, tudo bem."
+        "Entendi. Não preciso do tipo do óleo. Vou seguir com os dados do veículo que já tenho."
       );
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Fluxo de óleo sem tipo; solicitando apenas km opcional",
+        reason: "Fluxo de óleo sem tipo; seguindo sem solicitar km",
         silence: false,
       };
     }
@@ -8027,10 +7904,10 @@ export async function processInboundMessage(
         ctx.serviceHumanPolicyByName
       );
       if (oilServiceRequiresHuman) {
-        if (!hasKnownModelAndYear || !ctx.vehicleSlots?.km) {
+        if (!hasKnownModelAndYear) {
           await sendMessage(
             ctx.conversationId,
-            "Perfeito. Para eu encaminhar sua troca de óleo para o técnico, preciso de *modelo, ano e km* do veículo."
+            "Perfeito. Para eu encaminhar sua troca de óleo para o técnico, preciso de *modelo e ano* do veículo."
           );
           await persistIntakeStage(ctx.conversationId, conversationMetadata, "awaiting_vehicle");
           return {

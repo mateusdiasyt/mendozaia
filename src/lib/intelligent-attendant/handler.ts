@@ -102,9 +102,9 @@ function buildMissingPrompt(state: ConversationState): string {
     return "Pode me informar seu nome e o modelo do veículo?";
   }
   if (missing.length === 2) {
-    return "Para seguir, me informe o ano do veículo e a quilometragem aproximada.";
+    return "Para seguir, me informe o modelo e o ano do veículo.";
   }
-  return "Para seguir certinho, me informe seu nome, modelo e ano do veículo. Se souber, também me passe a quilometragem.";
+  return "Para seguir certinho, me informe seu nome, modelo e ano do veículo.";
 }
 
 function ensureNaturalReply(state: ConversationState, reply: string): string {

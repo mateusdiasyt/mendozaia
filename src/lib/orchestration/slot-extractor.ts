@@ -1,6 +1,6 @@
 /**
  * Slot filling - extração de dados estruturados das mensagens.
- * Usado para acumular modelo, ano e km do veículo sem depender do LLM.
+ * Usado para acumular modelo e ano do veículo sem depender do LLM.
  */
 
 export interface VehicleSlots {
@@ -450,7 +450,6 @@ export function getMissingSlots(slots: VehicleSlots): ("modelo" | "ano" | "km")[
   const missing: ("modelo" | "ano" | "km")[] = [];
   if (!isValidVehicleModel(slots.modelo)) missing.push("modelo");
   if (!slots.ano) missing.push("ano");
-  if (!slots.km) missing.push("km");
   return missing;
 }
 

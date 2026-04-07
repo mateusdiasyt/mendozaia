@@ -268,16 +268,15 @@ export async function generateAIReply(
     const missing: string[] = [];
     if (!s.modelo) missing.push("modelo");
     if (!s.ano) missing.push("ano");
-    if (!s.km) missing.push("quilometragem");
-    const hasAllSlots = s.modelo && s.ano && s.km;
+    const hasAllSlots = s.modelo && s.ano;
     if (parts.length > 0) {
       let vehicleBlock = `[DADOS EXTRAÍDOS DA CONVERSA]\nVeículo: ${parts.join(", ")}${missing.length > 0 ? ` | Falta: ${missing.join(", ")}` : ""}\nUse estes dados; NUNCA peça de novo.`;
       if (hasAllSlots && useReservationTools) {
         const userGaveDateTime = seemsToContainDateTime(newMessage);
         if (userGaveDateTime) {
-          vehicleBlock += `\n\n[IMPORTANTE] O cliente informou data e horário nesta mensagem. Use check_availability AGORA. Converta para YYYY-MM-DD e HH:mm. NUNCA peça modelo/ano/km novamente.`;
+          vehicleBlock += `\n\n[IMPORTANTE] O cliente informou data e horário nesta mensagem. Use check_availability AGORA. Converta para YYYY-MM-DD e HH:mm. NUNCA peça modelo/ano novamente.`;
         } else {
-          vehicleBlock += `\n\n[IMPORTANTE] Você TEM check_availability e create_reservation. Pergunte qual data e horário prefere. PROIBIDO dizer "nossa equipe vai verificar" ou perguntar modelo/ano/km de novo.`;
+          vehicleBlock += `\n\n[IMPORTANTE] Você TEM check_availability e create_reservation. Pergunte qual data e horário prefere. PROIBIDO dizer "nossa equipe vai verificar" ou perguntar modelo/ano de novo.`;
         }
       }
       sections.push(vehicleBlock);
