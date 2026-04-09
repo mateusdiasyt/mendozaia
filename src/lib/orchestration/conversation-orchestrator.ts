@@ -4040,6 +4040,21 @@ export async function processInboundMessage(
         extractedVehicleFromMessage.modelo = looseVehicleModel;
       }
     }
+    const explicitNameInSimpleTriage = hasExplicitNameIntro(ctx.messageContent)
+      ? extractCustomerName(ctx.messageContent, {
+          blockedValues: [extractedVehicleFromMessage.modelo ?? ""],
+        })
+      : null;
+    const normalizedSimpleTriageName = explicitNameInSimpleTriage
+      ? normalizeContactName(explicitNameInSimpleTriage)
+      : null;
+    if (!contactName && normalizedSimpleTriageName) {
+      await db
+        .update(contacts)
+        .set({ name: normalizedSimpleTriageName, updatedAt: new Date() })
+        .where(eq(contacts.id, ctx.contactId));
+      contactName = normalizedSimpleTriageName;
+    }
 
     const incomingVehicleSlots = sanitizeVehicleSlotsByContactName(
       extractedVehicleFromMessage,
