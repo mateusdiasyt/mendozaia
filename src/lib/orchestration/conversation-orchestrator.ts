@@ -6263,8 +6263,7 @@ export async function processInboundMessage(
       }
     }
 
-    const serviceFromMessageInVehicleStage =
-      reservationContext.serviceName ??
+    const explicitServiceFromVehicleStage =
       primaryServiceInMessage ??
       detectAskedOfferedService(
         ctx.messageContent,
@@ -6276,7 +6275,21 @@ export async function processInboundMessage(
         ctx.offeredServices ?? [],
         ctx.servicePromptByName
       );
-    if (serviceFromMessageInVehicleStage && !reservationContext.serviceName) {
+    const shouldReuseStoredServiceInVehicleStage =
+      intakeStage !== "awaiting_vehicle" || !!explicitServiceFromVehicleStage;
+    const serviceFromMessageInVehicleStage =
+      explicitServiceFromVehicleStage ??
+      (shouldReuseStoredServiceInVehicleStage ? reservationContext.serviceName : null);
+    if (
+      intakeStage === "awaiting_vehicle" &&
+      reservationContext.serviceName &&
+      !explicitServiceFromVehicleStage
+    ) {
+      await persistReservationContext(ctx.conversationId, conversationMetadata, {
+        serviceName: null,
+        productName: reservationContext.productName,
+      });
+    } else if (serviceFromMessageInVehicleStage && !reservationContext.serviceName) {
       await persistReservationContext(ctx.conversationId, conversationMetadata, {
         serviceName: serviceFromMessageInVehicleStage,
         productName: reservationContext.productName,
