@@ -2735,7 +2735,7 @@ function isLikelySingleWordHumanName(text: string): boolean {
 }
 
 function hasExplicitNameIntro(text: string): boolean {
-  return /\b(meu nome e|meu nome é|me chamo|sou o|sou a)\b/i.test(text.trim());
+  return /\b(?:meu nome\s*(?:e|é)|me\s*chamo|sou o|sou a)/i.test(text.trim());
 }
 
 function sanitizeNameCandidate(
@@ -2820,11 +2820,15 @@ function extractCustomerName(
 ): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const explicit = trimmed.match(
-    /\b(?:meu nome e|meu nome é|me chamo|sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i
-  );
-  if (explicit?.[1]) {
-    return sanitizeNameCandidate(explicit[1], options?.blockedValues);
+  const explicitPatterns = [
+    /\b(?:meu nome\s*(?:e|é)|me\s*chamo)\s*[:,-]?\s*([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i,
+    /\b(?:sou o|sou a)\s+([a-zà-ú']+(?:\s+[a-zà-ú']+){0,2})\b/i,
+  ];
+  for (const pattern of explicitPatterns) {
+    const explicit = trimmed.match(pattern);
+    if (explicit?.[1]) {
+      return sanitizeNameCandidate(explicit[1], options?.blockedValues);
+    }
   }
   if (looksLikeGreeting(trimmed)) return null;
 
