@@ -83,35 +83,17 @@ export interface ProcessResult {
 }
 
 const SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT =
-  "Olá, tudo bem? Me informa, por favor, o ano, modelo e KM do seu carro.";
+  "Olá, tudo bem? Me informa, por favor, o modelo do seu carro.";
 const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
-  "No momento não atendemos esse modelo de veículo. Obrigado pelo contato.";
+  "No momento não atendemos esse modelo de veículo. Agradecemos pelo contato.";
 const SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY =
-  "Perfeito, já vou encaminhar você para o mecânico.";
+  "Perfeito, já vou encaminhar você para o mecânico técnico.";
 const SIMPLE_VEHICLE_TRIAGE_UNKNOWN_HANDOFF_REPLY =
   "Não consegui entender certinho. Já vou encaminhar você para o mecânico técnico.";
+const CLOSED_CONVERSATION_AI_PAUSE_MS = 2 * 60 * 60 * 1000;
 
 function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
   return ctx.usesVehicleSlots === true && ctx.botConfig?.segment === "mecanica";
-}
-
-function buildSimpleVehicleTriageMissingPrompt(
-  missing: ("modelo" | "ano" | "km")[]
-): string {
-  if (missing.length === 0) return "";
-  const labels: Record<"modelo" | "ano" | "km", string> = {
-    modelo: "o modelo",
-    ano: "o ano",
-    km: "a KM",
-  };
-  const readable = missing.map((slot) => labels[slot]);
-  const joined =
-    readable.length === 1
-      ? readable[0]
-      : readable.length === 2
-        ? `${readable[0]} e ${readable[1]}`
-        : `${readable.slice(0, -1).join(", ")} e ${readable[readable.length - 1]}`;
-  return `Perfeito. Me informa, por favor, ${joined} do seu carro.`;
 }
 
 function looksLikeFallbackReservationReply(text: string): boolean {
@@ -4094,10 +4076,10 @@ export async function processInboundMessage(
         organizationId: ctx.organizationId,
         event: "vehicle_triage_prompted",
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: solicitando modelo, ano e km do veículo",
+        reason: "Fluxo simplificado: solicitando modelo do veículo",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
-        decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_PROFILE",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_MODEL",
         durationMs: Date.now() - startedAt,
         metadata: {
           triageAlreadyStarted,
@@ -4107,7 +4089,7 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: solicitando modelo, ano e km do veículo",
+        reason: "Fluxo simplificado: solicitando modelo do veículo",
         silence: false,
       };
     }
@@ -4180,32 +4162,27 @@ export async function processInboundMessage(
       await saveContactMemory(ctx.contactId, "vehicle_km", String(resolvedVehicleSlots.km));
     }
 
-    const missingVehicleTriageSlots = getMissingSlots(resolvedVehicleSlots);
-    if (missingVehicleTriageSlots.length > 0) {
-      await sendMessage(
-        ctx.conversationId,
-        buildSimpleVehicleTriageMissingPrompt(missingVehicleTriageSlots)
-      );
+    if (!resolvedVehicleSlots.modelo) {
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT);
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
         event: "vehicle_triage_prompted",
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: dados obrigatórios do veículo ausentes",
+        reason: "Fluxo simplificado: modelo do veículo ausente",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
-        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MISSING_PROFILE",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MISSING_MODEL",
         durationMs: Date.now() - startedAt,
         metadata: {
           incomingVehicleSlots,
           resolvedVehicleSlots,
-          missingVehicleTriageSlots,
         },
       });
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: aguardando dados obrigatórios do veículo",
+        reason: "Fluxo simplificado: aguardando modelo do veículo",
         silence: false,
       };
     }
@@ -4229,7 +4206,7 @@ export async function processInboundMessage(
           handoffReason: "Atendimento encerrado: veículo não atendido",
           handoffAt: null,
           isPriority: false,
-          aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          aiDisabledUntil: new Date(Date.now() + CLOSED_CONVERSATION_AI_PAUSE_MS),
           assignedToId: null,
           updatedAt: new Date(),
         })
@@ -4268,14 +4245,14 @@ export async function processInboundMessage(
     const handoff = await handoffToHuman(
       ctx.conversationId,
       ctx.organizationId,
-      "Fluxo simplificado: veículo atendido, encaminhado para mecânico"
+      "Fluxo simplificado: veículo atendido, encaminhado para mecânico técnico"
     );
     if (!handoff.success) {
       await db
         .update(conversations)
         .set({
           conversationState: CONVERSATION_STATES.WAITING_HUMAN,
-          handoffReason: "Fluxo simplificado: aguardando mecânico",
+          handoffReason: "Fluxo simplificado: aguardando mecânico técnico",
           handoffAt: new Date(),
           isPriority: true,
           aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
@@ -4289,7 +4266,7 @@ export async function processInboundMessage(
       organizationId: ctx.organizationId,
       event: "vehicle_triage_handoff",
       decision: "human_only",
-      reason: "Fluxo simplificado: veículo atendido e encaminhado ao mecânico",
+      reason: "Fluxo simplificado: veículo atendido e encaminhado ao mecânico técnico",
       traceId: params.traceId,
       stage: "orchestrator.vehicle_triage",
       decisionCode: "SIMPLE_VEHICLE_TRIAGE_HANDOFF",
@@ -4302,7 +4279,7 @@ export async function processInboundMessage(
     return {
       didReply: true,
       decision: "human_only",
-      reason: "Fluxo simplificado: veículo atendido, encaminhando ao mecânico",
+      reason: "Fluxo simplificado: veículo atendido, encaminhando ao mecânico técnico",
       silence: false,
     };
   }

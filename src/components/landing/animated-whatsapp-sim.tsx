@@ -76,10 +76,10 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s2",
     sender: "bot",
-    text: "Olá, tudo bem? Me informa, por favor, o ano, modelo e KM do seu carro.",
+    text: "Olá, tudo bem? Me informa, por favor, o modelo do seu carro.",
     delayMs: 2200,
     statePatch: {
-      stageLabel: "Triagem: aguardando ano, modelo e KM",
+      stageLabel: "Triagem: aguardando modelo do veículo",
     },
   },
   {
@@ -97,12 +97,12 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s4",
     sender: "bot",
-    text: "Perfeito, já vou encaminhar você para o mecânico.",
+    text: "Perfeito, já vou encaminhar você para o mecânico técnico.",
     delayMs: 2200,
     statePatch: {
       waitingHuman: "Sim",
       aiStatus: "Aguardando humano",
-      stageLabel: "Mecânico assumindo o atendimento",
+      stageLabel: "Mecânico técnico assumindo o atendimento",
     },
   },
 ];
