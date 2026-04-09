@@ -20,6 +20,7 @@ import {
   tryAcquireConversationLock,
   releaseConversationLock,
   CONVERSATION_DEBOUNCE_MS,
+  TYPING_RECENT_MS,
 } from "@/lib/conversation-engine/debouncer";
 import { getRedis } from "@/lib/redis/redis-client";
 import { logOrchestration } from "@/lib/orchestration/logger";
@@ -81,6 +82,66 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function getInlineDebounceWaitStatus(conversationId: string): Promise<{
+  waitMs: number;
+  messageWaitMs: number;
+  typingWaitMs: number;
+}> {
+  const [conv] = await db
+    .select({
+      lastMessageAt: conversations.lastMessageAt,
+      contactTypingAt: conversations.contactTypingAt,
+    })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+
+  if (!conv) {
+    return { waitMs: 0, messageWaitMs: 0, typingWaitMs: 0 };
+  }
+
+  const now = Date.now();
+  const messageWaitMs = conv.lastMessageAt
+    ? Math.max(
+        0,
+        CONVERSATION_DEBOUNCE_MS - (now - new Date(conv.lastMessageAt).getTime())
+      )
+    : 0;
+  const typingWaitMs = conv.contactTypingAt
+    ? Math.max(
+        0,
+        TYPING_RECENT_MS - (now - new Date(conv.contactTypingAt).getTime())
+      )
+    : 0;
+
+  return {
+    waitMs: Math.max(messageWaitMs, typingWaitMs),
+    messageWaitMs,
+    typingWaitMs,
+  };
+}
+
+async function waitForInlineConversationSilence(
+  conversationId: string
+): Promise<void> {
+  while (true) {
+    const waitStatus = await getInlineDebounceWaitStatus(conversationId);
+    if (waitStatus.waitMs <= 0) {
+      return;
+    }
+
+    console.log({
+      stage: "inline_debounce_waiting",
+      conversationId,
+      waitMs: waitStatus.waitMs,
+      messageWaitMs: waitStatus.messageWaitMs,
+      typingWaitMs: waitStatus.typingWaitMs,
+    });
+
+    await sleep(waitStatus.waitMs);
+  }
+}
+
 async function runInlineDebouncedProcessing(
   conversationId: string
 ): Promise<"processed" | "lock_held"> {
@@ -92,6 +153,7 @@ async function runInlineDebouncedProcessing(
       return "lock_held";
     }
     try {
+      await waitForInlineConversationSilence(conversationId);
       await processConversation(conversationId);
       return "processed";
     } finally {
@@ -100,7 +162,7 @@ async function runInlineDebouncedProcessing(
   }
 
   try {
-    await sleep(CONVERSATION_DEBOUNCE_MS);
+    await waitForInlineConversationSilence(conversationId);
     await processConversation(conversationId);
     return "processed";
   } finally {

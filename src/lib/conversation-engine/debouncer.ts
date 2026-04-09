@@ -20,22 +20,17 @@ import {
   organizations,
 } from "@/lib/db/schema";
 import { eq, and, desc, gte, isNull } from "drizzle-orm";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 import { runConversationEngine } from "./engine";
 import { createSendMessageExecutor } from "./executor";
 import { logOrchestration } from "@/lib/orchestration/logger";
-import { calculateHumanDelay } from "./humanize";
 import { getRedis, REDIS_KEYS } from "@/lib/redis/redis-client";
 import { Client } from "@upstash/qstash";
 
 /** Tempo de silêncio (sem novas mensagens) antes de processar */
-export const CONVERSATION_DEBOUNCE_MS = 5_000;
+export const CONVERSATION_DEBOUNCE_MS = 3_000;
 
 /** Considera "digitando" se presence foi há menos que isso (ms) */
-const TYPING_RECENT_MS = 5_000;
+export const TYPING_RECENT_MS = 3_000;
 
 /** Delay ao reagendar quando usuário ainda está digitando */
 const TYPING_RESCHEDULE_DELAY_MS = 3_000;
@@ -112,24 +107,6 @@ export async function processConversation(
 
     const phone = contact.phone ?? "";
 
-    // Buscar conteúdo combinado para delay humano (últimos 45s)
-    const since45s = new Date(Date.now() - 45 * 1000);
-    const inboundForLength = await db
-      .select({ content: messages.content })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.conversationId, conversationId),
-          eq(messages.direction, "inbound"),
-          gte(messages.createdAt, since45s),
-          isNull(messages.processedAt)
-        )
-      );
-    const combinedLength = inboundForLength.reduce(
-      (sum, m) => sum + (m.content?.length ?? 0),
-      0
-    );
-
     const [latestInbound] = await db
       .select({
         id: messages.id,
@@ -180,16 +157,6 @@ export async function processConversation(
       sessionId: session.sessionId,
       phone,
       engineStartTime,
-    });
-
-    // Delay humano: simula tempo de leitura baseado no tamanho da mensagem
-    const humanDelayMs = calculateHumanDelay(combinedLength);
-    await sleep(humanDelayMs);
-    console.log({
-      stage: "worker_delay_applied",
-      conversationId,
-      messageLength: combinedLength,
-      delayMs: humanDelayMs,
     });
 
     console.log({
