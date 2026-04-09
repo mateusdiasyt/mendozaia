@@ -110,6 +110,12 @@ function buildSimpleVehicleTriageDetailsPrompt(
   return "Perfeito. Agora me informe o KM do veículo.";
 }
 
+function buildSimpleVehicleTriageUnsupportedReply(reason: string | null): string {
+  const normalizedReason = reason?.trim();
+  if (!normalizedReason) return SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY;
+  return `${normalizedReason} Agradecemos pelo contato.`;
+}
+
 function looksLikeFallbackReservationReply(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -4247,7 +4253,10 @@ export async function processInboundMessage(
           updatedAt: new Date(),
         })
         .where(eq(conversations.id, ctx.conversationId));
-      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY);
+      await sendMessage(
+        ctx.conversationId,
+        buildSimpleVehicleTriageUnsupportedReply(modelPolicyDecision.reason)
+      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
@@ -4294,7 +4303,10 @@ export async function processInboundMessage(
           updatedAt: new Date(),
         })
         .where(eq(conversations.id, ctx.conversationId));
-      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY);
+      await sendMessage(
+        ctx.conversationId,
+        buildSimpleVehicleTriageUnsupportedReply(yearAwareVehiclePolicyDecision.reason)
+      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
