@@ -84,6 +84,8 @@ export interface ProcessResult {
 
 const SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT =
   "Olá, tudo bem? Me informa, por favor, o modelo do seu carro.";
+const SIMPLE_VEHICLE_TRIAGE_DETAILS_PROMPT =
+  "Perfeito. Agora me informe o ano e KM do veículo.";
 const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
   "No momento não atendemos esse modelo de veículo. Agradecemos pelo contato.";
 const SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY =
@@ -94,6 +96,18 @@ const CLOSED_CONVERSATION_AI_PAUSE_MS = 2 * 60 * 60 * 1000;
 
 function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
   return ctx.usesVehicleSlots === true && ctx.botConfig?.segment === "mecanica";
+}
+
+function buildSimpleVehicleTriageDetailsPrompt(
+  missing: ("ano" | "km")[]
+): string {
+  if (missing.includes("ano") && missing.includes("km")) {
+    return SIMPLE_VEHICLE_TRIAGE_DETAILS_PROMPT;
+  }
+  if (missing.includes("ano")) {
+    return "Perfeito. Agora me informe o ano do veículo.";
+  }
+  return "Perfeito. Agora me informe o KM do veículo.";
 }
 
 function looksLikeFallbackReservationReply(text: string): boolean {
@@ -4206,12 +4220,15 @@ export async function processInboundMessage(
       };
     }
 
-    const vehiclePolicyDecision = evaluateVehicleServicePolicy(
-      ctx.vehicleServicePolicy,
+    const modelPolicyDecision = evaluateVehicleServicePolicy(
+      {
+        supportedModels: ctx.vehicleServicePolicy?.supportedModels,
+        blockedModels: ctx.vehicleServicePolicy?.blockedModels,
+      },
       resolvedVehicleSlots
     );
 
-    if (vehiclePolicyDecision.blocked) {
+    if (modelPolicyDecision.blocked) {
       await persistSimpleVehicleTriageMetadata(
         ctx.conversationId,
         conversationMetadata,
@@ -4243,13 +4260,91 @@ export async function processInboundMessage(
         durationMs: Date.now() - startedAt,
         metadata: {
           vehicleSlots: resolvedVehicleSlots,
-          vehiclePolicyDecision,
+          vehiclePolicyDecision: modelPolicyDecision,
         },
       });
       return {
         didReply: true,
         decision: "tool_then_ai",
         reason: "Fluxo simplificado: atendimento encerrado para veículo não atendido",
+        silence: false,
+      };
+    }
+
+    const yearAwareVehiclePolicyDecision = resolvedVehicleSlots.ano
+      ? evaluateVehicleServicePolicy(ctx.vehicleServicePolicy, resolvedVehicleSlots)
+      : { blocked: false, reason: null as string | null };
+
+    if (yearAwareVehiclePolicyDecision.blocked) {
+      await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        null,
+        resolvedVehicleSlots
+      );
+      await db
+        .update(conversations)
+        .set({
+          conversationState: CONVERSATION_STATES.CLOSED,
+          handoffReason: "Atendimento encerrado: veículo não atendido",
+          handoffAt: null,
+          isPriority: false,
+          aiDisabledUntil: new Date(Date.now() + CLOSED_CONVERSATION_AI_PAUSE_MS),
+          assignedToId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY);
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_closed",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: veículo não atendido",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          vehicleSlots: resolvedVehicleSlots,
+          vehiclePolicyDecision: yearAwareVehiclePolicyDecision,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: atendimento encerrado para veículo não atendido",
+        silence: false,
+      };
+    }
+
+    const missingVehicleTriageDetails: ("ano" | "km")[] = [];
+    if (!resolvedVehicleSlots.ano) missingVehicleTriageDetails.push("ano");
+    if (!resolvedVehicleSlots.km) missingVehicleTriageDetails.push("km");
+    if (missingVehicleTriageDetails.length > 0) {
+      await sendMessage(
+        ctx.conversationId,
+        buildSimpleVehicleTriageDetailsPrompt(missingVehicleTriageDetails)
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_prompted",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: aguardando ano e/ou km do veículo",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MISSING_DETAILS",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          resolvedVehicleSlots,
+          missingVehicleTriageDetails,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: aguardando ano e/ou km do veículo",
         silence: false,
       };
     }

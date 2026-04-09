@@ -85,17 +85,35 @@ const SCRIPT: SimMessage[] = [
   {
     id: "s3",
     sender: "client",
-    text: "Onix 2022, 78 mil km.",
+    text: "Onix.",
     delayMs: 1200,
     statePatch: {
       carModel: "Onix",
+      stageLabel: "Modelo validado; aguardando ano e KM",
+    },
+  },
+  {
+    id: "s4",
+    sender: "bot",
+    text: "Perfeito. Agora me informe o ano e KM do veículo.",
+    delayMs: 1800,
+    statePatch: {
+      stageLabel: "Triagem: aguardando ano e KM",
+    },
+  },
+  {
+    id: "s5",
+    sender: "client",
+    text: "2022, 78 mil km.",
+    delayMs: 1200,
+    statePatch: {
       carYear: "2022",
       carKm: "78.000",
       stageLabel: "Veículo validado pela política da oficina",
     },
   },
   {
-    id: "s4",
+    id: "s6",
     sender: "bot",
     text: "Perfeito, já vou encaminhar você para o mecânico técnico.",
     delayMs: 2200,
