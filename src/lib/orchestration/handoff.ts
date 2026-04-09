@@ -144,7 +144,7 @@ export async function resumeFromHuman(
         handoffAt: null,
         isPriority: false,
         aiDisabledUntil: null,
-        conversationStateMetadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+        conversationStateMetadata: Object.keys(metadata).length > 0 ? metadata : null,
         updatedAt: new Date(),
       })
       .where(eq(conversations.id, conversationId));

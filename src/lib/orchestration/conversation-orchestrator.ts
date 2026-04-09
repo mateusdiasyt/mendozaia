@@ -1653,11 +1653,16 @@ async function persistRestaurantReservationFlow(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
+}
+
+function buildConversationStateMetadataValue(
+  nextMetadata: Record<string, unknown>
+): Record<string, unknown> | null {
+  return Object.keys(nextMetadata).length > 0 ? nextMetadata : null;
 }
 
 async function persistReservationPeriodSelection(
@@ -1679,8 +1684,7 @@ async function persistReservationPeriodSelection(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3055,8 +3059,7 @@ async function persistIntakeStage(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3094,8 +3097,7 @@ async function persistSimpleVehicleTriageMetadata(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3139,8 +3141,7 @@ async function persistReservationContext(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3206,8 +3207,7 @@ async function persistVehicleConfirmationState(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3248,8 +3248,7 @@ async function persistOilFlowState(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3287,8 +3286,7 @@ async function persistWorkshopState(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3327,8 +3325,7 @@ async function persistProfileUpdateFlowState(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3367,8 +3364,7 @@ async function persistResumeChoiceFlowState(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3403,8 +3399,7 @@ async function clearConversationFlowState(
     .update(conversations)
     .set({
       conversationState: CONVERSATION_STATES.INIT,
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -3447,8 +3442,7 @@ async function savePendingReservation(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
@@ -6766,8 +6760,7 @@ export async function processInboundMessage(
     await db
       .update(conversations)
       .set({
-        conversationStateMetadata:
-          Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+        conversationStateMetadata: buildConversationStateMetadataValue(nextMetadata),
         updatedAt: new Date(),
       })
       .where(eq(conversations.id, ctx.conversationId));

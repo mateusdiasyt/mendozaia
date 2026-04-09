@@ -527,8 +527,7 @@ export async function updateConversationReservationDraft(
   await db
     .update(conversations)
     .set({
-      conversationStateMetadata:
-        Object.keys(nextMetadata).length > 0 ? nextMetadata : undefined,
+      conversationStateMetadata: Object.keys(nextMetadata).length > 0 ? nextMetadata : null,
       updatedAt: new Date(),
     })
     .where(eq(conversations.id, conversationId));
