@@ -90,8 +90,6 @@ const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
   "No momento não atendemos esse modelo de veículo. Agradecemos pelo contato.";
 const SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY =
   "Perfeito, já vou encaminhar você para o mecânico técnico.";
-const SIMPLE_VEHICLE_TRIAGE_UNKNOWN_HANDOFF_REPLY =
-  "Não consegui entender certinho. Já vou encaminhar você para o mecânico técnico.";
 const CLOSED_CONVERSATION_AI_PAUSE_MS = 2 * 60 * 60 * 1000;
 
 function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
@@ -114,6 +112,35 @@ function buildSimpleVehicleTriageUnsupportedReply(reason: string | null): string
   const normalizedReason = reason?.trim();
   if (!normalizedReason) return SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY;
   return `${normalizedReason} Agradecemos pelo contato.`;
+}
+
+function buildSimpleVehicleTriageRequiredDataReply(
+  missing: ("modelo" | "ano" | "km")[]
+): string {
+  const uniqueMissing = Array.from(new Set(missing));
+  if (
+    uniqueMissing.includes("modelo") &&
+    uniqueMissing.includes("ano") &&
+    uniqueMissing.includes("km")
+  ) {
+    return "Para eu continuar o atendimento, preciso do modelo, ano e KM do veículo. Me informe, por favor, esses dados.";
+  }
+  if (uniqueMissing.includes("modelo") && uniqueMissing.includes("ano")) {
+    return "Para eu continuar o atendimento, preciso do modelo e do ano do veículo. Me informe, por favor, esses dados.";
+  }
+  if (uniqueMissing.includes("modelo") && uniqueMissing.includes("km")) {
+    return "Para eu continuar o atendimento, preciso do modelo e do KM do veículo. Me informe, por favor, esses dados.";
+  }
+  if (uniqueMissing.includes("ano") && uniqueMissing.includes("km")) {
+    return "Para eu continuar o atendimento, preciso do ano e do KM do veículo. Me informe, por favor, esses dados.";
+  }
+  if (uniqueMissing.includes("modelo")) {
+    return "Para eu continuar o atendimento, preciso do modelo do veículo. Me informe, por favor, esse dado.";
+  }
+  if (uniqueMissing.includes("ano")) {
+    return "Para eu continuar o atendimento, preciso do ano do veículo. Me informe, por favor, esse dado.";
+  }
+  return "Para eu continuar o atendimento, preciso do KM do veículo. Me informe, por favor, esse dado.";
 }
 
 function looksLikeFallbackReservationReply(text: string): boolean {
@@ -4134,52 +4161,41 @@ export async function processInboundMessage(
     }
 
     if (triageAlreadyStarted && !hasVehicleSignalInCurrentMessage) {
+      const missingRequiredVehicleData: ("modelo" | "ano" | "km")[] = [];
+      if (!resolvedVehicleSlots.modelo) missingRequiredVehicleData.push("modelo");
+      if (!resolvedVehicleSlots.ano) missingRequiredVehicleData.push("ano");
+      if (!resolvedVehicleSlots.km) missingRequiredVehicleData.push("km");
+
       await persistSimpleVehicleTriageMetadata(
         ctx.conversationId,
         conversationMetadata,
         null,
         Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null
       );
-      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_UNKNOWN_HANDOFF_REPLY);
-      const handoff = await handoffToHuman(
+      await sendMessage(
         ctx.conversationId,
-        ctx.organizationId,
-        "Fluxo simplificado: mensagem não entendida, encaminhada para mecânico técnico"
+        buildSimpleVehicleTriageRequiredDataReply(missingRequiredVehicleData)
       );
-      if (!handoff.success) {
-        await db
-          .update(conversations)
-          .set({
-            conversationState: CONVERSATION_STATES.WAITING_HUMAN,
-            handoffReason: "Fluxo simplificado: mensagem não entendida, aguardando mecânico técnico",
-            handoffAt: new Date(),
-            isPriority: true,
-            aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            assignedToId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(conversations.id, ctx.conversationId));
-      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
-        event: "vehicle_triage_unknown_handoff",
-        decision: "human_only",
-        reason: "Fluxo simplificado: mensagem não entendida e encaminhada ao mecânico técnico",
+        event: "vehicle_triage_prompted",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: reforçando dados obrigatórios do veículo",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
-        decisionCode: "SIMPLE_VEHICLE_TRIAGE_UNKNOWN_HANDOFF",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_REQUIRED_DATA",
         durationMs: Date.now() - startedAt,
         metadata: {
           messageContent: ctx.messageContent,
           vehicleSlots: resolvedVehicleSlots,
-          handoffSuccess: handoff.success,
+          missingRequiredVehicleData,
         },
       });
       return {
         didReply: true,
-        decision: "human_only",
-        reason: "Fluxo simplificado: mensagem não entendida, encaminhando ao mecânico técnico",
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: aguardando dados obrigatórios do veículo",
         silence: false,
       };
     }
