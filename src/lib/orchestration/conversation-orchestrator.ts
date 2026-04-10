@@ -83,7 +83,7 @@ export interface ProcessResult {
 }
 
 const SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT =
-  "Olá, tudo bem? Me informa, por favor, o modelo do seu carro.";
+  "Olá, tudo bem? Me informa, por favor, o modelo, ano e KM do seu carro.";
 const SIMPLE_VEHICLE_TRIAGE_DETAILS_PROMPT =
   "Perfeito. Agora me informe o ano e KM do veículo.";
 const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
@@ -4115,7 +4115,7 @@ export async function processInboundMessage(
         organizationId: ctx.organizationId,
         event: "vehicle_triage_prompted",
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: solicitando modelo do veículo",
+        reason: "Fluxo simplificado: solicitando modelo, ano e KM do veículo",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
         decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_MODEL",
@@ -4128,7 +4128,7 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: solicitando modelo do veículo",
+        reason: "Fluxo simplificado: solicitando modelo, ano e KM do veículo",
         silence: false,
       };
     }
