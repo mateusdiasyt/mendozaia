@@ -114,6 +114,14 @@ function buildSimpleVehicleTriageUnsupportedReply(reason: string | null): string
   return `${normalizedReason} Agradecemos pelo contato.`;
 }
 
+function buildVehiclePolicyManualReviewReply(reason: string | null): string {
+  const normalizedReason = reason?.trim();
+  if (!normalizedReason) {
+    return "Nao encontrei esse modelo nas listas automaticas. Ja vou encaminhar voce para o mecanico tecnico confirmar.";
+  }
+  return `${normalizedReason} Ja vou encaminhar voce para o mecanico tecnico confirmar.`;
+}
+
 function buildSimpleVehicleTriageRequiredDataReply(
   missing: ("modelo" | "ano" | "km")[]
 ): string {
@@ -826,6 +834,63 @@ function evaluateVehicleServicePolicy(
   }
 
   return { blocked: false, reason: null };
+}
+
+function evaluateVehicleServicePolicyWithRouting(
+  policy:
+    | {
+        minAllowedYear?: number | null;
+        supportedModels?: string[];
+        blockedModels?: string[];
+      }
+    | undefined,
+  slots: VehicleSlots | undefined
+): {
+  blocked: boolean;
+  requiresHuman: boolean;
+  resolution: "allowed" | "blocked" | "manual_review";
+  reason: string | null;
+} {
+  const baseDecision = evaluateVehicleServicePolicy(policy, slots);
+  if (baseDecision.blocked) {
+    return {
+      blocked: true,
+      requiresHuman: false,
+      resolution: "blocked",
+      reason: baseDecision.reason,
+    };
+  }
+
+  const normalizedModel = normalizeVehicleModelKey(slots?.modelo);
+  const blockedModelsNormalized = new Set(
+    (policy?.blockedModels ?? []).map((model) => normalizeVehicleModelKey(model))
+  );
+  const supportedModelsNormalized = new Set(
+    (policy?.supportedModels ?? []).map((model) => normalizeVehicleModelKey(model))
+  );
+  const hasConfiguredModelLists =
+    supportedModelsNormalized.size > 0 || blockedModelsNormalized.size > 0;
+
+  if (
+    normalizedModel &&
+    hasConfiguredModelLists &&
+    !supportedModelsNormalized.has(normalizedModel) &&
+    !blockedModelsNormalized.has(normalizedModel)
+  ) {
+    return {
+      blocked: false,
+      requiresHuman: true,
+      resolution: "manual_review",
+      reason: `Nao encontrei o modelo *${slots?.modelo}* nas listas automaticas da oficina.`,
+    };
+  }
+
+  return {
+    blocked: false,
+    requiresHuman: false,
+    resolution: "allowed",
+    reason: null,
+  };
 }
 
 function extractTwoDigitVehicleYearHint(text: string): number | null {
@@ -4242,13 +4307,68 @@ export async function processInboundMessage(
       };
     }
 
-    const modelPolicyDecision = evaluateVehicleServicePolicy(
+    const modelPolicyDecision = evaluateVehicleServicePolicyWithRouting(
       {
         supportedModels: ctx.vehicleServicePolicy?.supportedModels,
         blockedModels: ctx.vehicleServicePolicy?.blockedModels,
       },
       resolvedVehicleSlots
     );
+
+    if (modelPolicyDecision.requiresHuman) {
+      await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        null,
+        resolvedVehicleSlots
+      );
+      await sendMessage(
+        ctx.conversationId,
+        buildVehiclePolicyManualReviewReply(modelPolicyDecision.reason)
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        "Fluxo simplificado: modelo fora das listas automaticas, encaminhado para mecanico tecnico"
+      );
+      if (!handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            conversationState: CONVERSATION_STATES.WAITING_HUMAN,
+            handoffReason:
+              "Fluxo simplificado: modelo fora das listas automaticas, aguardando mecanico tecnico",
+            handoffAt: new Date(),
+            isPriority: true,
+            aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+            assignedToId: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_manual_review_handoff",
+        decision: "human_only",
+        reason: "Fluxo simplificado: modelo fora das listas automaticas, encaminhando ao mecanico tecnico",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_MANUAL_REVIEW",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          vehicleSlots: resolvedVehicleSlots,
+          vehiclePolicyDecision: modelPolicyDecision,
+          handoffSuccess: handoff.success,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Fluxo simplificado: modelo fora das listas automaticas, encaminhando ao mecanico tecnico",
+        silence: false,
+      };
+    }
 
     if (modelPolicyDecision.blocked) {
       await persistSimpleVehicleTriageMetadata(
@@ -4297,8 +4417,16 @@ export async function processInboundMessage(
     }
 
     const yearAwareVehiclePolicyDecision = resolvedVehicleSlots.ano
-      ? evaluateVehicleServicePolicy(ctx.vehicleServicePolicy, resolvedVehicleSlots)
-      : { blocked: false, reason: null as string | null };
+      ? evaluateVehicleServicePolicyWithRouting(
+          ctx.vehicleServicePolicy,
+          resolvedVehicleSlots
+        )
+      : {
+          blocked: false,
+          requiresHuman: false,
+          resolution: "allowed" as const,
+          reason: null as string | null,
+        };
 
     if (yearAwareVehiclePolicyDecision.blocked) {
       await persistSimpleVehicleTriageMetadata(
@@ -5907,10 +6035,58 @@ export async function processInboundMessage(
     }
 
     if (askedYear || askedModel) {
-      const decision = evaluateVehicleServicePolicy(policy, {
+      const decision = evaluateVehicleServicePolicyWithRouting(policy, {
         modelo: askedModel || undefined,
         ano: askedYear || undefined,
       });
+      if (decision.requiresHuman) {
+        await sendMessage(
+          ctx.conversationId,
+          buildVehiclePolicyManualReviewReply(decision.reason)
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Pergunta de cobertura: modelo fora das listas automaticas, encaminhado para mecanico tecnico"
+        );
+        if (!handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              conversationState: CONVERSATION_STATES.WAITING_HUMAN,
+              handoffReason:
+                "Pergunta de cobertura: modelo fora das listas automaticas, aguardando mecanico tecnico",
+              handoffAt: new Date(),
+              isPriority: true,
+              aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+              assignedToId: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "vehicle_coverage_manual_review_handoff",
+          decision: "human_only",
+          reason: "Pergunta de cobertura com modelo fora das listas automaticas",
+          traceId: params.traceId,
+          stage: "orchestrator.vehicle_policy",
+          decisionCode: "VEHICLE_COVERAGE_MANUAL_REVIEW",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            askedModel: askedModel ?? null,
+            askedYear: askedYear ?? null,
+            handoffSuccess: handoff.success,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason: "Pergunta de cobertura com modelo fora das listas automaticas",
+          silence: false,
+        };
+      }
       const modelLabel = askedModel ? prettifyVehicleLabel(askedModel) : "esse veículo";
       const response = decision.blocked
         ? askedYear
@@ -6068,11 +6244,64 @@ export async function processInboundMessage(
   const shouldEvaluateVehiclePolicy =
     !!ctx.usesVehicleSlots && (hasVehicleInfoInCurrentMessage || hasAutomotiveIntentNow);
   const vehiclePolicyDecision = shouldEvaluateVehiclePolicy
-    ? evaluateVehicleServicePolicy(
+    ? evaluateVehicleServicePolicyWithRouting(
         ctx.vehicleServicePolicy,
         vehiclePolicyCandidateSlots
       )
-    : { blocked: false, reason: null as string | null };
+    : {
+        blocked: false,
+        requiresHuman: false,
+        resolution: "allowed" as const,
+        reason: null as string | null,
+      };
+  if (vehiclePolicyDecision.requiresHuman) {
+    await sendMessage(
+      ctx.conversationId,
+      buildVehiclePolicyManualReviewReply(vehiclePolicyDecision.reason)
+    );
+    const handoff = await handoffToHuman(
+      ctx.conversationId,
+      ctx.organizationId,
+      "Politica de veiculos: modelo fora das listas automaticas, encaminhado para mecanico tecnico"
+    );
+    if (!handoff.success) {
+      await db
+        .update(conversations)
+        .set({
+          conversationState: CONVERSATION_STATES.WAITING_HUMAN,
+          handoffReason:
+            "Politica de veiculos: modelo fora das listas automaticas, aguardando mecanico tecnico",
+          handoffAt: new Date(),
+          isPriority: true,
+          aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+          assignedToId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    await logOrchestration({
+      conversationId: ctx.conversationId,
+      organizationId: ctx.organizationId,
+      event: "vehicle_policy_manual_review_handoff",
+      decision: "human_only",
+      reason: "Veiculo fora das listas automaticas; encaminhando para mecanico tecnico",
+      traceId: params.traceId,
+      stage: "orchestrator.vehicle_policy",
+      decisionCode: "VEHICLE_POLICY_MANUAL_REVIEW",
+      durationMs: Date.now() - startedAt,
+      metadata: {
+        model: vehiclePolicyCandidateSlots.modelo ?? null,
+        vehiclePolicyDecision,
+        handoffSuccess: handoff.success,
+      },
+    });
+    return {
+      didReply: true,
+      decision: "human_only",
+      reason: "Veiculo fora das listas automaticas, encaminhando ao mecanico tecnico",
+      silence: false,
+    };
+  }
   if (vehiclePolicyDecision.blocked && vehiclePolicyDecision.reason) {
     const policyReply = `${vehiclePolicyDecision.reason}\n\nSe quiser, posso te direcionar para confirmar opções de atendimento humano.`;
     await sendMessage(ctx.conversationId, policyReply);
