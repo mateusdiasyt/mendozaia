@@ -4181,9 +4181,9 @@ export async function processInboundMessage(
     const triageNoAnswerCount = Number(
       conversationMetadata.simpleVehicleTriageNoAnswerCount ?? 0
     );
-    const extractedVehicleFromMessage: VehicleSlots = triageAlreadyStarted
-      ? extractVehicleSlotsFromText(ctx.messageContent)
-      : {};
+    const extractedVehicleFromMessage: VehicleSlots = extractVehicleSlotsFromText(
+      ctx.messageContent
+    );
     const explicitNameInSimpleTriage = hasExplicitNameIntro(ctx.messageContent)
       ? extractCustomerName(ctx.messageContent, {
           blockedValues: [extractedVehicleFromMessage.modelo ?? ""],
@@ -4211,7 +4211,7 @@ export async function processInboundMessage(
       ctx.vehicleServicePolicy?.supportedModels
     );
     const resolvedVehicleSlots: VehicleSlots = mergedVehicleSlots;
-    const hasVehicleSignalInCurrentMessage = triageAlreadyStarted && Boolean(
+    const hasVehicleSignalInCurrentMessage = Boolean(
       incomingVehicleSlots.modelo || incomingVehicleSlots.ano || incomingVehicleSlots.km
     );
 
@@ -4229,13 +4229,17 @@ export async function processInboundMessage(
         0
       );
       await sendMessage(ctx.conversationId, openingGreeting);
-      await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT);
+      if (!hasVehicleSignalInCurrentMessage) {
+        await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT);
+      }
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
         event: "vehicle_triage_prompted",
         decision: "tool_then_ai",
-        reason: "Fluxo simplificado: abertura obrigatória com coleta de modelo, ano e KM",
+        reason: hasVehicleSignalInCurrentMessage
+          ? "Fluxo simplificado: abertura obrigatória com dados iniciais do veículo já detectados"
+          : "Fluxo simplificado: abertura obrigatória com coleta de modelo, ano e KM",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
         decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_MODEL",
@@ -4244,14 +4248,18 @@ export async function processInboundMessage(
           triageAlreadyStarted,
           messageContent: ctx.messageContent,
           openingGreeting,
+          hasVehicleSignalInCurrentMessage,
+          incomingVehicleSlots,
         },
       });
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Fluxo simplificado: abertura obrigatória de coleta de veículo",
-        silence: false,
-      };
+      if (!hasVehicleSignalInCurrentMessage) {
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fluxo simplificado: abertura obrigatória de coleta de veículo",
+          silence: false,
+        };
+      }
     }
 
     if (triageAlreadyStarted && !hasVehicleSignalInCurrentMessage) {
