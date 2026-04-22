@@ -83,7 +83,7 @@ export interface ProcessResult {
 }
 
 const SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT =
-  "Bom dia! Para iniciar seu atendimento, me informe, por favor, o modelo, ano e KM do seu carro.";
+  "Para iniciar seu atendimento, me informe, por favor, o modelo, ano e KM do seu carro.";
 const SIMPLE_VEHICLE_TRIAGE_DETAILS_PROMPT =
   "Perfeito. Agora me informe o ano e KM do veículo.";
 const SIMPLE_VEHICLE_TRIAGE_UNSUPPORTED_REPLY =
@@ -92,6 +92,16 @@ const SIMPLE_VEHICLE_TRIAGE_HANDOFF_REPLY =
   "Perfeito, já vou encaminhar você para o mecânico técnico.";
 const SIMPLE_VEHICLE_TRIAGE_MAX_NON_RESPONSES = 2;
 const CLOSED_CONVERSATION_AI_PAUSE_MS = 2 * 60 * 60 * 1000;
+
+function buildSimpleVehicleTriageOpeningGreeting(
+  now: Date,
+  timezone?: string
+): string {
+  const current = getCurrentGreeting(now, timezone);
+  if (current === "bom_dia") return "Bom dia!";
+  if (current === "boa_tarde") return "Boa tarde!";
+  return "Boa noite!";
+}
 
 function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
   return ctx.usesVehicleSlots === true && ctx.botConfig?.segment === "mecanica";
@@ -4206,6 +4216,11 @@ export async function processInboundMessage(
     );
 
     if (!triageAlreadyStarted) {
+      const openingNow = getNowInTimezone(ctx.reservationSchedule?.timezone);
+      const openingGreeting = buildSimpleVehicleTriageOpeningGreeting(
+        openingNow,
+        ctx.reservationSchedule?.timezone
+      );
       conversationMetadata = await persistSimpleVehicleTriageMetadata(
         ctx.conversationId,
         conversationMetadata,
@@ -4213,6 +4228,7 @@ export async function processInboundMessage(
         null,
         0
       );
+      await sendMessage(ctx.conversationId, openingGreeting);
       await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT);
       await logOrchestration({
         conversationId: ctx.conversationId,
@@ -4227,6 +4243,7 @@ export async function processInboundMessage(
         metadata: {
           triageAlreadyStarted,
           messageContent: ctx.messageContent,
+          openingGreeting,
         },
       });
       return {
