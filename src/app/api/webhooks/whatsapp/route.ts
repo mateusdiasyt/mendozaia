@@ -723,9 +723,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (contentType === "audio") {
+      const [organizationRow] = await db
+        .select({ settings: organizations.settings })
+        .from(organizations)
+        .where(eq(organizations.id, session.organizationId))
+        .limit(1);
+      const organizationSettings =
+        (organizationRow?.settings as Record<string, unknown> | undefined) ?? {};
+      const aiAgentConfig =
+        (organizationSettings.aiAgent as Record<string, unknown> | undefined) ?? {};
+
+      const organizationGeminiApiKey =
+        typeof aiAgentConfig.apiKey === "string" ? aiAgentConfig.apiKey : null;
+      const organizationGeminiModel =
+        typeof aiAgentConfig.model === "string" ? aiAgentConfig.model : null;
+
       const transcription = await transcribeInboundAudio({
         mediaUrl,
         mimeType: msg?.audioMessage?.mimetype,
+        apiKeyOverride: organizationGeminiApiKey,
+        modelOverride: organizationGeminiModel,
       });
 
       metadata.transcription = {
