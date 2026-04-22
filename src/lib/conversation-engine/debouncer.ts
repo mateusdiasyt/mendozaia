@@ -112,6 +112,7 @@ export async function processConversation(
         id: messages.id,
         content: messages.content,
         contentType: messages.contentType,
+        metadata: messages.metadata,
       })
       .from(messages)
       .where(
@@ -122,6 +123,17 @@ export async function processConversation(
       )
       .orderBy(desc(messages.createdAt))
       .limit(1);
+
+    const latestInboundMetadata =
+      (latestInbound?.metadata as Record<string, unknown> | undefined) ?? {};
+    const transcriptionMetadata =
+      (latestInboundMetadata.transcription as Record<string, unknown> | undefined) ??
+      undefined;
+    const hasTranscribedText = Boolean(transcriptionMetadata?.hasText);
+    const normalizedInboundContentType =
+      latestInbound?.contentType === "audio" && hasTranscribedText
+        ? "text"
+        : latestInbound?.contentType ?? "text";
 
     const contactTagRows = await db
       .select({ tagId: contactTags.tagId })
@@ -170,7 +182,7 @@ export async function processConversation(
       contactId: contact.id,
       contactPhone: phone,
       messageContent: latestInbound?.content ?? "",
-      messageContentType: latestInbound?.contentType ?? "text",
+      messageContentType: normalizedInboundContentType,
       conversationState: conv.conversationState,
       isPriority: conv.isPriority ?? false,
       aiDisabledUntil: conv.aiDisabledUntil ?? null,

@@ -28,6 +28,7 @@ import {
   normalizeGroupId,
   parseReservationGroupNotifications,
 } from "@/lib/whatsapp-group-notifications";
+import { transcribeInboundAudio } from "@/lib/audio-transcription";
 
 // Formato esperado da Evolution API (texto e mÃ­dia)
 interface MessageContent {
@@ -687,7 +688,7 @@ export async function POST(request: NextRequest) {
         : msg.imageMessage.url ?? null;
       metadata.mimetype = msg.imageMessage.mimetype;
     } else if (msg?.audioMessage) {
-      contentType = msg.audioMessage.ptt ? "audio" : "audio";
+      contentType = "audio";
       mediaUrl = msg.audioMessage.base64
         ? `data:${msg.audioMessage.mimetype ?? "audio/ogg"};base64,${msg.audioMessage.base64}`
         : msg.audioMessage.url ?? null;
@@ -719,6 +720,26 @@ export async function POST(request: NextRequest) {
 
     if (!session) {
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
+    }
+
+    if (contentType === "audio") {
+      const transcription = await transcribeInboundAudio({
+        mediaUrl,
+        mimeType: msg?.audioMessage?.mimetype,
+      });
+
+      metadata.transcription = {
+        status: transcription.status,
+        model: transcription.model,
+        language: transcription.language,
+        source: transcription.source,
+        error: transcription.error,
+        hasText: !!transcription.text,
+      };
+
+      if (transcription.text) {
+        messageText = transcription.text;
+      }
     }
 
     const phone = remoteJid.replace("@s.whatsapp.net", "");
@@ -932,6 +953,10 @@ export async function POST(request: NextRequest) {
         contentType,
         hasText: !!messageText?.trim(),
         fromMe: false,
+        transcription:
+          contentType === "audio"
+            ? (metadata.transcription as Record<string, unknown> | undefined)
+            : undefined,
       },
     });
 
