@@ -30,11 +30,8 @@ import {
   updateFaqConfidence,
 } from "@/lib/faq-engine";
 import {
-  extractSlotsFromMessages,
-  mergeVehicleSlots,
   type VehicleSlots,
 } from "@/lib/orchestration/slot-extractor";
-import { saveContactMemory } from "@/lib/contact-memories";
 
 /** Debounce do buffer: aguarda N ms sem novas mensagens antes de processar (agrupa sequência) */
 const MESSAGE_BUFFER_DEBOUNCE_MS = 2000;
@@ -147,20 +144,8 @@ async function persistSignalsWhenAiPaused(
   const metadata = (convRow?.[0]?.metadata as Record<string, unknown> | undefined) ?? {};
   const existingVehicleSlots =
     (metadata.vehicleSlots as VehicleSlots | undefined) ?? {};
-  const extractedVehicle = extractSlotsFromMessages([...inboundRows].reverse());
-  const mergedVehicle = mergeVehicleSlots(existingVehicleSlots, extractedVehicle);
-  const vehicleUpdated =
-    JSON.stringify(mergedVehicle) !== JSON.stringify(existingVehicleSlots);
-
-  if (mergedVehicle.modelo) {
-    await saveContactMemory(input.contactId, "vehicle_model", mergedVehicle.modelo);
-  }
-  if (mergedVehicle.ano) {
-    await saveContactMemory(input.contactId, "vehicle_year", String(mergedVehicle.ano));
-  }
-  if (mergedVehicle.km) {
-    await saveContactMemory(input.contactId, "vehicle_km", String(mergedVehicle.km));
-  }
+  const mergedVehicle = existingVehicleSlots;
+  const vehicleUpdated = false;
 
   const inboundTexts = inboundRows
     .filter((row) => row.direction === "inbound" && !!row.content?.trim())
@@ -225,16 +210,20 @@ async function persistSignalsWhenAiPaused(
   );
 
   if (vehicleUpdated || reservationUpdated) {
+    const nextMetadata: Record<string, unknown> = {
+      ...metadata,
+      pendingReservation: nextPending,
+      reservationPeriodFlow: nextPeriod,
+    };
+    if (vehicleUpdated) {
+      nextMetadata.vehicleSlots = mergedVehicle;
+      nextMetadata.vehicleSlotsUpdatedAt = new Date().toISOString();
+    }
+
     await db
       .update(conversations)
       .set({
-        conversationStateMetadata: {
-          ...metadata,
-          vehicleSlots: mergedVehicle,
-          vehicleSlotsUpdatedAt: new Date().toISOString(),
-          pendingReservation: nextPending,
-          reservationPeriodFlow: nextPeriod,
-        },
+        conversationStateMetadata: nextMetadata,
         updatedAt: new Date(),
       })
       .where(eq(conversations.id, input.conversationId));
