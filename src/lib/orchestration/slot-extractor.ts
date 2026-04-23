@@ -241,17 +241,43 @@ function extractYear(text: string): number | undefined {
 
 /** Extrai quilometragem. Ex: "90 mil km", "230mil", "90.000 km", "150000" */
 function extractKm(text: string): number | undefined {
+  const parseNumeric = (raw: string, multiplyByThousand = false): number | undefined => {
+    const cleaned = raw.replace(/\./g, "").replace(",", ".");
+    const num = parseFloat(cleaned);
+    if (isNaN(num)) return undefined;
+    const value = multiplyByThousand ? Math.round(num * 1000) : Math.round(num);
+    if (value < 1000 || value > 999999) return undefined;
+    return value;
+  };
+
   const lower = text.toLowerCase();
+  const kmPrefixMatch = lower.match(
+    /\b(?:km|quilometragem)\s*(?:de|:|-)?\s*(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(mil)?\b/i
+  );
+  if (kmPrefixMatch) {
+    const parsed = parseNumeric(kmPrefixMatch[1], Boolean(kmPrefixMatch[2]));
+    if (parsed) return parsed;
+  }
+
   const milMatch = lower.match(/(\d{1,3}(?:[.,]\d{3})*|\d+)\s*mil(?:\s*km)?/);
   if (milMatch) {
-    const num = parseFloat(milMatch[1].replace(/\./g, "").replace(",", "."));
-    return isNaN(num) ? undefined : Math.round(num * 1000);
+    const parsed = parseNumeric(milMatch[1], true);
+    if (parsed) return parsed;
   }
+
   const kmMatch = text.match(/(\d{1,3}(?:[.,]\d{3})*|\d+)\s*(?:km|quilometragem)/i);
   if (kmMatch) {
-    const num = parseFloat(kmMatch[1].replace(/\./g, "").replace(",", "."));
-    return isNaN(num) ? undefined : Math.round(num);
+    const parsed = parseNumeric(kmMatch[1], false);
+    if (parsed) return parsed;
   }
+
+  // Número em formato de milhar sem unidade explícita (ex.: "189.000").
+  const groupedThousandsMatch = text.match(/\b(\d{1,3}(?:[.,]\d{3})+)\b/);
+  if (groupedThousandsMatch) {
+    const parsed = parseNumeric(groupedThousandsMatch[1], false);
+    if (parsed) return parsed;
+  }
+
   const plainMatch = text.match(/\b(\d{4,6})\b/);
   if (plainMatch) {
     const n = parseInt(plainMatch[1], 10);

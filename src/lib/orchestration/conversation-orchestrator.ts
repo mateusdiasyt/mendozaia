@@ -4179,7 +4179,17 @@ export async function processInboundMessage(
     const triageAwaitingNeed = intakeStage === "awaiting_need";
     const metadataVehicleSlots =
       (conversationMetadata.vehicleSlots as VehicleSlots | undefined) ?? {};
-    const triageBaseSlots = triageAlreadyStarted ? metadataVehicleSlots : {};
+    const contextVehicleSlots = sanitizeVehicleSlotsByContactName(
+      (ctx.vehicleSlots as VehicleSlots | undefined) ?? {},
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
+    );
+    const mergedKnownSlots = sanitizeVehicleSlotsByContactName(
+      mergeVehicleSlots(contextVehicleSlots, metadataVehicleSlots),
+      contactName,
+      ctx.vehicleServicePolicy?.supportedModels
+    );
+    const triageBaseSlots = triageAlreadyStarted ? mergedKnownSlots : contextVehicleSlots;
     const triageNoAnswerCount = Number(
       conversationMetadata.simpleVehicleTriageNoAnswerCount ?? 0
     );
@@ -4415,108 +4425,112 @@ export async function processInboundMessage(
     }
 
     if (triageAlreadyStarted && !hasVehicleSignalInCurrentMessage) {
-      const nextNoAnswerCount = Number.isFinite(triageNoAnswerCount)
-        ? triageNoAnswerCount + 1
-        : 1;
       const missingRequiredVehicleData: ("modelo" | "ano" | "km")[] = [];
       if (!resolvedVehicleSlots.modelo) missingRequiredVehicleData.push("modelo");
       if (!resolvedVehicleSlots.ano) missingRequiredVehicleData.push("ano");
       if (!resolvedVehicleSlots.km) missingRequiredVehicleData.push("km");
+      if (missingRequiredVehicleData.length === 0) {
+        // Já temos slots completos mesmo sem sinal explícito na mensagem atual.
+      } else {
+        const nextNoAnswerCount = Number.isFinite(triageNoAnswerCount)
+          ? triageNoAnswerCount + 1
+          : 1;
 
-      if (nextNoAnswerCount >= SIMPLE_VEHICLE_TRIAGE_MAX_NON_RESPONSES) {
+        if (nextNoAnswerCount >= SIMPLE_VEHICLE_TRIAGE_MAX_NON_RESPONSES) {
+          await persistSimpleVehicleTriageMetadata(
+            ctx.conversationId,
+            conversationMetadata,
+            null,
+            Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+            null
+          );
+          await sendMessage(
+            ctx.conversationId,
+            "Como não recebi os dados necessários do veículo, vou te encaminhar para o mecânico técnico seguir com você."
+          );
+          const handoff = await handoffToHuman(
+            ctx.conversationId,
+            ctx.organizationId,
+            "Fluxo simplificado: cliente não informou dados obrigatórios do veículo, encaminhado para mecânico técnico"
+          );
+          if (!handoff.success) {
+            await db
+              .update(conversations)
+              .set({
+                conversationState: CONVERSATION_STATES.WAITING_HUMAN,
+                handoffReason:
+                  "Fluxo simplificado: cliente não informou dados obrigatórios, aguardando mecânico técnico",
+                handoffAt: new Date(),
+                isPriority: true,
+                aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                assignedToId: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(conversations.id, ctx.conversationId));
+          }
+          await logOrchestration({
+            conversationId: ctx.conversationId,
+            organizationId: ctx.organizationId,
+            event: "vehicle_triage_handoff",
+            decision: "human_only",
+            reason:
+              "Fluxo simplificado: cliente não enviou dados obrigatórios do veículo, encaminhando ao mecânico técnico",
+            traceId: params.traceId,
+            stage: "orchestrator.vehicle_triage",
+            decisionCode: "SIMPLE_VEHICLE_TRIAGE_NO_RESPONSE_HANDOFF",
+            durationMs: Date.now() - startedAt,
+            metadata: {
+              messageContent: ctx.messageContent,
+              vehicleSlots: resolvedVehicleSlots,
+              missingRequiredVehicleData,
+              nextNoAnswerCount,
+              handoffSuccess: handoff.success,
+            },
+          });
+          return {
+            didReply: true,
+            decision: "human_only",
+            reason:
+              "Fluxo simplificado: cliente sem resposta de dados obrigatórios, encaminhando ao mecânico técnico",
+            silence: false,
+          };
+        }
+
         await persistSimpleVehicleTriageMetadata(
           ctx.conversationId,
           conversationMetadata,
-          null,
+          "awaiting_vehicle",
           Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
-          null
+          nextNoAnswerCount
         );
         await sendMessage(
           ctx.conversationId,
-          "Como não recebi os dados necessários do veículo, vou te encaminhar para o mecânico técnico seguir com você."
+          buildSimpleVehicleTriageRequiredDataReply(missingRequiredVehicleData)
         );
-        const handoff = await handoffToHuman(
-          ctx.conversationId,
-          ctx.organizationId,
-          "Fluxo simplificado: cliente não informou dados obrigatórios do veículo, encaminhado para mecânico técnico"
-        );
-        if (!handoff.success) {
-          await db
-            .update(conversations)
-            .set({
-              conversationState: CONVERSATION_STATES.WAITING_HUMAN,
-              handoffReason:
-                "Fluxo simplificado: cliente não informou dados obrigatórios, aguardando mecânico técnico",
-              handoffAt: new Date(),
-              isPriority: true,
-              aiDisabledUntil: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-              assignedToId: null,
-              updatedAt: new Date(),
-            })
-            .where(eq(conversations.id, ctx.conversationId));
-        }
         await logOrchestration({
           conversationId: ctx.conversationId,
           organizationId: ctx.organizationId,
-          event: "vehicle_triage_handoff",
-          decision: "human_only",
-          reason:
-            "Fluxo simplificado: cliente não enviou dados obrigatórios do veículo, encaminhando ao mecânico técnico",
+          event: "vehicle_triage_prompted",
+          decision: "tool_then_ai",
+          reason: "Fluxo simplificado: reforçando dados obrigatórios do veículo",
           traceId: params.traceId,
           stage: "orchestrator.vehicle_triage",
-          decisionCode: "SIMPLE_VEHICLE_TRIAGE_NO_RESPONSE_HANDOFF",
+          decisionCode: "SIMPLE_VEHICLE_TRIAGE_REQUIRED_DATA",
           durationMs: Date.now() - startedAt,
           metadata: {
             messageContent: ctx.messageContent,
             vehicleSlots: resolvedVehicleSlots,
             missingRequiredVehicleData,
             nextNoAnswerCount,
-            handoffSuccess: handoff.success,
           },
         });
         return {
           didReply: true,
-          decision: "human_only",
-          reason:
-            "Fluxo simplificado: cliente sem resposta de dados obrigatórios, encaminhando ao mecânico técnico",
+          decision: "tool_then_ai",
+          reason: "Fluxo simplificado: aguardando dados obrigatórios do veículo",
           silence: false,
         };
       }
-
-      await persistSimpleVehicleTriageMetadata(
-        ctx.conversationId,
-        conversationMetadata,
-        "awaiting_vehicle",
-        Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
-        nextNoAnswerCount
-      );
-      await sendMessage(
-        ctx.conversationId,
-        buildSimpleVehicleTriageRequiredDataReply(missingRequiredVehicleData)
-      );
-      await logOrchestration({
-        conversationId: ctx.conversationId,
-        organizationId: ctx.organizationId,
-        event: "vehicle_triage_prompted",
-        decision: "tool_then_ai",
-        reason: "Fluxo simplificado: reforçando dados obrigatórios do veículo",
-        traceId: params.traceId,
-        stage: "orchestrator.vehicle_triage",
-        decisionCode: "SIMPLE_VEHICLE_TRIAGE_REQUIRED_DATA",
-        durationMs: Date.now() - startedAt,
-        metadata: {
-          messageContent: ctx.messageContent,
-          vehicleSlots: resolvedVehicleSlots,
-          missingRequiredVehicleData,
-          nextNoAnswerCount,
-        },
-      });
-      return {
-        didReply: true,
-        decision: "tool_then_ai",
-        reason: "Fluxo simplificado: aguardando dados obrigatórios do veículo",
-        silence: false,
-      };
     }
 
     conversationMetadata = await persistSimpleVehicleTriageMetadata(
