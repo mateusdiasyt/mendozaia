@@ -2802,6 +2802,34 @@ function stripContactNamePrefixFromVehicleModel(
   return stripped || model.trim();
 }
 
+function computeLevenshteinDistance(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a) return b.length;
+  if (!b) return a.length;
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
+  for (let i = 0; i < rows; i += 1) matrix[i]![0] = i;
+  for (let j = 0; j < cols; j += 1) matrix[0]![j] = j;
+  for (let i = 1; i < rows; i += 1) {
+    for (let j = 1; j < cols; j += 1) {
+      const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i]![j] = Math.min(
+        matrix[i - 1]![j]! + 1,
+        matrix[i]![j - 1]! + 1,
+        matrix[i - 1]![j - 1]! + substitutionCost
+      );
+    }
+  }
+  return matrix[rows - 1]![cols - 1]!;
+}
+
+function normalizedLevenshteinRatio(a: string, b: string): number {
+  const longest = Math.max(a.length, b.length);
+  if (longest === 0) return 0;
+  return computeLevenshteinDistance(a, b) / longest;
+}
+
 function alignModelToSupportedCatalog(
   model: string | undefined | null,
   supportedModels: string[] | undefined
@@ -2830,6 +2858,25 @@ function alignModelToSupportedCatalog(
     .sort((a, b) => b.normalized.length - a.normalized.length);
   if (containsMatches.length > 0) {
     return containsMatches[0]!.original;
+  }
+
+  // Tolerância a pequenos typos (ex.: "corola" -> "Corolla")
+  const normalizedRawTokens = normalizedRaw.split(/\s+/).filter(Boolean);
+  const fuzzyCandidates = candidates
+    .map((item) => {
+      const probeValues = [normalizedRaw, ...normalizedRawTokens];
+      const bestRatio = probeValues.reduce((best, probe) => {
+        if (!probe || !item.normalized) return best;
+        if (Math.abs(probe.length - item.normalized.length) > 2) return best;
+        if (probe[0] !== item.normalized[0]) return best;
+        return Math.min(best, normalizedLevenshteinRatio(probe, item.normalized));
+      }, Number.POSITIVE_INFINITY);
+      return { item, bestRatio };
+    })
+    .filter(({ bestRatio }) => Number.isFinite(bestRatio) && bestRatio <= 0.26)
+    .sort((a, b) => a.bestRatio - b.bestRatio || b.item.normalized.length - a.item.normalized.length);
+  if (fuzzyCandidates.length > 0) {
+    return fuzzyCandidates[0]!.item.original;
   }
 
   return undefined;
