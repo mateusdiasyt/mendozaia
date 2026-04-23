@@ -144,6 +144,21 @@ const VEHICLE_NOISE_WORDS = new Set([
   "trazer",
   "pra",
   "para",
+  "motor",
+  "cambio",
+  "câmbio",
+  "caixa",
+  "manual",
+  "automatico",
+  "automático",
+  "automatica",
+  "automática",
+  "flex",
+  "diesel",
+  "gasolina",
+  "turbo",
+  "completo",
+  "completa",
 ]);
 
 const KNOWN_BRAND_ALIASES: Record<string, string> = {
@@ -339,6 +354,17 @@ function extractModelo(text: string): string | undefined {
     );
     if (nearYear && !/^\d+$/.test(nearYear[1].trim())) {
       candidate = nearYear[1].trim();
+    }
+  }
+
+  // Modelo após ano (incluindo faixa "2015/2016").
+  // Ex.: "ano 2015 /2016 civic exr2.0 motor"
+  if (!candidate && ano) {
+    const afterYear = trimmed.match(
+      /\b(?:ano\s*)?(?:19[89]\d|20[0-3]\d)(?:\s*\/\s*(?:19[89]\d|20[0-3]\d))?\s*([a-záàâãéêíóôõúç0-9.\s-]{2,50})(?=\s+(?:com|km|quilometragem|pra|para|preciso|quero|queria|gostaria|troca|trocar|revis[aã]o|servi[cç]o)\b|[,.!?;]|$)/i
+    );
+    if (afterYear && !/^\d+$/.test(afterYear[1].trim())) {
+      candidate = afterYear[1].trim();
     }
   }
 
