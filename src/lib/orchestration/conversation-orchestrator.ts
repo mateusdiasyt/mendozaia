@@ -162,6 +162,18 @@ function buildSimpleVehicleTriageRequiredDataReply(
   return "Para eu continuar o atendimento, preciso do KM do veículo. Me informe, por favor, esse dado.";
 }
 
+function looksLikeVehicleDataContinuationText(text: string): boolean {
+  const normalized = normalizePlainText(text);
+  if (!normalized) return false;
+  if (/^(km|quilometragem|ano|modelo|veiculo|carro)$/.test(normalized)) {
+    return true;
+  }
+  if (/^(com|tem|tenho)$/.test(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 function looksLikeFallbackReservationReply(text: string): boolean {
   const t = text.toLowerCase();
   return (
@@ -4375,6 +4387,79 @@ export async function processInboundMessage(
         });
       }
 
+      if (!hasDirectNeedInCurrentMessage) {
+        await persistSimpleVehicleTriageMetadata(
+          ctx.conversationId,
+          conversationMetadata,
+          "awaiting_need",
+          Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+          0
+        );
+        await sendMessage(ctx.conversationId, "Perfeito. Como posso ajudar?");
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fluxo simplificado: aguardando descrição da necessidade",
+          silence: false,
+        };
+      }
+
+      const missingRequiredVehicleData: ("modelo" | "ano" | "km")[] = [];
+      if (!resolvedVehicleSlots.modelo) missingRequiredVehicleData.push("modelo");
+      if (!resolvedVehicleSlots.ano) missingRequiredVehicleData.push("ano");
+      if (!resolvedVehicleSlots.km) missingRequiredVehicleData.push("km");
+
+      if (missingRequiredVehicleData.length > 0) {
+        const nextNoAnswerCount = hasVehicleSignalInCurrentMessage
+          ? 0
+          : Number.isFinite(triageNoAnswerCount)
+            ? Math.max(0, triageNoAnswerCount) + 1
+            : 1;
+        await persistSimpleVehicleTriageMetadata(
+          ctx.conversationId,
+          conversationMetadata,
+          "awaiting_vehicle",
+          Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+          nextNoAnswerCount
+        );
+        await sendMessage(
+          ctx.conversationId,
+          buildSimpleVehicleTriageRequiredDataReply(missingRequiredVehicleData)
+        );
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "vehicle_triage_prompted",
+          decision: "tool_then_ai",
+          reason:
+            "Fluxo simplificado: necessidade detectada, aguardando dados obrigatórios do veículo",
+          traceId: params.traceId,
+          stage: "orchestrator.vehicle_triage",
+          decisionCode: "SIMPLE_VEHICLE_TRIAGE_NEED_MISSING_DATA",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            directServiceFromCurrentMessage,
+            hasVehicleSignalInCurrentMessage,
+            vehicleSlots: resolvedVehicleSlots,
+            missingRequiredVehicleData,
+            nextNoAnswerCount,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "tool_then_ai",
+          reason: "Fluxo simplificado: aguardando dados obrigatórios do veículo",
+          silence: false,
+        };
+      }
+
+      await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        null,
+        Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+        null
+      );
       await sendMessage(
         ctx.conversationId,
         "Perfeito, vou encaminhar agora seu atendimento para um mecanico tecnico."
@@ -4383,8 +4468,8 @@ export async function processInboundMessage(
         ctx.conversationId,
         ctx.organizationId,
         directServiceFromCurrentMessage
-          ? `Cliente descreveu necessidade (${directServiceFromCurrentMessage}); handoff tecnico`
-          : "Cliente descreveu necessidade apos abertura; handoff tecnico"
+          ? `Cliente descreveu necessidade (${directServiceFromCurrentMessage}) com dados do veículo completos; handoff tecnico`
+          : "Cliente descreveu necessidade com dados do veículo completos; handoff tecnico"
       );
       if (handoff.success) {
         await db
@@ -4395,19 +4480,12 @@ export async function processInboundMessage(
           })
           .where(eq(conversations.id, ctx.conversationId));
       }
-      await persistSimpleVehicleTriageMetadata(
-        ctx.conversationId,
-        conversationMetadata,
-        null,
-        Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
-        null
-      );
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
         event: "vehicle_triage_handoff",
         decision: "human_only",
-        reason: "Fluxo simplificado: cliente respondeu necessidade; handoff tecnico",
+        reason: "Fluxo simplificado: necessidade + veículo completos; handoff tecnico",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
         decisionCode: "SIMPLE_VEHICLE_TRIAGE_NEED_HANDOFF",
@@ -4421,7 +4499,7 @@ export async function processInboundMessage(
       return {
         didReply: true,
         decision: "human_only",
-        reason: "Fluxo simplificado: necessidade recebida, encaminhando ao mecanico tecnico",
+        reason: "Fluxo simplificado: necessidade recebida e dados completos, encaminhando ao mecanico tecnico",
         silence: false,
       };
     }
@@ -4434,11 +4512,48 @@ export async function processInboundMessage(
       if (missingRequiredVehicleData.length === 0) {
         // Já temos slots completos mesmo sem sinal explícito na mensagem atual.
       } else {
+        const shouldWaitForVehicleContinuation = looksLikeVehicleDataContinuationText(
+          ctx.messageContent
+        );
+        if (shouldWaitForVehicleContinuation) {
+          await persistSimpleVehicleTriageMetadata(
+            ctx.conversationId,
+            conversationMetadata,
+            "awaiting_vehicle",
+            Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+            Number.isFinite(triageNoAnswerCount) ? Math.max(0, triageNoAnswerCount) : 0
+          );
+          await logOrchestration({
+            conversationId: ctx.conversationId,
+            organizationId: ctx.organizationId,
+            event: "vehicle_triage_waiting_continuation",
+            decision: "tool_then_ai",
+            reason:
+              "Fluxo simplificado: aguardando complemento imediato de dados do veículo",
+            traceId: params.traceId,
+            stage: "orchestrator.vehicle_triage",
+            decisionCode: "SIMPLE_VEHICLE_TRIAGE_WAITING_CONTINUATION",
+            durationMs: Date.now() - startedAt,
+            metadata: {
+              messageContent: ctx.messageContent,
+              vehicleSlots: resolvedVehicleSlots,
+              missingRequiredVehicleData,
+              noAnswerCount: triageNoAnswerCount,
+            },
+          });
+          return {
+            didReply: false,
+            decision: "tool_then_ai",
+            reason: "Fluxo simplificado: aguardando cliente concluir o envio dos dados",
+            silence: true,
+          };
+        }
+
         const nextNoAnswerCount = Number.isFinite(triageNoAnswerCount)
           ? triageNoAnswerCount + 1
           : 1;
 
-        if (nextNoAnswerCount >= SIMPLE_VEHICLE_TRIAGE_MAX_NON_RESPONSES) {
+        if (nextNoAnswerCount > SIMPLE_VEHICLE_TRIAGE_MAX_NON_RESPONSES) {
           await persistSimpleVehicleTriageMetadata(
             ctx.conversationId,
             conversationMetadata,
