@@ -98,9 +98,9 @@ function buildSimpleVehicleTriageOpeningGreeting(
   timezone?: string
 ): string {
   const current = getCurrentGreeting(now, timezone);
-  if (current === "bom_dia") return "Bom dia!";
-  if (current === "boa_tarde") return "Boa tarde!";
-  return "Boa noite!";
+  if (current === "bom_dia") return "Olá, bom dia!";
+  if (current === "boa_tarde") return "Olá, boa tarde!";
+  return "Olá, boa noite!";
 }
 
 function shouldUseSimpleVehicleTriage(ctx: OrchestrationContext): boolean {
@@ -4174,7 +4174,9 @@ export async function processInboundMessage(
   let contactName = ctx.contactName ?? null;
 
   if (shouldUseSimpleVehicleTriage(ctx)) {
-    const triageAlreadyStarted = intakeStage === "awaiting_vehicle";
+    const triageAlreadyStarted =
+      intakeStage === "awaiting_vehicle" || intakeStage === "awaiting_need";
+    const triageAwaitingNeed = intakeStage === "awaiting_need";
     const metadataVehicleSlots =
       (conversationMetadata.vehicleSlots as VehicleSlots | undefined) ?? {};
     const triageBaseSlots = triageAlreadyStarted ? metadataVehicleSlots : {};
@@ -4214,6 +4216,33 @@ export async function processInboundMessage(
     const hasVehicleSignalInCurrentMessage = Boolean(
       incomingVehicleSlots.modelo || incomingVehicleSlots.ano || incomingVehicleSlots.km
     );
+    const hasCompleteVehicleSignalInCurrentMessage = Boolean(
+      incomingVehicleSlots.modelo && incomingVehicleSlots.ano && incomingVehicleSlots.km
+    );
+    const triageIntentProbeText = ctx.messageContent;
+    const triagePrimaryServiceInMessage = detectPrimaryOfferedServiceByPriority(
+      triageIntentProbeText,
+      ctx.offeredServices ?? [],
+      ctx.servicePriorityByName,
+      ctx.serviceHumanPolicyByName,
+      ctx.servicePromptByName
+    );
+    const directServiceFromCurrentMessage =
+      triagePrimaryServiceInMessage ??
+      detectAskedOfferedService(
+        triageIntentProbeText,
+        ctx.offeredServices ?? [],
+        ctx.servicePromptByName
+      ) ??
+      (isRevisionServiceIntent(triageIntentProbeText)
+        ? "Revisão"
+        : isOilExchangeIntent(triageIntentProbeText)
+          ? "Troca de Óleo"
+          : null);
+    const hasDirectNeedInCurrentMessage =
+      !!directServiceFromCurrentMessage ||
+      looksLikeCarProblemOrRepairIntent(triageIntentProbeText) ||
+      looksLikeDirectHumanMechanicalIssue(triageIntentProbeText);
 
     if (!triageAlreadyStarted) {
       const openingNow = getNowInTimezone(ctx.reservationSchedule?.timezone);
@@ -4221,28 +4250,82 @@ export async function processInboundMessage(
         openingNow,
         ctx.reservationSchedule?.timezone
       );
+      const persistedSlots =
+        Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null;
       conversationMetadata = await persistSimpleVehicleTriageMetadata(
         ctx.conversationId,
         conversationMetadata,
-        "awaiting_vehicle",
-        null,
+        "awaiting_need",
+        persistedSlots,
         0
       );
-      await sendMessage(ctx.conversationId, openingGreeting);
-      if (!hasVehicleSignalInCurrentMessage) {
-        await sendMessage(ctx.conversationId, SIMPLE_VEHICLE_TRIAGE_PROFILE_PROMPT);
+
+      if (
+        hasCompleteVehicleSignalInCurrentMessage &&
+        hasDirectNeedInCurrentMessage
+      ) {
+        if (directServiceFromCurrentMessage) {
+          await persistReservationContext(ctx.conversationId, conversationMetadata, {
+            serviceName: directServiceFromCurrentMessage,
+            productName: reservationContext.productName,
+          });
+        }
+        await sendMessage(
+          ctx.conversationId,
+          `${openingGreeting} Vamos encaminhar para um mecanico tecnico.`
+        );
+        const handoff = await handoffToHuman(
+          ctx.conversationId,
+          ctx.organizationId,
+          "Fluxo simplificado: cliente chegou com necessidade + dados completos; handoff tecnico imediato"
+        );
+        if (handoff.success) {
+          await db
+            .update(conversations)
+            .set({
+              aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+              updatedAt: new Date(),
+            })
+            .where(eq(conversations.id, ctx.conversationId));
+        }
+        await logOrchestration({
+          conversationId: ctx.conversationId,
+          organizationId: ctx.organizationId,
+          event: "vehicle_triage_handoff",
+          decision: "human_only",
+          reason:
+            "Fluxo simplificado: mensagem inicial completa; encaminhamento tecnico direto",
+          traceId: params.traceId,
+          stage: "orchestrator.vehicle_triage",
+          decisionCode: "SIMPLE_VEHICLE_TRIAGE_DIRECT_HANDOFF",
+          durationMs: Date.now() - startedAt,
+          metadata: {
+            openingGreeting,
+            directServiceFromCurrentMessage,
+            incomingVehicleSlots,
+            handoffSuccess: handoff.success,
+          },
+        });
+        return {
+          didReply: true,
+          decision: "human_only",
+          reason:
+            "Fluxo simplificado: cliente iniciou com dados completos; handoff tecnico direto",
+          silence: false,
+        };
       }
+
+      await sendMessage(ctx.conversationId, `${openingGreeting} Tudo bem?`);
+      await sendMessage(ctx.conversationId, "Como posso ajudar?");
       await logOrchestration({
         conversationId: ctx.conversationId,
         organizationId: ctx.organizationId,
         event: "vehicle_triage_prompted",
         decision: "tool_then_ai",
-        reason: hasVehicleSignalInCurrentMessage
-          ? "Fluxo simplificado: abertura obrigatória com dados iniciais do veículo já detectados"
-          : "Fluxo simplificado: abertura obrigatória com coleta de modelo, ano e KM",
+        reason: "Fluxo simplificado: abertura com saudação e pergunta de necessidade",
         traceId: params.traceId,
         stage: "orchestrator.vehicle_triage",
-        decisionCode: "SIMPLE_VEHICLE_TRIAGE_PROMPT_MODEL",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_OPENING_HELP",
         durationMs: Date.now() - startedAt,
         metadata: {
           triageAlreadyStarted,
@@ -4252,14 +4335,83 @@ export async function processInboundMessage(
           incomingVehicleSlots,
         },
       });
-      if (!hasVehicleSignalInCurrentMessage) {
+      return {
+        didReply: true,
+        decision: "tool_then_ai",
+        reason: "Fluxo simplificado: saudação inicial + como posso ajudar",
+        silence: false,
+      };
+    }
+
+    if (triageAwaitingNeed) {
+      const normalizedCurrentText = normalizePlainText(ctx.messageContent);
+      const isOnlyGreetingInNeedStep = looksLikeGreeting(triageIntentProbeText);
+      if (!normalizedCurrentText || isOnlyGreetingInNeedStep) {
+        await sendMessage(ctx.conversationId, "Como posso ajudar?");
         return {
           didReply: true,
           decision: "tool_then_ai",
-          reason: "Fluxo simplificado: abertura obrigatória de coleta de veículo",
+          reason: "Fluxo simplificado: aguardando descrição da necessidade",
           silence: false,
         };
       }
+
+      if (directServiceFromCurrentMessage) {
+        await persistReservationContext(ctx.conversationId, conversationMetadata, {
+          serviceName: directServiceFromCurrentMessage,
+          productName: reservationContext.productName,
+        });
+      }
+
+      await sendMessage(
+        ctx.conversationId,
+        "Perfeito, vou encaminhar agora seu atendimento para um mecanico tecnico."
+      );
+      const handoff = await handoffToHuman(
+        ctx.conversationId,
+        ctx.organizationId,
+        directServiceFromCurrentMessage
+          ? `Cliente descreveu necessidade (${directServiceFromCurrentMessage}); handoff tecnico`
+          : "Cliente descreveu necessidade apos abertura; handoff tecnico"
+      );
+      if (handoff.success) {
+        await db
+          .update(conversations)
+          .set({
+            aiDisabledUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            updatedAt: new Date(),
+          })
+          .where(eq(conversations.id, ctx.conversationId));
+      }
+      await persistSimpleVehicleTriageMetadata(
+        ctx.conversationId,
+        conversationMetadata,
+        null,
+        Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null,
+        null
+      );
+      await logOrchestration({
+        conversationId: ctx.conversationId,
+        organizationId: ctx.organizationId,
+        event: "vehicle_triage_handoff",
+        decision: "human_only",
+        reason: "Fluxo simplificado: cliente respondeu necessidade; handoff tecnico",
+        traceId: params.traceId,
+        stage: "orchestrator.vehicle_triage",
+        decisionCode: "SIMPLE_VEHICLE_TRIAGE_NEED_HANDOFF",
+        durationMs: Date.now() - startedAt,
+        metadata: {
+          directServiceFromCurrentMessage,
+          vehicleSlots: resolvedVehicleSlots,
+          handoffSuccess: handoff.success,
+        },
+      });
+      return {
+        didReply: true,
+        decision: "human_only",
+        reason: "Fluxo simplificado: necessidade recebida, encaminhando ao mecanico tecnico",
+        silence: false,
+      };
     }
 
     if (triageAlreadyStarted && !hasVehicleSignalInCurrentMessage) {
