@@ -4255,10 +4255,10 @@ export async function processInboundMessage(
       looksLikeDirectHumanMechanicalIssue(triageIntentProbeText);
 
     if (!triageAlreadyStarted) {
-      const openingNow = getNowInTimezone(ctx.reservationSchedule?.timezone);
+      const openingTimezone = ctx.reservationSchedule?.timezone ?? "America/Sao_Paulo";
       const openingGreeting = buildSimpleVehicleTriageOpeningGreeting(
-        openingNow,
-        ctx.reservationSchedule?.timezone
+        new Date(),
+        openingTimezone
       );
       const persistedSlots =
         Object.keys(resolvedVehicleSlots).length > 0 ? resolvedVehicleSlots : null;
@@ -4311,6 +4311,7 @@ export async function processInboundMessage(
           durationMs: Date.now() - startedAt,
           metadata: {
             openingGreeting,
+            openingTimezone,
             directServiceFromCurrentMessage,
             incomingVehicleSlots,
             handoffSuccess: handoff.success,
@@ -4341,6 +4342,7 @@ export async function processInboundMessage(
           triageAlreadyStarted,
           messageContent: ctx.messageContent,
           openingGreeting,
+          openingTimezone,
           hasVehicleSignalInCurrentMessage,
           incomingVehicleSlots,
         },
