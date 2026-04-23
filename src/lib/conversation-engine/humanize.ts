@@ -66,7 +66,7 @@ const PHRASE_VARIATIONS: Record<string, string[]> = {
   "Perfeito!": ["Perfeito!", "Ótimo!", "Excelente!"],
   "De nada.": ["De nada.", "Por nada.", "Imagina."],
   "Obrigado.": ["Obrigado.", "Valeu.", "Obrigada."],
-  "Tudo bem?": ["Tudo bem?", "Como vai?", "E aí?"],
+  "Tudo bem?": ["Tudo bem?", "Como vai?", "Como está?"],
   "Posso ajudar?": ["Posso ajudar?", "Em que posso ajudar?", "Como posso ajudar?"],
 };
 
