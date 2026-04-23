@@ -76,7 +76,7 @@ interface WebhookPayload {
   };
 }
 
-const HUMAN_REPLY_AI_PAUSE_MS = 60 * 60 * 1000; // 1 hora
+const HUMAN_REPLY_AI_PAUSE_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
 const FORCE_INLINE_DEBOUNCE = process.env.FORCE_INLINE_DEBOUNCE !== "false";
 
 function sleep(ms: number): Promise<void> {
@@ -657,7 +657,7 @@ export async function POST(request: NextRequest) {
             status: "sent",
           });
 
-          const oneHourFromNow = new Date(Date.now() + HUMAN_REPLY_AI_PAUSE_MS);
+          const sevenDaysFromNow = new Date(Date.now() + HUMAN_REPLY_AI_PAUSE_MS);
 
           await db
             .update(conversations)
@@ -666,7 +666,7 @@ export async function POST(request: NextRequest) {
               lastMessagePreview: preview,
               updatedAt: new Date(),
               // Sempre pausa IA quando houver resposta humana outbound
-              aiDisabledUntil: oneHourFromNow,
+              aiDisabledUntil: sevenDaysFromNow,
             })
             .where(eq(conversations.id, conversation.id));
         }

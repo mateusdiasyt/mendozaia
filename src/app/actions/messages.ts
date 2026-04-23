@@ -797,7 +797,7 @@ export async function sendMessage(
       console.warn("[sendMessage action] learnFromHumanMessage failed", learnErr);
     }
 
-    const oneHourFromNow = new Date(Date.now() + 60 * 60 * 1000);
+    const sevenDaysFromNow = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     try {
       await db
@@ -806,7 +806,7 @@ export async function sendMessage(
           lastMessageAt: new Date(),
           lastMessagePreview: text.slice(0, 100),
           updatedAt: new Date(),
-          aiDisabledUntil: oneHourFromNow,
+          aiDisabledUntil: sevenDaysFromNow,
         })
         .where(eq(conversations.id, conversationId));
     } catch (updateErr) {
